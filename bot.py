@@ -6,7 +6,6 @@ Gira in parallelo al poller della web dashboard (stesso processo, stesso cervell
 """
 
 import os
-import time
 import html
 import asyncio
 import datetime as dt
@@ -33,7 +32,7 @@ API = f"https://api.telegram.org/bot{TOKEN}"
 # --------------------------------------------------------------------------- telegram
 
 
-def send(text: str, parse: str | None = None) -> None:
+def _send_sync(text: str, parse: str | None = None) -> None:
     for chunk in [text[i : i + 3900] for i in range(0, len(text), 3900)] or ["(vuoto)"]:
         payload = {"chat_id": OWNER_ID, "text": chunk, "disable_web_page_preview": True}
         if parse:
@@ -44,7 +43,12 @@ def send(text: str, parse: str | None = None) -> None:
             print("send error:", e)
 
 
-def typing() -> None:
+def send(text: str, parse: str | None = None) -> None:
+    """Fire-and-forget: non blocca il loop asyncio (gira su thread separato)."""
+    asyncio.get_running_loop().run_in_executor(None, _send_sync, text, parse)
+
+
+def _typing_sync() -> None:
     try:
         requests.post(
             f"{API}/sendChatAction",
@@ -53,6 +57,10 @@ def typing() -> None:
         )
     except Exception:  # noqa: BLE001
         pass
+
+
+def typing() -> None:
+    asyncio.get_running_loop().run_in_executor(None, _typing_sync)
 
 
 # --------------------------------------------------------------------------- comandi
@@ -147,14 +155,16 @@ async def telegram_loop() -> None:
     offset = 0
     while True:
         try:
-            r = requests.get(
-                f"{API}/getUpdates",
-                params={"offset": offset, "timeout": 50},
-                timeout=60,
-            ).json()
+            r = await asyncio.to_thread(
+                lambda: requests.get(
+                    f"{API}/getUpdates",
+                    params={"offset": offset, "timeout": 50},
+                    timeout=60,
+                ).json()
+            )
         except Exception as e:  # noqa: BLE001
             print("poll error:", e)
-            time.sleep(3)
+            await asyncio.sleep(3)
             continue
 
         for upd in r.get("result", []):
@@ -179,7 +189,7 @@ async def main() -> None:
     if web_bridge.ENABLED:
         tasks.append(asyncio.create_task(web_bridge.poll_web_queue()))
     else:
-        print("web bridge disabilitato (JARVIS_WEB_URL/JARVIS_BOT_SECRET non impostati)")
+        print("web bridge disabilitato (TURSO_JARVIS_DB_URL/TURSO_JARVIS_AUTH_TOKEN non impostati)")
     await asyncio.gather(*tasks)
 
 
