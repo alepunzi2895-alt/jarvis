@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>JARVIS</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22><circle cx=%2216%22 cy=%2216%22 r=%2213%22 fill=%22none%22 stroke=%22%233987e5%22 stroke-width=%223%22/></svg>" />
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+
+  <div id="login-screen">
+    <form class="login-card" id="login-form">
+      <h1>JARVIS</h1>
+      <p>Assistente personale — accesso richiesto</p>
+      <input type="password" id="login-password" placeholder="Password" autocomplete="current-password" required />
+      <button type="submit">Accedi</button>
+      <div id="login-error"></div>
+    </form>
+  </div>
+
+  <div id="app">
+    <header>
+      <div class="brand"><span class="dot"></span>JARVIS</div>
+      <div class="ws-pills" id="ws-pills"></div>
+      <button class="logout-btn" id="logout-btn">Esci</button>
+    </header>
+
+    <main>
+      <section class="console-panel">
+        <div class="console-log" id="console-log"></div>
+        <form class="console-input" id="console-form">
+          <input type="text" id="console-text" placeholder="Scrivi un task…" autocomplete="off" />
+          <button type="button" class="mic-btn" id="mic-btn" title="Push-to-talk">🎙</button>
+          <button type="submit" class="send-btn" title="Invia">➤</button>
+        </form>
+      </section>
+
+      <aside class="sidebar">
+        <div class="panel" id="tradeflow-panel">
+          <p class="panel-title">TradeFlow AI · XAU/USD</p>
+          <div class="stat-grid" id="tradeflow-stats">
+            <div class="stat-tile"><div class="label">Equity</div><div class="value">—</div></div>
+            <div class="stat-tile"><div class="label">Posizioni</div><div class="value">—</div></div>
+          </div>
+          <div id="tradeflow-status"></div>
+          <p class="panel-footnote" id="tradeflow-sync">In attesa di dati…</p>
+        </div>
+
+        <div class="panel disabled">
+          <p class="panel-title">Social AURA</p>
+          <p class="panel-footnote">In attesa di credenziali Meta.</p>
+        </div>
+
+        <div class="panel disabled">
+          <p class="panel-title">WhatsApp Business</p>
+          <p class="panel-footnote">In attesa di credenziali Meta.</p>
+        </div>
+      </aside>
+    </main>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,10 @@
+{
+  "name": "jarvis-dashboard",
+  "version": "1.0.0",
+  "type": "module",
+  "engines": { "node": "24.x" },
+  "dependencies": {
+    "@libsql/client": "^0.14.0",
+    "jsonwebtoken": "^9.0.2"
+  }
+}

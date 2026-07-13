@@ -1,0 +1,7 @@
+.env
+.venv/
+state.json
+__pycache__/
+node_modules/
+.vercel
+*.secret
