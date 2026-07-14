@@ -8,38 +8,42 @@ alimenta task dopo task (`core/brain.py`), visualizzata come grafo animato nella
 dashboard.
 
 ## Stato attuale (2026-07-14)
-Tre branch in sospeso, nessuno ancora mergiato in `main` (che resta al solo commit
-iniziale):
-- `fix/web-bridge-blocking` — fix del blocco long-poll Telegram; il poller web ora
-  parla con Turso via HTTP pipeline diretta (`core/web_bridge.py`), non passa dal
-  gateway Vercel (POST resettate su rete aziendale).
-- `feature/hud-ui` — restyle dashboard in stile HUD "Iron Man/JARVIS" (quadrante
-  circolare animato, readout, cornici ad angolo). File: `web/public/*`.
-- `feature/second-brain` — creato da `fix/web-bridge-blocking` (serve il suo
-  helper Turso) e poi mergiato con `feature/hud-ui` (per lo stesso stile sul
-  pannello grafo). Aggiunge:
-  - `core/turso.py` — client HTTP Turso condiviso (estratto da web_bridge.py).
-  - `core/brain.py` — `fetch_context()`/`extract_and_store()`, tabelle
-    `brain_nodes`/`brain_edges` (bootstrap automatico lato Python).
-  - `core/claude_bridge.py` — inietta il contesto second-brain prima di ogni
-    `claude -p` e processa il blocco ` ```brain ``` ` emesso da Claude dopo.
-  - `web/api/jarvis.js` — azioni `brain_graph`/`brain_node_delete`.
-  - Dashboard: pulsante 🧠 in header, pannello con grafo a forze su `<canvas>`
-    (nodi colorati per workspace, enfasi su pill attiva o nodo cliccato).
-  - Questo branch e' quello piu' avanti — contiene gia' dentro di se' sia il fix
-    backend sia il restyle HUD (mergiati), oltre al second brain.
+`main` è aggiornato (mergiato su richiesta esplicita di Alessandro, fast-forward
+pulito): contiene fix del bridge web, restyle HUD e second brain insieme.
+- Fix bridge: il poller web parla con Turso via HTTP pipeline diretta
+  (`core/web_bridge.py`), non passa dal gateway Vercel (POST resettate su rete
+  aziendale).
+- HUD: quadrante circolare animato, readout, cornici ad angolo su tutti i
+  pannelli (`web/public/*`).
+- Second brain: `core/turso.py` (client Turso condiviso), `core/brain.py`
+  (`fetch_context()`/`extract_and_store()`, tabelle `brain_nodes`/`brain_edges`,
+  bootstrap automatico), `core/claude_bridge.py` inietta contesto prima di ogni
+  `claude -p` e processa il blocco ` ```brain ``` ` dopo. Dashboard: pulsante 🧠
+  in header, grafo a forze su `<canvas>` (nodi colorati per workspace, enfasi su
+  pill attiva o nodo cliccato).
+- I branch `fix/web-bridge-blocking`, `feature/hud-ui`, `feature/second-brain`
+  restano su origin, ora superseded da `main` — non cancellati autonomamente,
+  chiedere ad Alessandro se vuole ripulirli.
 
-Deploy: Vercel project `jarvis-dashboard` (account `alepunzi2895-8998`). I preview
-dei branch richiedono login Vercel (Deployment Protection) — normale, non un bug.
-URL produzione: `jarvis-dashboard-green.vercel.app`.
+## Deploy — problema noto (Vercel Deployment Protection)
+`jarvis-dashboard-green.vercel.app` (l'alias che Alessandro usa sempre) risponde
+**404 NOT_FOUND diretto**, mentre gli URL generati da Vercel per la stessa
+deployment (`jarvis-dashboard-<id>-...vercel.app`, `-git-main-...`) rispondono
+`302` (redirect regolare al login SSO Vercel). Causa: l'alias "green" è stato
+creato a mano via `vercel alias set` (sotto-dominio *.vercel.app), non è un vero
+dominio custom nelle impostazioni del progetto — con la Deployment Protection
+attiva, Vercel tratta questo tipo di alias diversamente e ritorna NOT_FOUND invece
+del redirect SSO. Riprodotto 3 volte, non un blip. Non ho toccato le impostazioni
+di Deployment Protection (security setting dell'account, decide lui). Stesso
+pattern di alias usato anche per `tradeflow-ai`/`whitesoulibiza` — da controllare
+se soffrono dello stesso problema.
 
 ## Prossimi passi noti
-- Alessandro prova il pulsante 🧠 dal preview reale — il grafo parte vuoto finche'
-  un task non genera almeno un nodo (serve un giro con `claude -p` vero, non solo
-  il mock di verifica usato in sessione).
-- Decidere ordine di merge verso `main`. Dato che `feature/second-brain` include
-  gia' gli altri due, probabile che sia quello da mergiare (o da cui aprire la PR),
-  gli altri due possono essere chiusi/superseded — da confermare con Alessandro,
-  non farlo autonomamente (riscrive la storia dei branch pushati).
+- Alessandro deve decidere su Vercel (Settings → Deployment Protection) se
+  disattivarla per Production (probabile la vuole, dato che il dashboard deve
+  essere raggiungibile dal telefono) o sistemare "green" come dominio vero.
+- Nel frattempo: usare l'URL diretto del deploy (richiede un login Vercel).
+- Il grafo second brain parte vuoto finché un task vero non ci scrive dentro
+  qualcosa (il test di sessione ha usato dati finti, non scritti su Turso).
 - Fase social (AURA + WhatsApp) resta bloccata da credenziali Meta che solo
-  Alessandro puo' ottenere.
+  Alessandro può ottenere.
