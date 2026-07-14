@@ -16,6 +16,83 @@ async function api(action, body = {}) {
   return data;
 }
 
+// ── Finestre fluttuanti ────────────────────────────────────────────────
+
+let topZ = 10;
+
+function bringToFront(win) {
+  topZ += 1;
+  win.style.zIndex = topZ;
+}
+
+function dockBtnFor(id) {
+  return document.querySelector(`.dock-btn[data-toggle="${id}"]`);
+}
+
+function openWindow(id) {
+  const win = document.getElementById(id);
+  if (!win || win.classList.contains("open")) return;
+  win.classList.add("open");
+  bringToFront(win);
+  dockBtnFor(id)?.classList.add("open");
+  if (id === "win-brain") startBrainGraph();
+  if (id === "win-camera") startCamera();
+}
+
+function closeWindow(id) {
+  const win = document.getElementById(id);
+  if (!win || !win.classList.contains("open")) return;
+  win.classList.remove("open");
+  dockBtnFor(id)?.classList.remove("open");
+  if (id === "win-brain") stopBrainGraph();
+  if (id === "win-camera") stopCamera();
+}
+
+function toggleWindow(id) {
+  const win = document.getElementById(id);
+  if (!win) return;
+  (win.classList.contains("open") ? closeWindow : openWindow)(id);
+}
+
+function makeDraggable(win) {
+  const header = win.querySelector(".fw-header");
+  if (!header) return;
+  let dragging = false;
+  let startX = 0, startY = 0, origX = 0, origY = 0;
+
+  header.addEventListener("pointerdown", (e) => {
+    if (e.target.closest(".fw-close")) return;
+    dragging = true;
+    bringToFront(win);
+    startX = e.clientX;
+    startY = e.clientY;
+    origX = parseFloat(win.style.getPropertyValue("--x")) || 0;
+    origY = parseFloat(win.style.getPropertyValue("--y")) || 0;
+    header.setPointerCapture(e.pointerId);
+  });
+  header.addEventListener("pointermove", (e) => {
+    if (!dragging) return;
+    win.style.setProperty("--x", `${origX + (e.clientX - startX)}px`);
+    win.style.setProperty("--y", `${origY + (e.clientY - startY)}px`);
+  });
+  const stopDrag = () => { dragging = false; };
+  header.addEventListener("pointerup", stopDrag);
+  header.addEventListener("pointercancel", stopDrag);
+}
+
+function setupWindows() {
+  document.querySelectorAll(".floating-window").forEach((win) => {
+    makeDraggable(win);
+    bringToFront(win);
+  });
+  document.querySelectorAll(".dock-btn").forEach((btn) => {
+    btn.addEventListener("click", () => toggleWindow(btn.dataset.toggle));
+  });
+  document.querySelectorAll(".fw-close").forEach((btn) => {
+    btn.addEventListener("click", () => closeWindow(btn.dataset.close));
+  });
+}
+
 // ── Login ────────────────────────────────────────────────────────────
 
 $("#login-form").addEventListener("submit", async (e) => {
@@ -121,12 +198,15 @@ async function pollTask(taskId, el) {
   fillEntry(el, { status: "error", result: "Timeout: nessuna risposta dal bridge locale." });
 }
 
-async function submitTask(text) {
+async function submitTask(text, imageB64) {
   if (!text.trim()) return;
+  openWindow("win-chat");
   const el = appendEntry(text);
   $("#console-text").value = "";
   try {
-    const { task_id } = await api("task_push", { workspace: currentWs, prompt: text });
+    const body = { workspace: currentWs, prompt: text };
+    if (imageB64) body.image_b64 = imageB64;
+    const { task_id } = await api("task_push", body);
     pollTask(task_id, el);
   } catch (err) {
     fillEntry(el, { status: "error", result: err.message });
@@ -160,6 +240,33 @@ async function loadHistory() {
 // resta "armato" dopo un click e si riavvia da solo ad ogni pausa di
 // silenzio, finché non lo spegni tu con un secondo click.
 
+// Intercetta i comandi che aprono/chiudono le finestre PRIMA di sottoporli
+// a Claude — istantaneo, nessuna chiamata task per queste azioni di UI.
+function handleVoiceUiCommand(text) {
+  const t = text.toLowerCase();
+  const wants = (re) => re.test(t);
+  const verb = /\b(apri|accendi|attiva|mostra)\b/;
+  const closeVerb = /\b(chiudi|nascondi|spegni)\b/;
+
+  if (wants(/\b(camera|cam|telecamera)\b/)) {
+    if (wants(verb)) { openWindow("win-camera"); return true; }
+    if (wants(closeVerb)) { closeWindow("win-camera"); return true; }
+  }
+  if (wants(/\b(chat|console)\b/)) {
+    if (wants(verb)) { openWindow("win-chat"); return true; }
+    if (wants(closeVerb)) { closeWindow("win-chat"); return true; }
+  }
+  if (wants(/\b(second brain|cervello|memoria)\b/)) {
+    if (wants(verb)) { openWindow("win-brain"); return true; }
+    if (wants(closeVerb)) { closeWindow("win-brain"); return true; }
+  }
+  if (wants(/\b(tradeflow|trading)\b/)) {
+    if (wants(verb)) { openWindow("win-tradeflow"); return true; }
+    if (wants(closeVerb)) { closeWindow("win-tradeflow"); return true; }
+  }
+  return false;
+}
+
 function setupVoice() {
   const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   const micBtn = $("#mic-btn");
@@ -192,6 +299,7 @@ function setupVoice() {
 
     const text = raw.slice(idx + WAKE_WORD.length).replace(/^[,.\s]+/, "").trim();
     if (!text || text.length < 4 || NOISE_WORDS.has(text.toLowerCase())) return;
+    if (handleVoiceUiCommand(text)) return;
     submitTask(text);
   };
 
@@ -513,25 +621,69 @@ function brainTick() {
   if (brainRunning) brainAnimHandle = requestAnimationFrame(brainTick);
 }
 
-$("#brain-toggle-btn").addEventListener("click", async () => {
-  const panel = $("#brain-panel");
-  const btn = $("#brain-toggle-btn");
-  const opening = panel.hidden;
-  panel.hidden = !opening;
-  btn.classList.toggle("active", opening);
+function startBrainGraph() {
+  if (!brainCanvas) setupBrainCanvas();
+  loadBrainGraph();
+  brainRunning = true;
+  brainTick();
+  brainPollTimer = setInterval(loadBrainGraph, 60000);
+}
 
-  if (opening) {
-    if (!brainCanvas) setupBrainCanvas();
-    await loadBrainGraph();
-    brainRunning = true;
-    brainTick();
-    brainPollTimer = setInterval(loadBrainGraph, 60000);
-  } else {
-    brainRunning = false;
-    if (brainAnimHandle) cancelAnimationFrame(brainAnimHandle);
-    if (brainPollTimer) clearInterval(brainPollTimer);
+function stopBrainGraph() {
+  brainRunning = false;
+  if (brainAnimHandle) cancelAnimationFrame(brainAnimHandle);
+  if (brainPollTimer) clearInterval(brainPollTimer);
+}
+
+// ── Camera ("che Jarvis mi veda") ────────────────────────────────────
+// Attivata solo su richiesta esplicita (click o voce), mai in background.
+// Lo stream si ferma sempre quando la finestra si chiude.
+
+let cameraStream = null;
+
+async function startCamera() {
+  const video = $("#camera-video");
+  const hint = $("#camera-hint");
+  try {
+    cameraStream = await navigator.mediaDevices.getUserMedia({ video: true });
+    video.srcObject = cameraStream;
+    hint.textContent = "Camera attiva.";
+  } catch {
+    hint.textContent = "Permesso camera negato o non disponibile.";
   }
-});
+}
+
+function stopCamera() {
+  if (cameraStream) {
+    cameraStream.getTracks().forEach((t) => t.stop());
+    cameraStream = null;
+  }
+  $("#camera-video").srcObject = null;
+  $("#camera-ask-form").hidden = true;
+  $("#camera-hint").textContent = "Camera non attiva.";
+}
+
+function setupCamera() {
+  $("#camera-ask-btn").addEventListener("click", () => {
+    if (!cameraStream) return;
+    const video = $("#camera-video");
+    const canvas = $("#camera-canvas");
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    canvas.getContext("2d").drawImage(video, 0, 0);
+    $("#camera-ask-form").hidden = false;
+    $("#camera-ask-text").focus();
+  });
+
+  $("#camera-ask-form").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const canvas = $("#camera-canvas");
+    const imageB64 = canvas.toDataURL("image/jpeg", 0.85);
+    const question = $("#camera-ask-text").value.trim() || "Cosa vedi?";
+    $("#camera-ask-form").hidden = true;
+    submitTask(question, imageB64);
+  });
+}
 
 // ── Boot ─────────────────────────────────────────────────────────────
 
@@ -540,6 +692,8 @@ async function boot() {
   $("#app").classList.add("visible");
   renderPills();
   setupVoice();
+  setupWindows();
+  setupCamera();
   tickClock();
   setInterval(tickClock, 1000);
   await loadHistory();

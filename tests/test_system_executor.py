@@ -102,3 +102,26 @@ def test_execution_logged_to_vault(executor, allowed_dir, vault):
 
     log = vault.read_note(f"Logs/system-{date.today().isoformat()}")
     assert "git status" in log
+
+
+def test_open_app_from_registry(executor):
+    with patch(
+        "core.system_executor._resolve_app_path",
+        return_value=r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+    ), patch("core.system_executor.subprocess.Popen") as popen:
+        result = executor.open_app("chrome")
+    assert result.ok is True
+    popen.assert_called_once_with([r"C:\Program Files\Google\Chrome\Application\chrome.exe"])
+
+
+def test_open_app_not_found(executor):
+    with patch("core.system_executor._resolve_app_path", return_value=None):
+        result = executor.open_app("app-inesistente")
+    assert result.ok is False
+
+
+def test_open_app_from_registry_alias(executor):
+    with patch("core.system_executor.subprocess.Popen") as popen:
+        result = executor.open_app("notepad")
+    assert result.ok is True
+    popen.assert_called_once_with(["notepad.exe"])

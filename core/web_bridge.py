@@ -21,7 +21,7 @@ ENABLED = turso.ENABLED
 async def _claim_next_task() -> dict | None:
     def work():
         rows = turso.execute(
-            "SELECT id, workspace, prompt FROM tasks "
+            "SELECT id, workspace, prompt, image_b64 FROM tasks "
             "WHERE status='pending' ORDER BY created_at ASC LIMIT 1"
         )
         if not rows:
@@ -63,7 +63,9 @@ async def poll_web_queue() -> None:
 
         print(f"> [web] {task['prompt'][:80]}")
         try:
-            result, sid, cost = await run_claude(task["prompt"], ws=task.get("workspace"))
+            result, sid, cost = await run_claude(
+                task["prompt"], ws=task.get("workspace"), image_b64=task.get("image_b64")
+            )
             await _push_result(task["id"], "done", result, sid, cost)
         except Exception as e:  # noqa: BLE001
             try:

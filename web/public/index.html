@@ -24,53 +24,84 @@
       <div class="brand"><span class="dot"></span>JARVIS</div>
       <div class="ws-pills" id="ws-pills"></div>
       <div class="header-clock" id="header-clock">--:--:--</div>
-      <button class="brain-toggle-btn" id="brain-toggle-btn" title="Second brain">🧠</button>
       <button class="logout-btn" id="logout-btn">Esci</button>
     </header>
 
-    <section class="hud-strip">
-      <div class="hud-core" aria-hidden="true">
-        <div class="hud-ring hud-ring--ticks"></div>
-        <div class="hud-ring hud-ring--arc"></div>
-        <div class="hud-ring hud-ring--dash"></div>
-        <div class="hud-core-center">
-          <div class="hud-clock" id="hud-clock">--:--:--</div>
-          <div class="hud-label">Sistema online</div>
-        </div>
-      </div>
-      <div class="hud-readouts">
-        <div class="hud-readout corner-frame">
-          <div class="hud-readout-label">Workspace</div>
-          <div class="hud-readout-value" id="hud-ws">—</div>
-        </div>
-        <div class="hud-readout corner-frame">
-          <div class="hud-readout-label">Sessione attiva</div>
-          <div class="hud-readout-value" id="hud-uptime">00:00:00</div>
-        </div>
-        <div class="hud-readout corner-frame">
-          <div class="hud-readout-label">Task in log</div>
-          <div class="hud-readout-value" id="hud-taskcount">0</div>
-        </div>
-        <div class="hud-readout corner-frame">
-          <div class="hud-readout-label">Connessione</div>
-          <div class="hud-readout-value" id="hud-conn"><span class="status-pill warning"><span class="dot"></span>attesa</span></div>
-        </div>
-      </div>
-    </section>
+    <div class="hud-mini corner-frame" id="hud-mini">
+      <div class="hud-mini-row"><span>Workspace</span><strong id="hud-ws">—</strong></div>
+      <div class="hud-mini-row"><span>Sessione</span><strong id="hud-uptime">00:00:00</strong></div>
+      <div class="hud-mini-row"><span>Task</span><strong id="hud-taskcount">0</strong></div>
+      <div class="hud-mini-row"><span>Rete</span><strong id="hud-conn"><span class="status-pill warning"><span class="dot"></span>attesa</span></strong></div>
+    </div>
 
-    <main>
-      <section class="console-panel corner-frame">
-        <div class="console-log" id="console-log"></div>
-        <form class="console-input" id="console-form">
-          <input type="text" id="console-text" placeholder="Scrivi un task…" autocomplete="off" />
-          <button type="button" class="mic-btn" id="mic-btn" title="Clicca per attivare l'ascolto (di' &quot;Jarvis&quot; + comando)">🎙</button>
-          <button type="submit" class="send-btn" title="Invia">➤</button>
-        </form>
+    <div class="hud-stage" id="hud-stage">
+      <div class="hud-dots" aria-hidden="true">
+        <span style="top:18%;left:22%"></span>
+        <span style="top:28%;left:78%"></span>
+        <span style="top:62%;left:12%"></span>
+        <span style="top:74%;left:70%"></span>
+        <span style="top:40%;left:50%"></span>
+        <span style="top:85%;left:38%"></span>
+      </div>
+
+      <div class="jarvis-orb" id="jarvis-orb" aria-hidden="true">
+        <div class="orb-ring orb-ring--ticks"></div>
+        <div class="orb-ring orb-ring--arc"></div>
+        <div class="orb-ring orb-ring--dash"></div>
+        <div class="orb-core">
+          <div class="orb-word">JARVIS</div>
+          <div class="orb-clock" id="hud-clock">--:--:--</div>
+        </div>
+      </div>
+
+      <section class="floating-window open" id="win-chat" style="--x:-320px; --y:20px;">
+        <header class="fw-header">
+          <span class="fw-title">Console</span>
+          <button type="button" class="fw-close" data-close="win-chat">✕</button>
+        </header>
+        <div class="fw-body fw-body--console">
+          <div class="console-log" id="console-log"></div>
+          <form class="console-input" id="console-form">
+            <input type="text" id="console-text" placeholder="Scrivi un task…" autocomplete="off" />
+            <button type="submit" class="send-btn" title="Invia">➤</button>
+          </form>
+        </div>
       </section>
 
-      <aside class="sidebar">
-        <div class="panel corner-frame" id="tradeflow-panel">
-          <p class="panel-title">TradeFlow AI · XAU/USD</p>
+      <section class="floating-window" id="win-camera" style="--x:300px; --y:-140px;">
+        <header class="fw-header">
+          <span class="fw-title">Cam_feed</span>
+          <button type="button" class="fw-close" data-close="win-camera">✕</button>
+        </header>
+        <div class="fw-body">
+          <video id="camera-video" autoplay playsinline muted></video>
+          <canvas id="camera-canvas" hidden></canvas>
+          <button type="button" class="camera-btn" id="camera-ask-btn">Scatta e chiedi</button>
+          <form class="camera-ask-form" id="camera-ask-form" hidden>
+            <input type="text" id="camera-ask-text" placeholder="Cosa vuoi chiedere?" value="Cosa vedi?" />
+            <button type="submit">Invia</button>
+          </form>
+          <p class="camera-hint" id="camera-hint">Camera non attiva.</p>
+        </div>
+      </section>
+
+      <section class="floating-window" id="win-brain" style="--x:20px; --y:260px;">
+        <header class="fw-header">
+          <span class="fw-title">Second brain</span>
+          <span class="fw-hint" id="brain-hint">0 nodi</span>
+          <button type="button" class="fw-close" data-close="win-brain">✕</button>
+        </header>
+        <div class="fw-body fw-body--brain">
+          <canvas id="brain-canvas"></canvas>
+        </div>
+      </section>
+
+      <section class="floating-window" id="win-tradeflow" style="--x:320px; --y:120px;">
+        <header class="fw-header">
+          <span class="fw-title">TradeFlow AI · XAU/USD</span>
+          <button type="button" class="fw-close" data-close="win-tradeflow">✕</button>
+        </header>
+        <div class="fw-body">
           <div class="stat-grid" id="tradeflow-stats">
             <div class="stat-tile"><div class="label">Equity</div><div class="value">—</div></div>
             <div class="stat-tile"><div class="label">Posizioni</div><div class="value">—</div></div>
@@ -78,26 +109,34 @@
           <div id="tradeflow-status"></div>
           <p class="panel-footnote" id="tradeflow-sync">In attesa di dati…</p>
         </div>
+      </section>
 
-        <div class="panel corner-frame disabled">
-          <p class="panel-title">Social AURA</p>
-          <p class="panel-footnote">In attesa di credenziali Meta.</p>
+      <section class="floating-window" id="win-social" style="--x:-320px; --y:260px;">
+        <header class="fw-header">
+          <span class="fw-title">Social</span>
+          <button type="button" class="fw-close" data-close="win-social">✕</button>
+        </header>
+        <div class="fw-body">
+          <div class="panel disabled">
+            <p class="panel-title">Social AURA</p>
+            <p class="panel-footnote">In attesa di credenziali Meta.</p>
+          </div>
+          <div class="panel disabled">
+            <p class="panel-title">WhatsApp Business</p>
+            <p class="panel-footnote">In attesa di credenziali Meta.</p>
+          </div>
         </div>
+      </section>
+    </div>
 
-        <div class="panel corner-frame disabled">
-          <p class="panel-title">WhatsApp Business</p>
-          <p class="panel-footnote">In attesa di credenziali Meta.</p>
-        </div>
-      </aside>
-    </main>
-
-    <section class="brain-panel corner-frame" id="brain-panel" hidden>
-      <div class="brain-panel-header">
-        <p class="panel-title">Second brain</p>
-        <p class="brain-panel-hint" id="brain-hint">0 nodi</p>
-      </div>
-      <canvas id="brain-canvas"></canvas>
-    </section>
+    <div class="dock corner-frame">
+      <button type="button" class="mic-btn" id="mic-btn" title="Clicca per attivare l'ascolto (di' &quot;Jarvis&quot; + comando)">🎙</button>
+      <button type="button" class="dock-btn open" data-toggle="win-chat" title="Console">💬</button>
+      <button type="button" class="dock-btn" data-toggle="win-camera" title="Camera">📷</button>
+      <button type="button" class="dock-btn" data-toggle="win-brain" title="Second brain">🧠</button>
+      <button type="button" class="dock-btn" data-toggle="win-tradeflow" title="TradeFlow">📈</button>
+      <button type="button" class="dock-btn" data-toggle="win-social" title="Social">📡</button>
+    </div>
   </div>
 
   <script src="/app.js"></script>

@@ -4,6 +4,8 @@ JARVIS — core condiviso tra i canali (Telegram, Web): stato, workspace, esecuz
 
 import os
 import json
+import time
+import base64
 import asyncio
 from pathlib import Path
 
@@ -19,6 +21,7 @@ MAX_TURNS = os.getenv("JARVIS_MAX_TURNS", "40")
 MODEL = os.getenv("JARVIS_MODEL", "")  # es. "opus" oppure vuoto = default
 
 STATE_FILE = JARVIS_HOME / "state.json"
+TMP_DIR = JARVIS_HOME / ".tmp"
 
 # Workspace = cartelle in cui Jarvis puo' lavorare. Personalizza qui.
 WORKSPACES = {
@@ -70,11 +73,33 @@ state = load_state()
 # --------------------------------------------------------------------------- claude
 
 
-async def run_claude(prompt: str, ws: str | None = None) -> tuple[str, str | None, float]:
+def _save_temp_image(image_b64: str) -> Path:
+    TMP_DIR.mkdir(exist_ok=True)
+    if image_b64.startswith("data:") and "," in image_b64:
+        image_b64 = image_b64.split(",", 1)[1]
+    path = TMP_DIR / f"cam-{int(time.time() * 1000)}.jpg"
+    path.write_bytes(base64.b64decode(image_b64))
+    return path
+
+
+async def run_claude(
+    prompt: str, ws: str | None = None, image_b64: str | None = None
+) -> tuple[str, str | None, float]:
     """Lancia claude -p nel workspace indicato (o in quello corrente). Ritorna (testo, session_id, costo)."""
     ws = ws or state["ws"]
     cwd = WORKSPACES.get(ws, str(JARVIS_HOME))
     sid = state["sessions"].get(ws)
+
+    image_path = None
+    if image_b64:
+        try:
+            image_path = await asyncio.to_thread(_save_temp_image, image_b64)
+            prompt = (
+                f"L'utente ti mostra questa immagine dalla webcam (usa il tuo strumento "
+                f"di lettura per vederla): {image_path}\n\n{prompt}"
+            )
+        except (ValueError, OSError):
+            pass  # immagine corrotta: procedi solo col testo
 
     system_prompt = SYSTEM
     if turso.ENABLED:
@@ -109,28 +134,35 @@ async def run_claude(prompt: str, ws: str | None = None) -> tuple[str, str | Non
         )
         out, err = await proc.communicate()
 
-    if proc.returncode != 0:
-        # sessione corrotta / non trovata -> resetta e riprova pulito
-        if sid:
-            state["sessions"].pop(ws, None)
-            save_state(state)
-            return ("Sessione scaduta. Riprova.", None, 0.0)
-        return (f"Errore claude:\n{err.decode(errors='replace')[:1500]}", None, 0.0)
-
     try:
-        data = json.loads(out.decode(errors="replace"))
-    except json.JSONDecodeError:
-        return (out.decode(errors="replace")[:3800], None, 0.0)
+        if proc.returncode != 0:
+            # sessione corrotta / non trovata -> resetta e riprova pulito
+            if sid:
+                state["sessions"].pop(ws, None)
+                save_state(state)
+                return ("Sessione scaduta. Riprova.", None, 0.0)
+            return (f"Errore claude:\n{err.decode(errors='replace')[:1500]}", None, 0.0)
 
-    text = data.get("result") or "(nessun output)"
-    new_sid = data.get("session_id")
-    cost = float(data.get("total_cost_usd") or 0)
+        try:
+            data = json.loads(out.decode(errors="replace"))
+        except json.JSONDecodeError:
+            return (out.decode(errors="replace")[:3800], None, 0.0)
 
-    if new_sid:
-        state["sessions"][ws] = new_sid
-        save_state(state)
+        text = data.get("result") or "(nessun output)"
+        new_sid = data.get("session_id")
+        cost = float(data.get("total_cost_usd") or 0)
 
-    if turso.ENABLED and text:
-        text = await asyncio.to_thread(brain.extract_and_store, text, ws)
+        if new_sid:
+            state["sessions"][ws] = new_sid
+            save_state(state)
 
-    return (text, new_sid, cost)
+        if turso.ENABLED and text:
+            text = await asyncio.to_thread(brain.extract_and_store, text, ws)
+
+        return (text, new_sid, cost)
+    finally:
+        if image_path:
+            try:
+                image_path.unlink(missing_ok=True)
+            except OSError:
+                pass

@@ -35,9 +35,53 @@ PATH_TOKEN_RE = re.compile(r"([A-Za-z]:[\\/][^\s\"']+|\.\.[\\/][^\s\"']*)")
 
 APP_REGISTRY: dict[str, str] = {
     "notepad": "notepad.exe",
+    "blocco note": "notepad.exe",
     "esplora file": "explorer.exe",
     "explorer": "explorer.exe",
+    "vs code": "code.exe",
+    "visual studio code": "code.exe",
+    "vscode": "code.exe",
 }
+
+# App Electron/portable che spesso non si registrano tra le "App Paths" di
+# Windows — path relativi alla home utente, controllati solo se il file esiste.
+KNOWN_USER_APPS: dict[str, str] = {
+    "obsidian": r"AppData\Local\Programs\Obsidian\Obsidian.exe",
+}
+
+
+def _resolve_known_user_app(name: str) -> str | None:
+    rel = KNOWN_USER_APPS.get(name)
+    if not rel:
+        return None
+    candidate = Path.home() / rel
+    return str(candidate) if candidate.is_file() else None
+
+
+def _resolve_app_path(name: str) -> str | None:
+    """Cerca il nome tra le 'App Paths' del registro di Windows — copre qualunque
+    app installata che vi si registra (Chrome, VS Code, Obsidian, ecc.), senza
+    dover elencare ogni eseguibile a mano in APP_REGISTRY."""
+    try:
+        import winreg
+    except ImportError:
+        return None
+
+    exe_name = name if name.lower().endswith(".exe") else f"{name}.exe"
+    roots = [
+        (winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\App Paths"),
+        (winreg.HKEY_LOCAL_MACHINE, r"Software\Microsoft\Windows\CurrentVersion\App Paths"),
+        (winreg.HKEY_LOCAL_MACHINE, r"Software\WOW6432Node\Microsoft\Windows\CurrentVersion\App Paths"),
+    ]
+    for hive, base in roots:
+        try:
+            with winreg.OpenKey(hive, f"{base}\\{exe_name}") as key:
+                value, _ = winreg.QueryValueEx(key, "")
+                if value:
+                    return value
+        except OSError:
+            continue
+    return None
 
 
 @dataclass
@@ -191,9 +235,14 @@ class SystemExecutor:
             return ExecResult(ok=False, stderr=str(e))
 
     def open_app(self, name: str) -> ExecResult:
-        exe = APP_REGISTRY.get(name.strip().lower())
+        clean = name.strip()
+        exe = (
+            APP_REGISTRY.get(clean.lower())
+            or _resolve_app_path(clean)
+            or _resolve_known_user_app(clean.lower())
+        )
         if not exe:
-            return ExecResult(ok=False, stderr=f'App "{name}" non registrata.')
+            return ExecResult(ok=False, stderr=f'App "{name}" non trovata (ne\' nel registro ne\' tra le App Paths di Windows).')
         try:
             subprocess.Popen([exe])
         except OSError as e:

@@ -8,3 +8,6 @@ node_modules/
 
 # Vault Obsidian personale (dati, non codice)
 /jarvis/
+
+# Immagini temporanee (snapshot camera) per il round-trip verso Claude
+/.tmp/

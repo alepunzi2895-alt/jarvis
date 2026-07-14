@@ -55,10 +55,11 @@ async function initSchema(db) {
   await db.execute(`CREATE TABLE IF NOT EXISTS tasks (
     id TEXT PRIMARY KEY, channel TEXT, workspace TEXT, prompt TEXT,
     status TEXT NOT NULL DEFAULT 'pending',
-    result TEXT, session_id TEXT, cost_usd REAL,
+    result TEXT, session_id TEXT, cost_usd REAL, image_b64 TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
   )`);
+  await db.execute(`ALTER TABLE tasks ADD COLUMN image_b64 TEXT`).catch(() => {});
   await db.execute(`CREATE TABLE IF NOT EXISTS approvals (
     id TEXT PRIMARY KEY, kind TEXT, payload TEXT, status TEXT NOT NULL DEFAULT 'pending',
     requested_by TEXT,
@@ -104,12 +105,12 @@ function login(req, res, body) {
 
 async function taskPush(db, req, body) {
   requireBrowserAuth(req);
-  const { workspace, prompt } = body;
+  const { workspace, prompt, image_b64 } = body;
   if (!prompt) throw new Error("prompt required");
   const id = uuid();
   await db.execute({
-    sql: `INSERT INTO tasks (id, channel, workspace, prompt, status) VALUES (?, 'web', ?, ?, 'pending')`,
-    args: [id, workspace || "jarvis", prompt],
+    sql: `INSERT INTO tasks (id, channel, workspace, prompt, status, image_b64) VALUES (?, 'web', ?, ?, 'pending', ?)`,
+    args: [id, workspace || "jarvis", prompt, image_b64 || null],
   });
   return { ok: true, task_id: id };
 }
@@ -132,7 +133,7 @@ async function tasksRecent(db, req, body) {
 async function taskGet(db, body) {
   requireBotAuth(body);
   const pending = await db.execute({
-    sql: "SELECT id, workspace, prompt FROM tasks WHERE status='pending' ORDER BY created_at ASC LIMIT 1",
+    sql: "SELECT id, workspace, prompt, image_b64 FROM tasks WHERE status='pending' ORDER BY created_at ASC LIMIT 1",
     args: [],
   });
   if (!pending.rows.length) return { ok: true, task: null };

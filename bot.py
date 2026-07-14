@@ -93,6 +93,7 @@ def cmd_help() -> str:
         "/log           log di oggi\n"
         "/note <testo>  scrive nella daily note del vault Obsidian\n"
         "/search <query> cerca nelle note del vault\n"
+        "/apri <app>    apre un'applicazione (Chrome, VS Code, Obsidian...)\n"
         "/run <comando> esegue un comando nel workspace attivo (whitelist)\n"
         "/confirm <token> conferma un'azione in sospeso\n"
         "/deny <token>  annulla un'azione in sospeso\n"
@@ -166,6 +167,12 @@ async def handle(text: str) -> None:
             if not hits:
                 return send("Nessun risultato.")
             return send("\n".join(str(h) for h in hits[:20]))
+
+        if cmd == "/apri":
+            if not arg:
+                return send("Uso: /apri <app>")
+            result = executor.open_app(arg)
+            return send(f"Aperto {arg}." if result.ok else f"Errore: {result.stderr}")
 
         if cmd == "/run":
             if not arg:
