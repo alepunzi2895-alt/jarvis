@@ -152,7 +152,10 @@ async function loadHistory() {
   }
 }
 
-// ── Push-to-talk (Web Speech API, nativa browser) ───────────────────
+// ── Ascolto continuo a mani libere (Web Speech API, nativa browser) ──
+// Non esiste una vera wake-word nel browser senza un motore ML dedicato:
+// qui il microfono resta "armato" dopo un click e si riavvia da solo ad
+// ogni pausa di silenzio, finché non lo spegni tu con un secondo click.
 
 function setupVoice() {
   const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -163,32 +166,50 @@ function setupVoice() {
     return;
   }
 
+  const OFF_TITLE = "Clicca per attivare l'ascolto continuo";
+  const ON_TITLE = "Ascolto continuo attivo — clicca per fermare";
+  micBtn.title = OFF_TITLE;
+
+  let armed = false;
+
   const rec = new Recognition();
   rec.lang = "it-IT";
+  rec.continuous = true;
   rec.interimResults = false;
   rec.maxAlternatives = 1;
 
   rec.onresult = (e) => {
-    const text = e.results[0][0].transcript;
-    submitTask(text);
-  };
-  rec.onend = () => micBtn.classList.remove("listening");
-  rec.onerror = () => micBtn.classList.remove("listening");
-
-  const start = (e) => {
-    e.preventDefault();
-    micBtn.classList.add("listening");
-    try { rec.start(); } catch { /* già in ascolto */ }
-  };
-  const stop = () => {
-    try { rec.stop(); } catch { /* noop */ }
+    const text = e.results[e.results.length - 1][0].transcript.trim();
+    if (text) submitTask(text);
   };
 
-  micBtn.addEventListener("mousedown", start);
-  micBtn.addEventListener("touchstart", start);
-  micBtn.addEventListener("mouseup", stop);
-  micBtn.addEventListener("mouseleave", stop);
-  micBtn.addEventListener("touchend", stop);
+  rec.onerror = (e) => {
+    if (e.error === "not-allowed" || e.error === "service-not-allowed") {
+      armed = false;
+      micBtn.title = "Microfono non autorizzato dal browser";
+    }
+    // altri errori (es. "no-speech") sono normali in ascolto continuo:
+    // onend riavvia da solo se siamo ancora armati.
+  };
+
+  rec.onend = () => {
+    if (armed) {
+      try { rec.start(); } catch { /* già in ascolto, ignora */ }
+    } else {
+      micBtn.classList.remove("listening");
+    }
+  };
+
+  micBtn.addEventListener("click", () => {
+    armed = !armed;
+    micBtn.title = armed ? ON_TITLE : OFF_TITLE;
+    if (armed) {
+      micBtn.classList.add("listening");
+      try { rec.start(); } catch { /* già in ascolto */ }
+    } else {
+      try { rec.stop(); } catch { /* noop */ }
+    }
+  });
 }
 
 // ── TradeFlow widget ─────────────────────────────────────────────────
