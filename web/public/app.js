@@ -47,9 +47,37 @@ function renderPills() {
       currentWs = ws;
       localStorage.setItem("jarvis_ws", ws);
       renderPills();
+      $("#hud-ws").textContent = currentWs;
     });
     wrap.appendChild(btn);
   }
+  $("#hud-ws").textContent = currentWs;
+}
+
+// ── HUD strip: clock, session uptime, connection status ─────────────
+
+const bootedAt = Date.now();
+
+function tickClock() {
+  const now = new Date().toLocaleTimeString("it-IT");
+  $("#hud-clock").textContent = now;
+  $("#header-clock").textContent = now;
+
+  const elapsedS = Math.floor((Date.now() - bootedAt) / 1000);
+  const h = String(Math.floor(elapsedS / 3600)).padStart(2, "0");
+  const m = String(Math.floor((elapsedS % 3600) / 60)).padStart(2, "0");
+  const s = String(elapsedS % 60).padStart(2, "0");
+  $("#hud-uptime").textContent = `${h}:${m}:${s}`;
+}
+
+function setConn(state) {
+  const map = {
+    online: ["good", "online"],
+    warning: ["warning", "instabile"],
+    offline: ["critical", "offline"],
+  };
+  const [cls, label] = map[state];
+  $("#hud-conn").innerHTML = `<span class="status-pill ${cls}"><span class="dot"></span>${label}</span>`;
 }
 
 // ── Console ──────────────────────────────────────────────────────────
@@ -113,6 +141,7 @@ $("#console-form").addEventListener("submit", (e) => {
 async function loadHistory() {
   try {
     const { tasks } = await api("tasks_recent", { limit: 20 });
+    $("#hud-taskcount").textContent = tasks.length;
     for (const t of tasks.reverse()) {
       const el = appendEntry(t.prompt);
       if (t.status === "done" || t.status === "error") fillEntry(el, t);
@@ -192,6 +221,7 @@ async function refreshTradeflow() {
         <div class="stat-tile"><div class="label">Posizioni</div><div class="value">—</div></div>`;
       $("#tradeflow-status").innerHTML = "";
       $("#tradeflow-sync").textContent = "Bot non ancora connesso.";
+      setConn("online");
       return;
     }
     const eq = data.account?.equity;
@@ -201,8 +231,10 @@ async function refreshTradeflow() {
       <div class="stat-tile"><div class="label">Posizioni</div><div class="value">${data.positions?.length ?? 0}</div></div>`;
     $("#tradeflow-status").innerHTML = statusPill(data.bot_status);
     $("#tradeflow-sync").textContent = "Ultimo sync: " + timeAgo(json.updated_at || data.synced_at);
+    setConn("online");
   } catch {
     $("#tradeflow-sync").textContent = "Errore di connessione.";
+    setConn("warning");
   }
 }
 
@@ -213,6 +245,8 @@ async function boot() {
   $("#app").classList.add("visible");
   renderPills();
   setupVoice();
+  tickClock();
+  setInterval(tickClock, 1000);
   await loadHistory();
   refreshTradeflow();
   setInterval(refreshTradeflow, 5000);

@@ -10,7 +10,7 @@
 <body>
 
   <div id="login-screen">
-    <form class="login-card" id="login-form">
+    <form class="login-card corner-frame" id="login-form">
       <h1>JARVIS</h1>
       <p>Assistente personale — accesso richiesto</p>
       <input type="password" id="login-password" placeholder="Password" autocomplete="current-password" required />
@@ -23,11 +23,42 @@
     <header>
       <div class="brand"><span class="dot"></span>JARVIS</div>
       <div class="ws-pills" id="ws-pills"></div>
+      <div class="header-clock" id="header-clock">--:--:--</div>
       <button class="logout-btn" id="logout-btn">Esci</button>
     </header>
 
+    <section class="hud-strip">
+      <div class="hud-core" aria-hidden="true">
+        <div class="hud-ring hud-ring--ticks"></div>
+        <div class="hud-ring hud-ring--arc"></div>
+        <div class="hud-ring hud-ring--dash"></div>
+        <div class="hud-core-center">
+          <div class="hud-clock" id="hud-clock">--:--:--</div>
+          <div class="hud-label">Sistema online</div>
+        </div>
+      </div>
+      <div class="hud-readouts">
+        <div class="hud-readout corner-frame">
+          <div class="hud-readout-label">Workspace</div>
+          <div class="hud-readout-value" id="hud-ws">—</div>
+        </div>
+        <div class="hud-readout corner-frame">
+          <div class="hud-readout-label">Sessione attiva</div>
+          <div class="hud-readout-value" id="hud-uptime">00:00:00</div>
+        </div>
+        <div class="hud-readout corner-frame">
+          <div class="hud-readout-label">Task in log</div>
+          <div class="hud-readout-value" id="hud-taskcount">0</div>
+        </div>
+        <div class="hud-readout corner-frame">
+          <div class="hud-readout-label">Connessione</div>
+          <div class="hud-readout-value" id="hud-conn"><span class="status-pill warning"><span class="dot"></span>attesa</span></div>
+        </div>
+      </div>
+    </section>
+
     <main>
-      <section class="console-panel">
+      <section class="console-panel corner-frame">
         <div class="console-log" id="console-log"></div>
         <form class="console-input" id="console-form">
           <input type="text" id="console-text" placeholder="Scrivi un task…" autocomplete="off" />
@@ -37,7 +68,7 @@
       </section>
 
       <aside class="sidebar">
-        <div class="panel" id="tradeflow-panel">
+        <div class="panel corner-frame" id="tradeflow-panel">
           <p class="panel-title">TradeFlow AI · XAU/USD</p>
           <div class="stat-grid" id="tradeflow-stats">
             <div class="stat-tile"><div class="label">Equity</div><div class="value">—</div></div>
@@ -47,12 +78,12 @@
           <p class="panel-footnote" id="tradeflow-sync">In attesa di dati…</p>
         </div>
 
-        <div class="panel disabled">
+        <div class="panel corner-frame disabled">
           <p class="panel-title">Social AURA</p>
           <p class="panel-footnote">In attesa di credenziali Meta.</p>
         </div>
 
-        <div class="panel disabled">
+        <div class="panel corner-frame disabled">
           <p class="panel-title">WhatsApp Business</p>
           <p class="panel-footnote">In attesa di credenziali Meta.</p>
         </div>
