@@ -67,41 +67,55 @@ Root Directory se in futuro danno lo stesso 404.
 
 ## JARVIS v2 — in corso (spec di Alessandro, 10 sotto-sistemi)
 
-Piano approvato in Plan Mode, implementazione a blocchi con conferma tra uno
-e l'altro. Vedi `C:\Users\f45038c\.claude\plans\rosy-percolating-rivest.md`
-per il piano completo (struttura file, diagramma processi, dettaglio blocchi).
+Piano approvato in Plan Mode a blocchi, con conferma tra uno e l'altro. Piano
+architetturale generale in
+`C:\Users\f45038c\.claude\plans\rosy-percolating-rivest.md` (viene riscritto
+ad ogni nuovo blocco pianificato — non è più uno storico, solo il piano
+corrente/più recente).
 
-**Blocco (a) — fatto**, branch `feature/jarvis-v2-block-a` (pushato, non
-mergiato): `core/obsidian.py` (`ObsidianVault`+`VaultWatcher`),
-`core/system_executor.py` (`SystemExecutor` — sicurezza a **whitelist**, non
-blacklist, scelta esplicita di Alessandro), comandi Telegram
-`/note /search /run /confirm /deny`, 8 test in `tests/test_system_executor.py`.
+**Blocco (a) — fatto, mergiato in main**: `core/obsidian.py`
+(`ObsidianVault`+`VaultWatcher`), `core/system_executor.py`
+(`SystemExecutor` — sicurezza a **whitelist**, non blacklist, scelta esplicita
+di Alessandro), comandi Telegram `/note /search /run /confirm /deny`.
+
+**Blocco (c1) — fatto, branch `feature/jarvis-c1-floating-hud` (pushato, NON
+mergiato — cambio visibile grosso, in attesa che Alessandro lo veda prima del
+deploy)**: dashboard riscritta come HUD a finestre fluttuanti attorno a una
+palla centrale animata (vedi log 2026-07-15 per il dettaglio). Pannello
+camera con round-trip immagine→Claude, comandi vocali che aprono finestre,
+second brain specchiato come note reali in Obsidian, `SystemExecutor.open_app`
+esteso con risoluzione dinamica via registro Windows.
+
+**Blocco (b) — EnvironmentRouter + MCPRouter**: in pausa, saltato apposta per
+dare priorità a (c1)/(c2) su richiesta di Alessandro. Riprenderlo richiede: il
+path per l'ambiente IVECO (ancora mancante), e se vuole aggiungere altri MCP
+server oltre TradingView (unico realmente configurato oggi).
+
+**Blocco (c2) — daemon vocale nativo**: non ancora pianificato in dettaglio
+(wake word "ciao jarvis", STT/TTS, persona, apertura app *native* via voce —
+quest'ultima impossibile dal browser per sandboxing, solo dal bridge locale).
 
 **Vault Obsidian reale**: `C:\Users\f45038c\Downloads\jarvis\jarvis\` (creato
 da Obsidian stesso dentro il repo del codice, non un path esterno — riconosciuto
 dal `.obsidian/` interno). Escluso da git (`/jarvis/` in `.gitignore`).
 
-**Scoperta**: sotto `C:\Users\f45038c\Downloads\` esistono repo git prima
-ignoti — `ConciergeFlow`, `conciergebooking`, `conciergebookings` — molto
-probabilmente il codice concierge di AURA/White Soul (da confermare con
-Alessandro, non assunto). La memoria utente diceva "nessuna cartella locale
-per AURA": non più vero, da correggere quando confermato. Whitelist di
-`SystemExecutor` = repo JARVIS + questi + `property_scout`/`VMScout`/
-`tradeflow-ai`/`whitesoulibiza` (tutte le cartelle sotto Downloads che hanno
-un `.git`; escluse `Buste`/`old`/`Basic`/`Intermediate`/ecc., non sono progetti).
+**Ambienti locali sotto `C:\Users\f45038c\Downloads\`** (confermato da
+Alessandro il 2026-07-14): `conciergebookings` = progetto **AURA**
+(`WS_AURA` in `.env` ora punta lì); `ConciergeFlow` = progetto a sé, non
+ancora un workspace nominato; `conciergebooking` (singolare) = da ignorare,
+non è collegato a nessun progetto attivo — escluso dalla whitelist di
+`SystemExecutor`. Whitelist attuale = repo JARVIS + `ConciergeFlow` +
+`conciergebookings` + `property_scout`/`VMScout`/`tradeflow-ai`/`whitesoulibiza`.
 
 **Decisioni architetturali chiave** (per orientare i blocchi successivi):
 - Moduli Python diretti (Obsidian/SystemExecutor/futuro MCPRouter), non tutto
   instradato per forza da `claude -p` — necessario per la latenza del loop
-  vocale nativo (blocco c).
+  vocale nativo (blocco c2).
 - MCP server realmente configurati oggi: solo **TradingView**. Google Drive/
   Calendar/Figma/Canva/Vercel non sono ancora collegati (serve Alessandro per
   OAuth/API key).
 - L'ascolto vocale nella dashboard web (Web Speech API, wake word testuale
   "Jarvis") è un sistema diverso e separato dal futuro daemon vocale nativo
-  del blocco (c) (wake word audio reale, faster-whisper, ElevenLabs).
-
-**Prossimo blocco (b) — EnvironmentRouter + MCPRouter**: serve da Alessandro
-conferma sui path (in particolare se ConciergeFlow/conciergebooking(s) sono
-davvero AURA/White Soul), path per l'ambiente IVECO (non esiste ancora), e se
-vuole aggiungere altri MCP server oltre TradingView prima di procedere.
+  del blocco (c2) (wake word audio reale, faster-whisper, ElevenLabs). Il
+  browser NON potrà mai lanciare app native (Chrome, VS Code) — limite di
+  sicurezza non aggirabile, solo il bridge locale può farlo.
