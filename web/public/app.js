@@ -153,9 +153,12 @@ async function loadHistory() {
 }
 
 // ── Ascolto continuo a mani libere (Web Speech API, nativa browser) ──
-// Non esiste una vera wake-word nel browser senza un motore ML dedicato:
-// qui il microfono resta "armato" dopo un click e si riavvia da solo ad
-// ogni pausa di silenzio, finché non lo spegni tu con un secondo click.
+// Il riconoscimento vocale del browser trascrive TUTTO quello che sente
+// (TV, conversazioni), non solo i comandi per JARVIS — l'unico modo per
+// distinguerli senza un motore di wake-word dedicato è richiedere la parola
+// "Jarvis" nella frase e sottoporre solo quello che viene dopo. Il microfono
+// resta "armato" dopo un click e si riavvia da solo ad ogni pausa di
+// silenzio, finché non lo spegni tu con un secondo click.
 
 function setupVoice() {
   const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -166,8 +169,8 @@ function setupVoice() {
     return;
   }
 
-  const OFF_TITLE = "Clicca per attivare l'ascolto continuo";
-  const ON_TITLE = "Ascolto continuo attivo — clicca per fermare";
+  const OFF_TITLE = "Clicca per attivare l'ascolto (di' \"Jarvis\" + comando)";
+  const ON_TITLE = "Ascolto continuo attivo — di' \"Jarvis\" + comando — clicca per fermare";
   micBtn.title = OFF_TITLE;
 
   let armed = false;
@@ -179,9 +182,15 @@ function setupVoice() {
   rec.maxAlternatives = 1;
 
   const NOISE_WORDS = new Set(["oh", "ah", "eh", "ehi", "ehm", "uhm", "mh", "boh"]);
+  const WAKE_WORD = "jarvis";
 
   rec.onresult = (e) => {
-    const text = e.results[e.results.length - 1][0].transcript.trim();
+    const raw = e.results[e.results.length - 1][0].transcript.trim();
+    if (!raw) return;
+    const idx = raw.toLowerCase().indexOf(WAKE_WORD);
+    if (idx === -1) return; // niente parola d'attivazione: audio ambientale, ignora
+
+    const text = raw.slice(idx + WAKE_WORD.length).replace(/^[,.\s]+/, "").trim();
     if (!text || text.length < 4 || NOISE_WORDS.has(text.toLowerCase())) return;
     submitTask(text);
   };
