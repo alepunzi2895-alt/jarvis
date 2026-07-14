@@ -65,6 +65,28 @@ async function initSchema(db) {
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     decided_at DATETIME
   )`);
+  // Second brain — schema identico a quello creato lato Python in core/brain.py
+  // (entrambi CREATE TABLE IF NOT EXISTS: chi arriva prima vince, devono restare
+  // in sync se lo schema cambia).
+  await db.execute(`CREATE TABLE IF NOT EXISTS brain_nodes (
+    id TEXT PRIMARY KEY,
+    label TEXT NOT NULL,
+    label_key TEXT NOT NULL UNIQUE,
+    summary TEXT,
+    workspace TEXT,
+    tags TEXT,
+    hits INTEGER NOT NULL DEFAULT 1,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )`);
+  await db.execute(`CREATE TABLE IF NOT EXISTS brain_edges (
+    id TEXT PRIMARY KEY,
+    source_id TEXT NOT NULL,
+    target_id TEXT NOT NULL,
+    relation TEXT NOT NULL DEFAULT '',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(source_id, target_id, relation)
+  )`);
   return { ok: true };
 }
 
@@ -133,6 +155,24 @@ async function taskResultPush(db, body) {
   return { ok: true };
 }
 
+async function brainGraph(db, req) {
+  requireBrowserAuth(req);
+  const nodes = await db.execute(
+    "SELECT id, label, summary, workspace, tags, hits FROM brain_nodes ORDER BY updated_at DESC"
+  );
+  const edges = await db.execute("SELECT id, source_id, target_id, relation FROM brain_edges");
+  return { ok: true, nodes: nodes.rows, edges: edges.rows };
+}
+
+async function brainNodeDelete(db, req, body) {
+  requireBrowserAuth(req);
+  const { id } = body;
+  if (!id) throw new Error("id required");
+  await db.execute({ sql: "DELETE FROM brain_edges WHERE source_id=? OR target_id=?", args: [id, id] });
+  await db.execute({ sql: "DELETE FROM brain_nodes WHERE id=?", args: [id] });
+  return { ok: true };
+}
+
 const ACTIONS = {
   login: (db, req, res, body) => login(req, res, body),
   init_schema: (db) => initSchema(db),
@@ -141,6 +181,8 @@ const ACTIONS = {
   tasks_recent: (db, req, res, body) => tasksRecent(db, req, body),
   task_get: (db, req, res, body) => taskGet(db, body),
   task_result_push: (db, req, res, body) => taskResultPush(db, body),
+  brain_graph: (db, req, res, body) => brainGraph(db, req),
+  brain_node_delete: (db, req, res, body) => brainNodeDelete(db, req, body),
 };
 
 export default async function handler(req, res) {

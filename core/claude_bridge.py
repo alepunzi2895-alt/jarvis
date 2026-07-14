@@ -9,6 +9,8 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from core import turso, brain
+
 load_dotenv()
 
 CLAUDE_BIN = os.getenv("CLAUDE_BIN", "claude")
@@ -33,7 +35,17 @@ SYSTEM = (
     "Rispondi in italiano. Frasi brevi, niente preamboli. "
     "Leggi sempre memory/profile.md e il file di progetto pertinente prima di agire. "
     "A fine task aggiorna memory/log/<data>.md con: task, esito, cosa hai imparato. "
-    "Se un task e' distruttivo o irreversibile, chiedi conferma prima."
+    "Se un task e' distruttivo o irreversibile, chiedi conferma prima.\n\n"
+    "Hai anche una memoria a lungo termine (second brain, nodi e relazioni) che ti "
+    "viene fornita qui sotto come contesto, quando presente. Quando emerge un'idea, "
+    "un fatto o una decisione duratura degna di essere ricordata in futuro (non il "
+    "risultato banale di un task qualsiasi), aggiungi IN FONDO alla risposta un blocco:\n"
+    "```brain\n"
+    '{"nodes":[{"label":"...","summary":"...","tags":["..."]}],'
+    '"edges":[{"source":"...","target":"...","relation":"..."}]}\n'
+    "```\n"
+    "Sii selettivo — non un nodo per ogni risposta. Il blocco viene rimosso prima di "
+    "mostrare la risposta, quindi non commentarlo a parole."
 )
 
 # --------------------------------------------------------------------------- state
@@ -64,6 +76,12 @@ async def run_claude(prompt: str, ws: str | None = None) -> tuple[str, str | Non
     cwd = WORKSPACES.get(ws, str(JARVIS_HOME))
     sid = state["sessions"].get(ws)
 
+    system_prompt = SYSTEM
+    if turso.ENABLED:
+        ctx = await asyncio.to_thread(brain.fetch_context, ws)
+        if ctx:
+            system_prompt = f"{SYSTEM}\n\n{ctx}"
+
     cmd = [
         CLAUDE_BIN,
         "-p",
@@ -71,7 +89,7 @@ async def run_claude(prompt: str, ws: str | None = None) -> tuple[str, str | Non
         "--output-format",
         "json",
         "--append-system-prompt",
-        SYSTEM,
+        system_prompt,
         "--max-turns",
         MAX_TURNS,
         "--permission-mode",
@@ -111,5 +129,8 @@ async def run_claude(prompt: str, ws: str | None = None) -> tuple[str, str | Non
     if new_sid:
         state["sessions"][ws] = new_sid
         save_state(state)
+
+    if turso.ENABLED and text:
+        text = await asyncio.to_thread(brain.extract_and_store, text, ws)
 
     return (text, new_sid, cost)
