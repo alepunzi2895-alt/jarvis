@@ -55,3 +55,53 @@ Root Directory se in futuro danno lo stesso 404.
   il rendering in sessione.
 - Fase social (AURA + WhatsApp) resta bloccata da credenziali Meta che solo
   Alessandro può ottenere.
+- Ascolto continuo del browser (`web/public/app.js`) ora richiede la parola
+  "Jarvis" nella frase prima di sottoporre un task — senza, aveva captato ore
+  di rumore ambientale e generato ~230 task spuri (~$1.33 di chiamate Claude
+  reali prima che il filtro esistesse). Vale come precedente per qualsiasi
+  futuro ascolto "sempre attivo".
+- Il bridge locale (`bot.py`) va avviato manualmente ad ogni riavvio del PC —
+  non c'è ancora un'attività pianificata di Windows per l'avvio automatico
+  (proposta ma non fatta, è una modifica persistente al sistema da confermare
+  con lui prima di farla).
+
+## JARVIS v2 — in corso (spec di Alessandro, 10 sotto-sistemi)
+
+Piano approvato in Plan Mode, implementazione a blocchi con conferma tra uno
+e l'altro. Vedi `C:\Users\f45038c\.claude\plans\rosy-percolating-rivest.md`
+per il piano completo (struttura file, diagramma processi, dettaglio blocchi).
+
+**Blocco (a) — fatto**, branch `feature/jarvis-v2-block-a` (pushato, non
+mergiato): `core/obsidian.py` (`ObsidianVault`+`VaultWatcher`),
+`core/system_executor.py` (`SystemExecutor` — sicurezza a **whitelist**, non
+blacklist, scelta esplicita di Alessandro), comandi Telegram
+`/note /search /run /confirm /deny`, 8 test in `tests/test_system_executor.py`.
+
+**Vault Obsidian reale**: `C:\Users\f45038c\Downloads\jarvis\jarvis\` (creato
+da Obsidian stesso dentro il repo del codice, non un path esterno — riconosciuto
+dal `.obsidian/` interno). Escluso da git (`/jarvis/` in `.gitignore`).
+
+**Scoperta**: sotto `C:\Users\f45038c\Downloads\` esistono repo git prima
+ignoti — `ConciergeFlow`, `conciergebooking`, `conciergebookings` — molto
+probabilmente il codice concierge di AURA/White Soul (da confermare con
+Alessandro, non assunto). La memoria utente diceva "nessuna cartella locale
+per AURA": non più vero, da correggere quando confermato. Whitelist di
+`SystemExecutor` = repo JARVIS + questi + `property_scout`/`VMScout`/
+`tradeflow-ai`/`whitesoulibiza` (tutte le cartelle sotto Downloads che hanno
+un `.git`; escluse `Buste`/`old`/`Basic`/`Intermediate`/ecc., non sono progetti).
+
+**Decisioni architetturali chiave** (per orientare i blocchi successivi):
+- Moduli Python diretti (Obsidian/SystemExecutor/futuro MCPRouter), non tutto
+  instradato per forza da `claude -p` — necessario per la latenza del loop
+  vocale nativo (blocco c).
+- MCP server realmente configurati oggi: solo **TradingView**. Google Drive/
+  Calendar/Figma/Canva/Vercel non sono ancora collegati (serve Alessandro per
+  OAuth/API key).
+- L'ascolto vocale nella dashboard web (Web Speech API, wake word testuale
+  "Jarvis") è un sistema diverso e separato dal futuro daemon vocale nativo
+  del blocco (c) (wake word audio reale, faster-whisper, ElevenLabs).
+
+**Prossimo blocco (b) — EnvironmentRouter + MCPRouter**: serve da Alessandro
+conferma sui path (in particolare se ConciergeFlow/conciergebooking(s) sono
+davvero AURA/White Soul), path per l'ambiente IVECO (non esiste ancora), e se
+vuole aggiungere altri MCP server oltre TradingView prima di procedere.
