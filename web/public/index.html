@@ -24,6 +24,7 @@
       <div class="brand"><span class="dot"></span>JARVIS</div>
       <div class="ws-pills" id="ws-pills"></div>
       <div class="header-clock" id="header-clock">--:--:--</div>
+      <button class="brain-toggle-btn" id="brain-toggle-btn" title="Second brain">🧠</button>
       <button class="logout-btn" id="logout-btn">Esci</button>
     </header>
 
@@ -89,6 +90,14 @@
         </div>
       </aside>
     </main>
+
+    <section class="brain-panel corner-frame" id="brain-panel" hidden>
+      <div class="brain-panel-header">
+        <p class="panel-title">Second brain</p>
+        <p class="brain-panel-hint" id="brain-hint">0 nodi</p>
+      </div>
+      <canvas id="brain-canvas"></canvas>
+    </section>
   </div>
 
   <script src="/app.js"></script>
