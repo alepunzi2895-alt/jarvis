@@ -30,13 +30,33 @@ html, body {
 body {
   background-image:
     radial-gradient(circle at 15% 10%, var(--accent-dim), transparent 40%),
-    radial-gradient(circle at 85% 90%, var(--accent-dim), transparent 40%);
+    radial-gradient(circle at 85% 90%, var(--accent-dim), transparent 40%),
+    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.025) 0px, transparent 1px 48px),
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.025) 0px, transparent 1px 48px);
   background-attachment: fixed;
 }
 
 button {
   font-family: inherit;
   cursor: pointer;
+}
+
+/* ── Corner-frame utility (HUD bracket chrome) ─────────────────────── */
+
+.corner-frame {
+  position: relative;
+  background-image:
+    linear-gradient(var(--accent), var(--accent)), linear-gradient(var(--accent), var(--accent)),
+    linear-gradient(var(--accent), var(--accent)), linear-gradient(var(--accent), var(--accent)),
+    linear-gradient(var(--accent), var(--accent)), linear-gradient(var(--accent), var(--accent)),
+    linear-gradient(var(--accent), var(--accent)), linear-gradient(var(--accent), var(--accent));
+  background-repeat: no-repeat;
+  background-size: 13px 2px, 2px 13px, 13px 2px, 2px 13px, 13px 2px, 2px 13px, 13px 2px, 2px 13px;
+  background-position:
+    top -1px left -1px, top -1px left -1px,
+    top -1px right -1px, top -1px right -1px,
+    bottom -1px left -1px, bottom -1px left -1px,
+    bottom -1px right -1px, bottom -1px right -1px;
 }
 
 /* ── Login ──────────────────────────────────────────────────────────── */
@@ -50,7 +70,7 @@ button {
 
 .login-card {
   width: min(360px, 90vw);
-  background: var(--surface-1);
+  background-color: var(--surface-1);
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 32px;
@@ -158,6 +178,13 @@ header {
   background: var(--accent-dim);
 }
 
+.header-clock {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  color: var(--text-secondary);
+}
+
 .logout-btn {
   border: none;
   background: none;
@@ -165,6 +192,121 @@ header {
   font-size: 12px;
 }
 .logout-btn:hover { color: var(--critical); }
+
+/* ── HUD strip ──────────────────────────────────────────────────────── */
+
+.hud-strip {
+  display: flex;
+  align-items: center;
+  gap: 32px;
+  padding: 20px 24px 4px;
+}
+
+.hud-core {
+  position: relative;
+  width: 168px;
+  height: 168px;
+  flex-shrink: 0;
+}
+
+.hud-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+}
+
+.hud-ring--ticks {
+  background-image: repeating-conic-gradient(var(--accent) 0deg 1.6deg, transparent 1.6deg 6deg);
+  -webkit-mask-image: radial-gradient(circle, transparent 0 44%, black 45% 49%, transparent 50%);
+          mask-image: radial-gradient(circle, transparent 0 44%, black 45% 49%, transparent 50%);
+  opacity: 0.55;
+  animation: hud-spin 90s linear infinite;
+}
+
+.hud-ring--arc {
+  inset: 16px;
+  background-image: conic-gradient(var(--accent) 0deg 250deg, transparent 250deg 360deg);
+  -webkit-mask-image: radial-gradient(circle, transparent 0 63%, black 64% 70%, transparent 71%);
+          mask-image: radial-gradient(circle, transparent 0 63%, black 64% 70%, transparent 71%);
+  filter: drop-shadow(0 0 5px var(--accent));
+  animation: hud-spin 14s linear infinite;
+}
+
+.hud-ring--dash {
+  inset: 30px;
+  border: 1px dashed var(--accent);
+  opacity: 0.4;
+  animation: hud-spin-rev 40s linear infinite;
+}
+
+.hud-core-center {
+  position: absolute;
+  inset: 40px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: radial-gradient(circle, var(--accent-dim), transparent 70%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  animation: hud-pulse-glow 4s ease-in-out infinite;
+}
+
+.hud-clock {
+  font-family: var(--font-mono);
+  font-size: 22px;
+  letter-spacing: 0.04em;
+  color: var(--text-primary);
+  text-shadow: 0 0 10px var(--accent-dim);
+}
+
+.hud-label {
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+@keyframes hud-spin { to { transform: rotate(360deg); } }
+@keyframes hud-spin-rev { to { transform: rotate(-360deg); } }
+@keyframes hud-pulse-glow {
+  0%, 100% { box-shadow: 0 0 16px 1px var(--accent-dim), inset 0 0 24px var(--accent-dim); }
+  50% { box-shadow: 0 0 24px 4px var(--accent-dim), inset 0 0 32px var(--accent-dim); }
+}
+
+.hud-readouts {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  flex: 1;
+}
+
+.hud-readout {
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.hud-readout-label {
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.hud-readout-value {
+  font-family: var(--font-mono);
+  font-size: 16px;
+  color: var(--text-primary);
+  margin-top: 4px;
+}
+
+@media (max-width: 860px) {
+  .hud-strip { flex-direction: column; }
+  .hud-readouts { grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; }
+  .header-clock { display: none; }
+}
 
 main {
   flex: 1;
@@ -184,7 +326,7 @@ main {
 .console-panel {
   display: flex;
   flex-direction: column;
-  background: var(--surface-1);
+  background-color: var(--surface-1);
   border: 1px solid var(--border);
   border-radius: 12px;
   min-height: 0;
@@ -262,7 +404,7 @@ main {
 .sidebar { display: flex; flex-direction: column; gap: 16px; min-height: 0; overflow-y: auto; }
 
 .panel {
-  background: var(--surface-1);
+  background-color: var(--surface-1);
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 16px;
