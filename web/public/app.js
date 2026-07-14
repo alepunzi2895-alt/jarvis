@@ -178,9 +178,12 @@ function setupVoice() {
   rec.interimResults = false;
   rec.maxAlternatives = 1;
 
+  const NOISE_WORDS = new Set(["oh", "ah", "eh", "ehi", "ehm", "uhm", "mh", "boh"]);
+
   rec.onresult = (e) => {
     const text = e.results[e.results.length - 1][0].transcript.trim();
-    if (text) submitTask(text);
+    if (!text || text.length < 4 || NOISE_WORDS.has(text.toLowerCase())) return;
+    submitTask(text);
   };
 
   rec.onerror = (e) => {
