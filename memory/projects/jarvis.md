@@ -8,8 +8,9 @@ alimenta task dopo task (`core/brain.py`), visualizzata come grafo animato nella
 dashboard.
 
 ## Stato attuale (2026-07-14)
-`main` è aggiornato (mergiato su richiesta esplicita di Alessandro, fast-forward
-pulito): contiene fix del bridge web, restyle HUD e second brain insieme.
+`main` è aggiornato e **deploya correttamente in produzione**, verificato in
+browser (dati TradeFlow live, non mock). Contiene fix del bridge web, restyle HUD
+e second brain insieme.
 - Fix bridge: il poller web parla con Turso via HTTP pipeline diretta
   (`core/web_bridge.py`), non passa dal gateway Vercel (POST resettate su rete
   aziendale).
@@ -20,30 +21,37 @@ pulito): contiene fix del bridge web, restyle HUD e second brain insieme.
   bootstrap automatico), `core/claude_bridge.py` inietta contesto prima di ogni
   `claude -p` e processa il blocco ` ```brain ``` ` dopo. Dashboard: pulsante 🧠
   in header, grafo a forze su `<canvas>` (nodi colorati per workspace, enfasi su
-  pill attiva o nodo cliccato).
+  pill attiva o nodo cliccato). Parte vuoto finché un task vero non ci scrive
+  qualcosa dentro.
 - I branch `fix/web-bridge-blocking`, `feature/hud-ui`, `feature/second-brain`
-  restano su origin, ora superseded da `main` — non cancellati autonomamente,
-  chiedere ad Alessandro se vuole ripulirli.
+  sono stati cancellati (locali e remoti) — erano interamente contenuti in `main`.
 
-## Deploy — problema noto (Vercel Deployment Protection)
-`jarvis-dashboard-green.vercel.app` (l'alias che Alessandro usa sempre) risponde
-**404 NOT_FOUND diretto**, mentre gli URL generati da Vercel per la stessa
-deployment (`jarvis-dashboard-<id>-...vercel.app`, `-git-main-...`) rispondono
-`302` (redirect regolare al login SSO Vercel). Causa: l'alias "green" è stato
-creato a mano via `vercel alias set` (sotto-dominio *.vercel.app), non è un vero
-dominio custom nelle impostazioni del progetto — con la Deployment Protection
-attiva, Vercel tratta questo tipo di alias diversamente e ritorna NOT_FOUND invece
-del redirect SSO. Riprodotto 3 volte, non un blip. Non ho toccato le impostazioni
-di Deployment Protection (security setting dell'account, decide lui). Stesso
-pattern di alias usato anche per `tradeflow-ai`/`whitesoulibiza` — da controllare
-se soffrono dello stesso problema.
+## Deploy — risolto: Root Directory, non Deployment Protection
+Il 404 ricorrente su `jarvis-dashboard-green.vercel.app` **non era** la
+Deployment Protection (ipotesi iniziale sbagliata, vedi log 12:35). Causa vera:
+`Project Settings → Build and Deployment → Root Directory` era `./` (radice del
+repo) invece di `web/` — i deploy automatici innescati dai push GitHub durante
+questa sessione costruivano dal punto sbagliato e non trovavano niente da
+servire (build da 36ms, nessun file preparato), da cui 404 su *tutti* i domini
+del progetto, non solo l'alias "green". Il deploy che funzionava a inizio
+sessione era un deploy manuale fatto da Alessandro via CLI da dentro `web/`
+(che ignora quel campo perché il progetto è linkato lì), sostituito poi dai
+deploy automatici rotti innescati dai miei push.
+
+**Fix applicato**: Root Directory → `web` (fatto da Alessandro, non è una
+security setting). Il pulsante "Redeploy" nella UI Vercel non è affidabile via
+automazione browser — risolto forzando un rebuild pulito con un commit vuoto +
+push su main. Verificato: tutti i path (`/`, `/style.css`, `/app.js`,
+`/api/jarvis`) e l'alias "green" rispondono 200.
+
+**Da controllare se capita ancora**: `tradeflow-ai` e `whitesoulibiza` usano lo
+stesso pattern di alias "vanity" *.vercel.app — vale la pena controllare la loro
+Root Directory se in futuro danno lo stesso 404.
 
 ## Prossimi passi noti
-- Alessandro deve decidere su Vercel (Settings → Deployment Protection) se
-  disattivarla per Production (probabile la vuole, dato che il dashboard deve
-  essere raggiungibile dal telefono) o sistemare "green" come dominio vero.
-- Nel frattempo: usare l'URL diretto del deploy (richiede un login Vercel).
-- Il grafo second brain parte vuoto finché un task vero non ci scrive dentro
-  qualcosa (il test di sessione ha usato dati finti, non scritti su Turso).
+- Nessuno bloccante sul deploy.
+- Il grafo second brain si popola solo con un task vero (`claude -p` reale che
+  emette un blocco ` ```brain ``` `), non con i dati finti usati per verificare
+  il rendering in sessione.
 - Fase social (AURA + WhatsApp) resta bloccata da credenziali Meta che solo
   Alessandro può ottenere.
