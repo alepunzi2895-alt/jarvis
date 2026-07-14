@@ -9,6 +9,7 @@ import os
 import html
 import asyncio
 import datetime as dt
+from pathlib import Path
 
 import requests
 from dotenv import load_dotenv
@@ -21,6 +22,8 @@ from core.claude_bridge import (
     run_claude,
 )
 from core import web_bridge
+from core.obsidian import ObsidianVault
+from core.system_executor import SystemExecutor
 
 load_dotenv()
 
@@ -28,6 +31,19 @@ TOKEN = os.environ["TELEGRAM_TOKEN"]
 OWNER_ID = int(os.environ["TELEGRAM_OWNER_ID"])
 
 API = f"https://api.telegram.org/bot{TOKEN}"
+
+# --------------------------------------------------------------------------- vault + system
+
+VAULT_PATH = os.getenv("JARVIS_VAULT_PATH", str(JARVIS_HOME / "jarvis"))
+vault = ObsidianVault(VAULT_PATH) if Path(VAULT_PATH).is_dir() else None
+if vault is None:
+    print(f"vault Obsidian non trovato in {VAULT_PATH} — /note e /search disabilitati")
+
+_extra_dirs = [p.strip() for p in os.getenv("JARVIS_ALLOWED_DIRS", "").split(",") if p.strip()]
+executor = SystemExecutor(
+    allowed_dirs=[JARVIS_HOME, *_extra_dirs],
+    vault=vault,
+)
 
 # --------------------------------------------------------------------------- telegram
 
@@ -75,6 +91,11 @@ def cmd_help() -> str:
         "/new           nuova sessione (dimentica contesto chat)\n"
         "/status        stato\n"
         "/log           log di oggi\n"
+        "/note <testo>  scrive nella daily note del vault Obsidian\n"
+        "/search <query> cerca nelle note del vault\n"
+        "/run <comando> esegue un comando nel workspace attivo (whitelist)\n"
+        "/confirm <token> conferma un'azione in sospeso\n"
+        "/deny <token>  annulla un'azione in sospeso\n"
         "/help          questo messaggio\n\n"
         f"Workspaces: {', '.join(WORKSPACES)}"
     )
@@ -126,6 +147,49 @@ async def handle(text: str) -> None:
 
         if cmd == "/log":
             return send(cmd_log())
+
+        if cmd == "/note":
+            if not vault:
+                return send("Vault Obsidian non configurato.")
+            if not arg:
+                return send("Uso: /note <testo>")
+            p = vault.create_daily_note()
+            vault.write_note(p.relative_to(vault.root), arg, mode="append")
+            return send(f"Scritto in {p.relative_to(vault.root)}")
+
+        if cmd == "/search":
+            if not vault:
+                return send("Vault Obsidian non configurato.")
+            if not arg:
+                return send("Uso: /search <query>")
+            hits = vault.search(arg)
+            if not hits:
+                return send("Nessun risultato.")
+            return send("\n".join(str(h) for h in hits[:20]))
+
+        if cmd == "/run":
+            if not arg:
+                return send("Uso: /run <comando>")
+            cwd = WORKSPACES.get(state["ws"], JARVIS_HOME)
+            result = executor.run(arg, cwd=cwd)
+            if result.needs_confirmation:
+                return send(f"Serve conferma: /confirm {result.token} oppure /deny {result.token}\nComando: {arg}")
+            if result.ok:
+                return send(result.stdout.strip() or "(nessun output)")
+            return send(f"Errore: {result.stderr}")
+
+        if cmd == "/confirm":
+            if not arg:
+                return send("Uso: /confirm <token>")
+            result = executor.confirm(arg)
+            if result.ok:
+                return send(result.stdout.strip() or "Eseguito.")
+            return send(f"Errore: {result.stderr}")
+
+        if cmd == "/deny":
+            if not arg:
+                return send("Uso: /deny <token>")
+            return send("Annullato." if executor.deny(arg) else "Token non trovato.")
 
         return send("Comando sconosciuto. /help")
 

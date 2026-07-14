@@ -5,3 +5,6 @@ __pycache__/
 node_modules/
 .vercel
 *.secret
+
+# Vault Obsidian personale (dati, non codice)
+/jarvis/
