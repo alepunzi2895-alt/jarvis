@@ -11,7 +11,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from core import turso, brain
+from core import turso, brain, persona
 
 load_dotenv()
 
@@ -34,7 +34,8 @@ WORKSPACES = {
 }
 
 SYSTEM = (
-    "Sei JARVIS, assistente personale di Alessandro. "
+    "Sei JARVIS, assistente personale di Alessandro. Rivolgiti a lui con "
+    "gentilezza e cortesia, sempre — mai freddo, mai sbrigativo. "
     "Rispondi in italiano. Frasi brevi, niente preamboli. "
     "Leggi sempre memory/profile.md e il file di progetto pertinente prima di agire. "
     "A fine task aggiorna memory/log/<data>.md con: task, esito, cosa hai imparato. "
@@ -83,7 +84,7 @@ def _save_temp_image(image_b64: str) -> Path:
 
 
 async def run_claude(
-    prompt: str, ws: str | None = None, image_b64: str | None = None
+    prompt: str, ws: str | None = None, image_b64: str | None = None, channel: str = "text"
 ) -> tuple[str, str | None, float]:
     """Lancia claude -p nel workspace indicato (o in quello corrente). Ritorna (testo, session_id, costo)."""
     ws = ws or state["ws"]
@@ -106,6 +107,8 @@ async def run_claude(
         ctx = await asyncio.to_thread(brain.fetch_context, ws)
         if ctx:
             system_prompt = f"{SYSTEM}\n\n{ctx}"
+    if channel == "voice":
+        system_prompt = f"{system_prompt}\n\n{persona.PERSONA}"
 
     cmd = [
         CLAUDE_BIN,

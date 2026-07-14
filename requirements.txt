@@ -2,3 +2,11 @@ requests>=2.32
 python-dotenv>=1.0
 pyyaml>=6.0
 watchdog>=4.0
+
+# Voce nativa (blocco c2): wake word, STT, TTS
+openwakeword>=0.6
+faster-whisper>=1.2
+edge-tts>=7.2
+sounddevice>=0.5
+numpy>=2.0
+av>=18.0

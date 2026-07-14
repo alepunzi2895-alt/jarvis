@@ -97,6 +97,7 @@ def cmd_help() -> str:
         "/run <comando> esegue un comando nel workspace attivo (whitelist)\n"
         "/confirm <token> conferma un'azione in sospeso\n"
         "/deny <token>  annulla un'azione in sospeso\n"
+        "/voce on|off   attiva/mette in pausa il daemon vocale (hey jarvis)\n"
         "/help          questo messaggio\n\n"
         f"Workspaces: {', '.join(WORKSPACES)}"
     )
@@ -197,6 +198,13 @@ async def handle(text: str) -> None:
             if not arg:
                 return send("Uso: /deny <token>")
             return send("Annullato." if executor.deny(arg) else "Token non trovato.")
+
+        if cmd == "/voce":
+            if arg not in ("on", "off"):
+                return send("Uso: /voce on|off")
+            state["voice_enabled"] = arg == "on"
+            save_state(state)
+            return send(f"Voce: {'attiva' if arg == 'on' else 'in pausa'}.")
 
         return send("Comando sconosciuto. /help")
 
