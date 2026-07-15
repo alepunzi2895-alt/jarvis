@@ -10,6 +10,7 @@ edge-tts>=7.2
 sounddevice>=0.5
 numpy>=2.0
 av>=18.0
+keyboard>=0.13
 
 # Automazione browser (blocco d): playwright install chromium richiesto dopo l'installazione
 playwright>=1.61

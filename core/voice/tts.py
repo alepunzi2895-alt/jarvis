@@ -40,7 +40,10 @@ class EdgeTTSEngine(TTSEngine):
             sd.play(data, samplerate)
             sd.wait()
         finally:
-            path.unlink(missing_ok=True)
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                pass  # Windows: il file puo' restare bloccato un istante in più
 
     def stop(self) -> None:
         sd.stop()
@@ -59,10 +62,16 @@ class EdgeTTSEngine(TTSEngine):
     @staticmethod
     def _decode(path: Path) -> tuple[np.ndarray, int]:
         container = av.open(str(path))
-        stream = container.streams.audio[0]
-        frames = [f.to_ndarray() for f in container.decode(stream)]
-        data = np.concatenate(frames, axis=1).T
-        return data, stream.rate
+        try:
+            stream = container.streams.audio[0]
+            frames = [f.to_ndarray() for f in container.decode(stream)]
+            data = np.concatenate(frames, axis=1).T
+            rate = stream.rate
+        finally:
+            # Su Windows il file va chiuso esplicitamente subito, altrimenti
+            # resta bloccato quando si prova a cancellarlo poco dopo.
+            container.close()
+        return data, rate
 
 
 def get_engine() -> TTSEngine:

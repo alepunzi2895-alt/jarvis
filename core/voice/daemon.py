@@ -8,14 +8,19 @@ Ripetere la wake word MENTRE JARVIS sta parlando interrompe la voce e torna
 subito in ascolto di un nuovo comando (niente secondo modello per "stop").
 """
 
+import os
 import threading
 import time
 import uuid
+
+import keyboard
 
 from core import turso
 from core.claude_bridge import load_state
 from core.voice import stt, tts
 from core.voice.wake_word import WakeWordListener
+
+HOTKEY = os.getenv("JARVIS_HOTKEY", "ctrl+alt+j")
 
 POLL_SEC = 1.5
 MAX_POLL_ATTEMPTS = 120  # ~3 minuti
@@ -65,32 +70,44 @@ def _speak_with_interrupt(engine: tts.TTSEngine, listener: WakeWordListener, tex
 
 
 def main() -> None:
-    print(f"daemon vocale attivo — di' \"hey jarvis\" (modello: {WakeWordListener.__module__})")
+    print(
+        f'daemon vocale attivo — di\' "hey jarvis" oppure premi {HOTKEY} '
+        f"(modello: {WakeWordListener.__module__})"
+    )
     listener = WakeWordListener()
     engine = tts.get_engine()
 
+    hotkey_pressed = threading.Event()
+    keyboard.add_hotkey(HOTKEY, hotkey_pressed.set)
+
     while True:
-        listener.wait()
+        try:
+            hotkey_pressed.clear()
+            listener.wait(cancel_event=hotkey_pressed)
 
-        if not _voice_enabled():
-            print("wake word rilevata ma voce in pausa (/voce off) — ignoro")
-            continue
+            if not _voice_enabled():
+                print("attivazione rilevata ma voce in pausa (/voce off) — ignoro")
+                continue
 
-        print("wake word rilevata, ascolto...")
-        audio = stt.record_until_silence()
-        text = stt.transcribe(audio)
-        if not text:
-            print("(silenzio, nessun comando)")
-            continue
-        print(f"> {text}")
+            print("attivazione rilevata (wake word o hotkey), ascolto...")
+            audio = stt.record_until_silence()
+            text = stt.transcribe(audio)
+            if not text:
+                print("(silenzio, nessun comando)")
+                continue
+            print(f"> {text}")
 
-        workspace = _current_workspace()
-        task_id = _push_task(text, workspace)
-        result = _poll_task(task_id)
-        response = result["result"] if result else "Timeout, Signore. Nessuna risposta dal bridge locale."
-        print(f"< {response}")
+            workspace = _current_workspace()
+            task_id = _push_task(text, workspace)
+            result = _poll_task(task_id)
+            response = result["result"] if result else "Timeout, Signore. Nessuna risposta dal bridge locale."
+            print(f"< {response}")
 
-        _speak_with_interrupt(engine, listener, response)
+            _speak_with_interrupt(engine, listener, response)
+        except Exception as e:  # noqa: BLE001
+            # Un daemon di sfondo non deve morire per un errore in un singolo
+            # ciclo — si logga e si torna in ascolto.
+            print(f"errore nel ciclo vocale (ignorato, resto in ascolto): {e}")
 
 
 if __name__ == "__main__":

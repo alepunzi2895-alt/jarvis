@@ -10,6 +10,7 @@ ufficiale del progetto openWakeWord, nessun training necessario.
 
 import os
 import threading
+import time
 
 import sounddevice as sd
 from openwakeword.model import Model
@@ -26,11 +27,14 @@ class WakeWordListener:
     def __init__(self):
         self.model = Model(wakeword_models=[WAKE_WORD_MODEL], inference_framework="onnx")
 
-    def wait(self, timeout: float | None = None) -> bool:
-        """Ascolta finché non rileva la wake word o scade il timeout.
+    def wait(self, timeout: float | None = None, cancel_event: threading.Event | None = None) -> bool:
+        """Ascolta finché non rileva la wake word, scade il timeout, o scatta
+        `cancel_event` (es. una hotkey manuale premuta altrove).
 
-        Ritorna True se rilevata, False se e' scaduto il timeout (con
-        timeout=None blocca indefinitamente e ritorna sempre True).
+        Ritorna True se rilevata (o se cancel_event è scattato — per chi
+        chiama è comunque un "via libera"), False solo per timeout scaduto
+        senza rilevamento (con timeout=None blocca finché non succede uno
+        dei due).
         """
         detected = threading.Event()
 
@@ -49,7 +53,14 @@ class WakeWordListener:
             device=resolve_input_device(),
             callback=callback,
         ):
-            detected.wait(timeout=timeout)
+            if cancel_event is None:
+                detected.wait(timeout=timeout)
+            else:
+                start = time.monotonic()
+                while not detected.is_set() and not cancel_event.is_set():
+                    if timeout is not None and (time.monotonic() - start) > timeout:
+                        break
+                    detected.wait(timeout=0.1)
 
         self.model.reset()
-        return detected.is_set()
+        return detected.is_set() or (cancel_event is not None and cancel_event.is_set())
