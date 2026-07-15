@@ -67,55 +67,59 @@ Root Directory se in futuro danno lo stesso 404.
 
 ## JARVIS v2 — in corso (spec di Alessandro, 10 sotto-sistemi)
 
-Piano approvato in Plan Mode a blocchi, con conferma tra uno e l'altro. Piano
-architetturale generale in
-`C:\Users\f45038c\.claude\plans\rosy-percolating-rivest.md` (viene riscritto
-ad ogni nuovo blocco pianificato — non è più uno storico, solo il piano
-corrente/più recente).
+Piano approvato in Plan Mode a blocchi. Piano architetturale del blocco più
+recente in `C:\Users\f45038c\.claude\plans\rosy-percolating-rivest.md`
+(riscritto ad ogni nuovo blocco — non è uno storico, solo il piano corrente).
 
-**Blocco (a) — fatto, mergiato in main**: `core/obsidian.py`
-(`ObsidianVault`+`VaultWatcher`), `core/system_executor.py`
-(`SystemExecutor` — sicurezza a **whitelist**, non blacklist, scelta esplicita
-di Alessandro), comandi Telegram `/note /search /run /confirm /deny`.
+**Tutto mergiato in main** (blocchi a, c1, c2, d) — su richiesta esplicita di
+Alessandro ("mergia tutto su main sempre", vedi [[feedback-merge-to-main]]):
+- **(a)** `core/obsidian.py` (`ObsidianVault`+`VaultWatcher`),
+  `core/system_executor.py` (`SystemExecutor` — sicurezza a **whitelist**,
+  scelta esplicita), comandi Telegram `/note /search /run /confirm /deny`.
+- **(c1)** Dashboard riscritta come HUD a finestre fluttuanti attorno a una
+  palla centrale animata (respiro + deriva + hue-rotate continuo, ritoccata
+  più grande/futuristica su richiesta). Camera (round-trip immagine→Claude),
+  comandi vocali browser che aprono finestre, second brain specchiato come
+  note reali in Obsidian, `open_app` con risoluzione dinamica via registro
+  Windows.
+- **(c2)** Daemon vocale nativo: `core/voice/` (wake_word.py openWakeWord
+  modello "hey_jarvis" preaddestrato, stt.py faster-whisper "small" CPU,
+  tts.py edge-tts gratis), persona "Signore"/British/gentile solo su
+  `channel="voice"`, `/voce on|off`. **Bug reale trovato e risolto**:
+  Windows cambia il microfono di default quando colleghi una cuffia (Jabra,
+  nel suo caso) — aggiunto `JARVIS_MIC_DEVICE` per pinnarlo per nome
+  (`core/voice/__init__.py::resolve_input_device`).
+- **(d)** `core/browser.py`: `BrowserAgent` (Playwright, profilo Chromium
+  persistente `.browser_profile/`) — stesso pattern del second brain, Claude
+  emette un blocco ` ```browser``` ` quando serve navigare un sito vero.
+  Sicurezza a vocabolario limitato (solo open/search/screenshot, niente
+  click/fill generico). Verificato con YouTube vera: cerca e apre il primo
+  risultato corretto.
 
-**Blocco (c1) — fatto, branch `feature/jarvis-c1-floating-hud` (pushato, NON
-mergiato — cambio visibile grosso, in attesa che Alessandro lo veda prima del
-deploy)**: dashboard riscritta come HUD a finestre fluttuanti attorno a una
-palla centrale animata (vedi log 2026-07-15 per il dettaglio). Pannello
-camera con round-trip immagine→Claude, comandi vocali che aprono finestre,
-second brain specchiato come note reali in Obsidian, `SystemExecutor.open_app`
-esteso con risoluzione dinamica via registro Windows.
-
-**Blocco (b) — EnvironmentRouter + MCPRouter**: in pausa, saltato apposta per
-dare priorità a (c1)/(c2) su richiesta di Alessandro. Riprenderlo richiede: il
-path per l'ambiente IVECO (ancora mancante), e se vuole aggiungere altri MCP
+**Blocco (b) — EnvironmentRouter + MCPRouter**: unico ancora in pausa. Manca
+il path per l'ambiente IVECO; da chiedere se vuole aggiungere altri MCP
 server oltre TradingView (unico realmente configurato oggi).
 
-**Blocco (c2) — daemon vocale nativo**: non ancora pianificato in dettaglio
-(wake word "ciao jarvis", STT/TTS, persona, apertura app *native* via voce —
-quest'ultima impossibile dal browser per sandboxing, solo dal bridge locale).
-
 **Vault Obsidian reale**: `C:\Users\f45038c\Downloads\jarvis\jarvis\` (creato
-da Obsidian stesso dentro il repo del codice, non un path esterno — riconosciuto
-dal `.obsidian/` interno). Escluso da git (`/jarvis/` in `.gitignore`).
+da Obsidian stesso dentro il repo del codice — riconosciuto dal `.obsidian/`
+interno). Escluso da git (`/jarvis/` in `.gitignore`).
 
-**Ambienti locali sotto `C:\Users\f45038c\Downloads\`** (confermato da
-Alessandro il 2026-07-14): `conciergebookings` = progetto **AURA**
-(`WS_AURA` in `.env` ora punta lì); `ConciergeFlow` = progetto a sé, non
-ancora un workspace nominato; `conciergebooking` (singolare) = da ignorare,
-non è collegato a nessun progetto attivo — escluso dalla whitelist di
-`SystemExecutor`. Whitelist attuale = repo JARVIS + `ConciergeFlow` +
+**Ambienti locali sotto `C:\Users\f45038c\Downloads\`**: `conciergebookings` =
+progetto **AURA** (`WS_AURA` in `.env`); `ConciergeFlow` = progetto a sé, non
+ancora un workspace nominato; `conciergebooking` (singolare) = da ignorare.
+Whitelist `SystemExecutor` = repo JARVIS + `ConciergeFlow` +
 `conciergebookings` + `property_scout`/`VMScout`/`tradeflow-ai`/`whitesoulibiza`.
 
-**Decisioni architetturali chiave** (per orientare i blocchi successivi):
-- Moduli Python diretti (Obsidian/SystemExecutor/futuro MCPRouter), non tutto
-  instradato per forza da `claude -p` — necessario per la latenza del loop
-  vocale nativo (blocco c2).
-- MCP server realmente configurati oggi: solo **TradingView**. Google Drive/
-  Calendar/Figma/Canva/Vercel non sono ancora collegati (serve Alessandro per
-  OAuth/API key).
-- L'ascolto vocale nella dashboard web (Web Speech API, wake word testuale
-  "Jarvis") è un sistema diverso e separato dal futuro daemon vocale nativo
-  del blocco (c2) (wake word audio reale, faster-whisper, ElevenLabs). Il
-  browser NON potrà mai lanciare app native (Chrome, VS Code) — limite di
-  sicurezza non aggirabile, solo il bridge locale può farlo.
+**Decisioni architetturali chiave**:
+- Moduli Python diretti (Obsidian/SystemExecutor/Browser/futuro MCPRouter),
+  non instradati per forza da `claude -p` — dove serve velocità (voce), o
+  dove Claude emette un blocco strutturato (` ```brain``` `/` ```browser``` `)
+  che un modulo diretto esegue — stesso pattern per entrambi.
+- MCP server realmente configurati oggi: solo **TradingView**.
+- Il browser NON potrà mai lanciare app native (Chrome standalone, VS Code)
+  dalla dashboard web — solo dal bridge locale/daemon vocale. L'automazione
+  Playwright (blocco d) è un browser SEPARATO controllato da Python, non
+  soggetta a questo limite.
+- Reti di questa macchina: blip DNS/timeout transitori ricorrenti durante
+  questa sessione (Turso, cdn.playwright.dev) — sempre risolti da soli in
+  pochi minuti, coerente con [[network-quirks-this-pc]].
