@@ -40,24 +40,35 @@ APP_REGISTRY: dict[str, str] = {
     "blocco note": "notepad.exe",
     "esplora file": "explorer.exe",
     "explorer": "explorer.exe",
-    "vs code": "code.exe",
-    "visual studio code": "code.exe",
-    "vscode": "code.exe",
-    "chrome": "chrome.exe",
-    "google chrome": "chrome.exe",
-    "edge": "msedge.exe",
-    "microsoft edge": "msedge.exe",
-    "spotify": "Spotify.exe",
     "calcolatrice": "calc.exe",
     "calculator": "calc.exe",
     "paint": "mspaint.exe",
-    "terminale": "wt.exe",
     "prompt dei comandi": "cmd.exe",
     "cmd": "cmd.exe",
     "powershell": "powershell.exe",
     "task manager": "Taskmgr.exe",
     "gestione attivita": "Taskmgr.exe",
     "gestione attività": "Taskmgr.exe",
+}
+
+# Nomi comuni la cui posizione NON va MAI messa qui come stringa letterale:
+# a differenza di notepad/calc/cmd/powershell (residenti in System32, quindi
+# sempre sul PATH), Chrome/Edge/Spotify/VS Code si installano altrove e non
+# si aggiungono al PATH — un Popen col solo nome file fallisce con
+# "WinError 2" anche se l'app e' installata (bug reale riscontrato in
+# sessione: "apri chrome" -> non trovato). Vanno risolti SOLO dinamicamente
+# via _resolve_app_path (registro "App Paths" di Windows) — questo set
+# serve solo ad ampliare il vocabolario riconosciuto da voce/chat
+# (core/intents.py), non e' una mappa nome->eseguibile.
+DYNAMIC_APP_NAMES = {
+    "chrome",
+    "google chrome",
+    "edge",
+    "microsoft edge",
+    "spotify",
+    "vs code",
+    "visual studio code",
+    "vscode",
 }
 
 # App Electron/portable che spesso non si registrano tra le "App Paths" di

@@ -33,6 +33,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import os
+from datetime import datetime
 
 import anthropic
 
@@ -94,11 +95,12 @@ def reset_history(ws: str) -> None:
 
 
 async def _build_system_prompt(ws: str) -> str:
-    system_prompt = SYSTEM
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    system_prompt = f"{SYSTEM}\n\nData e ora attuali: {now}."
     if turso.ENABLED:
         ctx = await asyncio.to_thread(_fetch_context, ws)
         if ctx:
-            system_prompt = f"{SYSTEM}\n\n{ctx}"
+            system_prompt = f"{system_prompt}\n\n{ctx}"
     return f"{system_prompt}\n\n{persona.PERSONA}"
 
 

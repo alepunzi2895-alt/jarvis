@@ -22,6 +22,7 @@ from core.claude_bridge import (
 )
 from core import web_bridge, intents
 from core.executor_singleton import executor, vault
+from core.voice import camera
 
 load_dotenv()
 
@@ -216,11 +217,19 @@ async def handle(text: str) -> None:
     if intent:
         return send(intents.execute_intent(intent, executor, voice=False))
 
+    # "scatta/fotografa/apri la webcam e dimmi cosa vedi" da Telegram: senza
+    # questo Claude non ha modo di ottenere un'immagine vera e finisce per
+    # improvvisare (es. aprire un browser). Cattura un frame reale dalla
+    # webcam del PC — stesso meccanismo gia' usato dal daemon vocale.
+    image_b64 = None
+    if camera.wants_camera(text):
+        image_b64 = await asyncio.to_thread(camera.capture_frame_b64)
+
     # task normale
     typing()
     keepalive = asyncio.create_task(_keepalive())
     try:
-        result, _sid, cost = await run_claude(text)
+        result, _sid, cost = await run_claude(text, image_b64=image_b64)
     finally:
         keepalive.cancel()
 

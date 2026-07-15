@@ -22,8 +22,15 @@ _CAM_VERBS = r"vedi|guarda|guardi|mostra|mostri|cosa|apri|apra|accendi|accenda|a
 # "aprire" davvero la webcam finiva per improvvisare un'azione sbagliata
 # (es. aprire un browser). Con questo pattern la richiesta scatta sempre la
 # cattura locale, a prescindere dal verbo usato.
+#
+# "scatta/fotografa/fai una foto" innescano la cattura da soli, anche SENZA
+# la parola "webcam" — bug reale riscontrato: "scatta e dimmi cosa vedi"
+# non conteneva nessuna delle due parti sopra, quindi cadeva a Claude che,
+# senza immagine, ha improvvisato aprendo un browser verso la dashboard
+# locale. "Scattare una foto" per JARVIS puo' significare solo la webcam.
 CAMERA_INTENT_RE = re.compile(
-    rf"\b({_CAM_WORDS})\b.*\b({_CAM_VERBS})\b|\b({_CAM_VERBS})\b.*\b({_CAM_WORDS})\b",
+    rf"\b({_CAM_WORDS})\b.*\b({_CAM_VERBS})\b|\b({_CAM_VERBS})\b.*\b({_CAM_WORDS})\b"
+    r"|\bscatta\w*\b|\bfotografa\w*\b|\bfai\w*\s+una\s+foto\b",
     re.IGNORECASE,
 )
 
