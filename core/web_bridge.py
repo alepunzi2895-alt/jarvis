@@ -13,6 +13,7 @@ import asyncio
 from core import turso, intents
 from core.claude_bridge import run_claude
 from core.executor_singleton import executor
+from core.voice import camera
 
 POLL_SEC = float(os.getenv("JARVIS_WEB_POLL_SEC", "3"))
 
@@ -64,16 +65,26 @@ async def poll_web_queue() -> None:
 
         print(f"> [web] {task['prompt'][:80]}")
         try:
-            intent = intents.parse_intent(task["prompt"]) if not task.get("image_b64") else None
+            image_b64 = task.get("image_b64")
+
+            intent = intents.parse_intent(task["prompt"]) if not image_b64 else None
             if intent:
                 response = intents.execute_intent(intent, executor, voice=False)
                 await _push_result(task["id"], "done", response, None, 0.0)
                 continue
 
+            # Se il client (dashboard) non ha gia' allegato un'immagine (es.
+            # dal pannello camera con getUserMedia) e il testo chiede
+            # esplicitamente di vedere/scattare, cattura un frame reale dalla
+            # webcam del PC — altrimenti Claude non ha modo di "vedere" e
+            # improvvisa (es. aprendo un browser verso la dashboard stessa).
+            if not image_b64 and camera.wants_camera(task["prompt"]):
+                image_b64 = await asyncio.to_thread(camera.capture_frame_b64)
+
             result, sid, cost = await run_claude(
                 task["prompt"],
                 ws=task.get("workspace"),
-                image_b64=task.get("image_b64"),
+                image_b64=image_b64,
                 channel=task.get("channel") or "text",
             )
             await _push_result(task["id"], "done", result, sid, cost)

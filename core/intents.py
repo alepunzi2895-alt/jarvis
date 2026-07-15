@@ -24,11 +24,13 @@ from __future__ import annotations
 
 import re
 
-from core.system_executor import APP_REGISTRY, KNOWN_USER_APPS, SystemExecutor
+from core.system_executor import APP_REGISTRY, DYNAMIC_APP_NAMES, KNOWN_USER_APPS, SystemExecutor
 
 _MAX_WORDS = 10  # oltre questa soglia, non e' un comando semplice: passa da Claude
 
-_APP_NAMES = sorted({*APP_REGISTRY.keys(), *KNOWN_USER_APPS.keys()}, key=len, reverse=True)
+_APP_NAMES = sorted(
+    {*APP_REGISTRY.keys(), *KNOWN_USER_APPS.keys(), *DYNAMIC_APP_NAMES}, key=len, reverse=True
+)
 
 _OPEN_VERBS = r"apri|apra|avvia|avvii|accendi|accenda|lancia|lanci"
 _CLOSE_VERBS = r"chiudi|chiuda|termina|termini|spegni|spegnere"

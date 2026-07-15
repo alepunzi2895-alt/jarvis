@@ -7,6 +7,7 @@ import json
 import time
 import base64
 import asyncio
+from datetime import datetime
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -67,10 +68,14 @@ SYSTEM = (
     '{"action":"search","engine":"youtube","query":"...","open_first_result":true}\n'
     "```\n"
     '("engine" può essere "google" o "youtube"). Usalo solo quando serve davvero '
-    "aprire un browser reale — non per domande generiche. NON usarlo MAI per "
-    "concetti locali della dashboard/daemon (es. \"apri la webcam\", \"apri il "
-    "second brain\"): quelli sono pannelli gestiti localmente, non siti web da "
-    "navigare, e non vanno mai risolti aprendo un URL.\n\n"
+    "aprire un browser reale — non per domande generiche. Non hai NESSUN modo di "
+    "accendere/controllare la webcam tu stesso, ne' esiste un sito o un URL locale "
+    "(dashboard compresa, anche se gira su localhost) che la apra: se l'utente ti "
+    "chiede di vedere/scattare qualcosa e non hai ricevuto nessuna immagine allegata "
+    "a questo messaggio, dillo chiaramente (es. \"non ho ricevuto nessuna foto, "
+    "Signore\") — non aprire mai un browser per cercare di rimediare. Stesso "
+    "discorso per qualunque altro concetto locale (second brain, pannelli della "
+    "dashboard): sono gestiti in locale, non sono siti web da navigare.\n\n"
     "Se l'utente chiede un'azione REALE sul suo PC Windows (aprire/chiudere "
     "un'applicazione, alzare/abbassare/mutare il volume, bloccare lo schermo, "
     "mostrare il desktop, fare uno screenshot, spegnere/riavviare/disconnettere "
@@ -154,11 +159,12 @@ async def run_claude(
         except (ValueError, OSError):
             pass  # immagine corrotta: procedi solo col testo
 
-    system_prompt = SYSTEM
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    system_prompt = f"{SYSTEM}\n\nData e ora attuali: {now}."
     if turso.ENABLED:
         ctx = await asyncio.to_thread(brain.fetch_context, ws)
         if ctx:
-            system_prompt = f"{SYSTEM}\n\n{ctx}"
+            system_prompt = f"{system_prompt}\n\n{ctx}"
     if channel == "voice":
         system_prompt = f"{system_prompt}\n\n{persona.PERSONA}"
 
