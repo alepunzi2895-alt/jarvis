@@ -50,17 +50,36 @@ class BrowserAgent:
             )
         return self._context
 
-    async def open(self, url: str) -> str:
+    async def _reset(self) -> None:
+        """Il contesto/browser puo' essere stato chiuso dall'esterno (finestra
+        chiusa a mano, crash) senza che self._context lo sappia — si riparte
+        da zero invece di restare bloccati su un riferimento morto."""
+        self._context = None
+        if self._playwright:
+            try:
+                await self._playwright.stop()
+            except Exception:
+                pass
+            self._playwright = None
+
+    async def _new_page(self):
         context = await self._ensure_context()
-        page = await context.new_page()
+        try:
+            return await context.new_page()
+        except Exception:
+            await self._reset()
+            context = await self._ensure_context()
+            return await context.new_page()
+
+    async def open(self, url: str) -> str:
+        page = await self._new_page()
         await page.goto(url, wait_until="domcontentloaded")
         return f"Aperto {url}."
 
     async def search(self, engine: str, query: str, open_first_result: bool = True) -> str:
         if engine not in SEARCH_URLS:
             return f'Motore "{engine}" non supportato (solo google/youtube).'
-        context = await self._ensure_context()
-        page = await context.new_page()
+        page = await self._new_page()
         url = SEARCH_URLS[engine].format(query=query.replace(" ", "+"))
         await page.goto(url, wait_until="domcontentloaded")
 
@@ -77,9 +96,13 @@ class BrowserAgent:
 
     async def screenshot(self) -> bytes:
         context = await self._ensure_context()
-        if not context.pages:
+        try:
+            if not context.pages:
+                return b""
+            return await context.pages[-1].screenshot()
+        except Exception:
+            await self._reset()
             return b""
-        return await context.pages[-1].screenshot()
 
     async def close(self) -> None:
         if self._context:
