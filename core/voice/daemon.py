@@ -1,22 +1,29 @@
 """
-JARVIS — daemon vocale nativo. Processo separato da bot.py: wake word ->
-registra -> trascrive -> esegue (via la STESSA coda Turso di
-core/web_bridge.py, non un motore d'esecuzione parallelo) -> risponde a
-voce. Comunica con bot.py solo attraverso Turso e state.json, mai in-process.
+JARVIS — daemon vocale nativo. Processo separato da bot.py.
+
+Wake word -> registra -> trascrive -> esegue -> risponde a voce. Da
+2026-07-15 le richieste "vere" (non intercettate da core/intents.py)
+passano dall'API Anthropic diretta (core/claude_api.py), NON piu' dalla
+coda Turso + claude -p di core/web_bridge.py — scelta esplicita di
+Alessandro per abbattere la latenza (niente processo CLI da avviare per
+messaggio). Resta comunque una riga per attivazione nella tabella
+`tasks` di Turso (stato gia' 'done', mai 'pending') solo per visibilita'
+nella dashboard — non e' piu' una coda, e' un log.
 
 Ripetere la wake word MENTRE JARVIS sta parlando interrompe la voce e torna
 subito in ascolto di un nuovo comando (niente secondo modello per "stop").
 """
 
+import asyncio
 import os
 import sys
 import threading
-import time
 import uuid
 
+import anthropic
 import keyboard
 
-from core import turso, intents
+from core import turso, intents, claude_api
 from core.claude_bridge import load_state
 from core.executor_singleton import executor
 from core.voice import camera, stt, tts
@@ -33,8 +40,6 @@ sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 HOTKEY = os.getenv("JARVIS_HOTKEY", "ctrl+alt+j")
 
-POLL_SEC = 1.5
-MAX_POLL_ATTEMPTS = 120  # ~3 minuti
 # Tetto di sicurezza per il "watcher" che ascolta un'interruzione mentre
 # JARVIS parla: la persona vocale è vincolata a risposte brevi (max due
 # frasi), quindi il parlato reale dura quasi sempre pochi secondi. Se il
@@ -52,22 +57,20 @@ def _current_workspace() -> str:
     return load_state().get("ws", "jarvis")
 
 
-def _push_task(prompt: str, workspace: str, image_b64: str | None = None) -> str:
-    task_id = str(uuid.uuid4())
-    turso.execute(
-        "INSERT INTO tasks (id, channel, workspace, prompt, image_b64, status) VALUES (?, 'voice', ?, ?, ?, 'pending')",
-        [task_id, workspace, prompt, image_b64],
-    )
-    return task_id
-
-
-def _poll_task(task_id: str) -> dict | None:
-    for _ in range(MAX_POLL_ATTEMPTS):
-        time.sleep(POLL_SEC)
-        rows = turso.execute("SELECT status, result FROM tasks WHERE id=?", [task_id])
-        if rows and rows[0]["status"] in ("done", "error"):
-            return rows[0]
-    return None
+def _log_task(prompt: str, workspace: str, image_b64: str | None, result: str, cost: float, status: str) -> None:
+    """Registra l'interazione in Turso per visibilita' nella dashboard — non
+    e' piu' una coda (il lavoro vero e' gia' stato fatto da claude_api), solo
+    uno storico. Se Turso non e' raggiungibile, non blocca la risposta vocale."""
+    if not turso.ENABLED:
+        return
+    try:
+        turso.execute(
+            "INSERT INTO tasks (id, channel, workspace, prompt, image_b64, status, result, cost_usd) "
+            "VALUES (?, 'voice', ?, ?, ?, ?, ?, ?)",
+            [str(uuid.uuid4()), workspace, prompt, image_b64, status, result, cost],
+        )
+    except (OSError, RuntimeError) as e:
+        print(f"(log task su Turso fallito, ignorato: {e})")
 
 
 def _speak_with_interrupt(engine: tts.TTSEngine, listener: WakeWordListener, text: str) -> None:
@@ -136,11 +139,35 @@ def main() -> None:
                     print("(webcam non disponibile)")
 
             workspace = _current_workspace()
-            task_id = _push_task(text, workspace, image_b64)
-            result = _poll_task(task_id)
-            response = result["result"] if result else "Timeout, Signore. Nessuna risposta dal bridge locale."
+            cost = 0.0
+            status = "done"
+            try:
+                response, cost = asyncio.run(claude_api.run_voice(text, workspace, image_b64))
+            except anthropic.AuthenticationError:
+                response = (
+                    "Chiave API di Anthropic rifiutata, Signore. Alessandro deve "
+                    "controllare ANTHROPIC_API_KEY nel file .env."
+                )
+                status = "error"
+            except TypeError as e:
+                # L'SDK Anthropic solleva un TypeError (non una sua eccezione
+                # dedicata) quando non trova NESSUNA credenziale configurata —
+                # capita PRIMA di qualunque chiamata di rete, quindi non e'
+                # un anthropic.AuthenticationError (quello e' un 401 dal
+                # server per una chiave presente ma invalida).
+                if "authentic" not in str(e).lower():
+                    raise
+                response = (
+                    "Manca la chiave API di Anthropic, Signore. Alessandro deve "
+                    "impostare ANTHROPIC_API_KEY nel file .env."
+                )
+                status = "error"
+            except anthropic.APIError as e:
+                response = f"Errore nel contattare l'API di Claude, Signore: {e}"
+                status = "error"
             print(f"< {response}")
 
+            _log_task(text, workspace, image_b64, response, cost, status)
             _speak_with_interrupt(engine, listener, response)
         except Exception as e:  # noqa: BLE001
             # Un daemon di sfondo non deve morire per un errore in un singolo

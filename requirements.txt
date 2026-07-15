@@ -14,6 +14,7 @@ keyboard>=0.13
 # contrib (non solo opencv-python) serve per cv2.face (riconoscimento volto, LBPH)
 opencv-contrib-python>=4.10
 psutil>=6.0
+anthropic>=0.116  # canale vocale: API diretta invece del processo CLI claude -p
 
 # Automazione browser (blocco d): playwright install chromium richiesto dopo l'installazione
 playwright>=1.61
