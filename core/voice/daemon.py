@@ -94,6 +94,7 @@ def main() -> None:
             text = stt.transcribe(audio)
             if not text:
                 print("(silenzio, nessun comando)")
+                _speak_with_interrupt(engine, listener, "Non ho sentito bene, Signore. Mi ripeta pure.")
                 continue
             print(f"> {text}")
 

@@ -19,6 +19,10 @@ CLAUDE_BIN = os.getenv("CLAUDE_BIN", "claude")
 JARVIS_HOME = Path(os.getenv("JARVIS_HOME", Path(__file__).parent.parent)).resolve()
 MAX_TURNS = os.getenv("JARVIS_MAX_TURNS", "40")
 MODEL = os.getenv("JARVIS_MODEL", "")  # es. "opus" oppure vuoto = default
+# La voce vuole risposte brevi e rapide (persona: max due frasi) — un modello
+# più leggero taglia parecchi secondi di latenza percepita rispetto al
+# default. Testo/Telegram restano su JARVIS_MODEL (default = normale).
+VOICE_MODEL = os.getenv("JARVIS_VOICE_MODEL", "haiku")
 
 STATE_FILE = JARVIS_HOME / "state.json"
 TMP_DIR = JARVIS_HOME / ".tmp"
@@ -141,8 +145,9 @@ async def run_claude(
         # diversi secondi extra per comando. Caricarli solo nel workspace
         # che li usa davvero dimezza il tempo di risposta altrove.
         cmd += ["--strict-mcp-config"]
-    if MODEL:
-        cmd += ["--model", MODEL]
+    model = VOICE_MODEL if channel == "voice" else MODEL
+    if model:
+        cmd += ["--model", model]
     if sid:
         cmd += ["--resume", sid]
 
