@@ -135,6 +135,12 @@ async def run_claude(
         "--permission-mode",
         "acceptEdits",
     ]
+    if ws != "trading":
+        # I server MCP configurati a livello globale (es. TradingView) si
+        # connettono ad ogni avvio anche quando non servono, costando
+        # diversi secondi extra per comando. Caricarli solo nel workspace
+        # che li usa davvero dimezza il tempo di risposta altrove.
+        cmd += ["--strict-mcp-config"]
     if MODEL:
         cmd += ["--model", MODEL]
     if sid:
