@@ -9,7 +9,6 @@ import os
 import html
 import asyncio
 import datetime as dt
-from pathlib import Path
 
 import requests
 from dotenv import load_dotenv
@@ -21,9 +20,8 @@ from core.claude_bridge import (
     save_state,
     run_claude,
 )
-from core import web_bridge
-from core.obsidian import ObsidianVault
-from core.system_executor import SystemExecutor
+from core import web_bridge, intents
+from core.executor_singleton import executor, vault
 
 load_dotenv()
 
@@ -32,18 +30,8 @@ OWNER_ID = int(os.environ["TELEGRAM_OWNER_ID"])
 
 API = f"https://api.telegram.org/bot{TOKEN}"
 
-# --------------------------------------------------------------------------- vault + system
-
-VAULT_PATH = os.getenv("JARVIS_VAULT_PATH", str(JARVIS_HOME / "jarvis"))
-vault = ObsidianVault(VAULT_PATH) if Path(VAULT_PATH).is_dir() else None
 if vault is None:
-    print(f"vault Obsidian non trovato in {VAULT_PATH} — /note e /search disabilitati")
-
-_extra_dirs = [p.strip() for p in os.getenv("JARVIS_ALLOWED_DIRS", "").split(",") if p.strip()]
-executor = SystemExecutor(
-    allowed_dirs=[JARVIS_HOME, *_extra_dirs],
-    vault=vault,
-)
+    print("vault Obsidian non trovato — /note e /search disabilitati")
 
 # --------------------------------------------------------------------------- telegram
 
@@ -98,7 +86,12 @@ def cmd_help() -> str:
         "/confirm <token> conferma un'azione in sospeso\n"
         "/deny <token>  annulla un'azione in sospeso\n"
         "/voce on|off   attiva/mette in pausa il daemon vocale (hey jarvis)\n"
+        "/enroll_face   impara il tuo volto dalla webcam (per il riconoscimento in camera)\n"
         "/help          questo messaggio\n\n"
+        "Anche scrivendo normale (senza /) riconosco comandi rapidi come "
+        '"apri chrome", "chiudi vs code", "alza il volume", "blocca lo '
+        'schermo", "fai uno screenshot", "spegni il pc" — eseguiti subito, '
+        "senza passare da Claude.\n\n"
         f"Workspaces: {', '.join(WORKSPACES)}"
     )
 
@@ -206,7 +199,22 @@ async def handle(text: str) -> None:
             save_state(state)
             return send(f"Voce: {'attiva' if arg == 'on' else 'in pausa'}.")
 
+        if cmd == "/enroll_face":
+            from core.voice import face_id  # import qui: opencv/webcam solo se serve
+
+            send("Guardo nella webcam per qualche secondo, resta inquadrato...")
+            count, err = await asyncio.to_thread(face_id.capture_and_enroll)
+            if err:
+                return send(f"Errore: {err}")
+            return send(f"Volto appreso ({count} campioni). D'ora in poi ti riconoscero' in camera.")
+
         return send("Comando sconosciuto. /help")
+
+    # comandi rapidi di sistema (apri/chiudi app, volume, blocco, screenshot,
+    # spegni/riavvia) — riconosciuti subito, senza passare da Claude
+    intent = intents.parse_intent(text)
+    if intent:
+        return send(intents.execute_intent(intent, executor, voice=False))
 
     # task normale
     typing()

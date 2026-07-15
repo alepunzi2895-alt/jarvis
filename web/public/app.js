@@ -248,7 +248,7 @@ function handleVoiceUiCommand(text) {
   const verb = /\b(apri|accendi|attiva|mostra)\b/;
   const closeVerb = /\b(chiudi|nascondi|spegni)\b/;
 
-  if (wants(/\b(camera|cam|telecamera)\b/)) {
+  if (wants(/\b(webcam|camera|cam|telecamera|fotocamera)\b/)) {
     if (wants(verb)) { openWindow("win-camera"); return true; }
     if (wants(closeVerb)) { closeWindow("win-camera"); return true; }
   }
@@ -404,6 +404,7 @@ let brainAnimHandle = null;
 let brainPollTimer = null;
 let hoveredNode = null;
 let focusedNode = null;
+let brainScale = 1; // ricalcolato ad ogni frame per far stare l'intero grafo nel canvas
 
 function hexToRgba(hex, alpha) {
   const r = parseInt(hex.slice(1, 3), 16);
@@ -482,26 +483,30 @@ function setupBrainCanvas() {
   new ResizeObserver(resize).observe(brainCanvas);
   resize();
 
+  // Le coordinate del mouse sono in pixel schermo; le posizioni dei nodi sono
+  // in "spazio mondo" e vengono disegnate scalate (zoom-to-fit, vedi
+  // brainRender) — va applicata la stessa scala in senso inverso per far
+  // corrispondere hover/click al nodo giusto.
   brainCanvas.addEventListener("mousemove", (e) => {
     const rect = brainCanvas.getBoundingClientRect();
-    const mx = e.clientX - rect.left - rect.width / 2;
-    const my = e.clientY - rect.top - rect.height / 2;
+    const mx = (e.clientX - rect.left - rect.width / 2) / brainScale;
+    const my = (e.clientY - rect.top - rect.height / 2) / brainScale;
     hoveredNode = brainFindNear(mx, my);
     brainCanvas.style.cursor = hoveredNode ? "pointer" : "grab";
   });
 
   brainCanvas.addEventListener("click", (e) => {
     const rect = brainCanvas.getBoundingClientRect();
-    const mx = e.clientX - rect.left - rect.width / 2;
-    const my = e.clientY - rect.top - rect.height / 2;
+    const mx = (e.clientX - rect.left - rect.width / 2) / brainScale;
+    const my = (e.clientY - rect.top - rect.height / 2) / brainScale;
     const n = brainFindNear(mx, my);
     focusedNode = focusedNode === n ? null : n;
   });
 
   brainCanvas.addEventListener("dblclick", async (e) => {
     const rect = brainCanvas.getBoundingClientRect();
-    const mx = e.clientX - rect.left - rect.width / 2;
-    const my = e.clientY - rect.top - rect.height / 2;
+    const mx = (e.clientX - rect.left - rect.width / 2) / brainScale;
+    const my = (e.clientY - rect.top - rect.height / 2) / brainScale;
     const n = brainFindNear(mx, my);
     if (!n) return;
     if (!confirm(`Eliminare il nodo "${n.label}"?`)) return;
@@ -576,10 +581,31 @@ function brainRender() {
   const w = rect.width;
   const h = rect.height;
   brainCtx.clearRect(0, 0, w, h);
+
+  // Zoom-to-fit: senza questo, un grafo con molti nodi (il layout a forze li
+  // spinge ben oltre i confini del canvas) mostrava solo il cluster centrale
+  // — il resto restava fuori schermo. Si ricalcola ogni frame sul bounding
+  // box corrente dei nodi, cosi' segue anche l'animazione/jitter continuo.
+  brainScale = 1;
+  if (brainNodes.length > 1) {
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (const n of brainNodes) {
+      if (n.x < minX) minX = n.x;
+      if (n.x > maxX) maxX = n.x;
+      if (n.y < minY) minY = n.y;
+      if (n.y > maxY) maxY = n.y;
+    }
+    const contentW = Math.max(maxX - minX, 1);
+    const contentH = Math.max(maxY - minY, 1);
+    const padding = 0.8; // margine cosi' i nodi ai bordi non toccano la cornice
+    brainScale = Math.min(1, (w * padding) / contentW, (h * padding) / contentH);
+  }
+
   brainCtx.save();
   brainCtx.translate(w / 2, h / 2);
+  brainCtx.scale(brainScale, brainScale);
 
-  brainCtx.lineWidth = 1;
+  brainCtx.lineWidth = 1 / brainScale;
   for (const e of brainEdges) {
     const dim = focusedNode && e.source !== focusedNode && e.target !== focusedNode;
     brainCtx.strokeStyle = dim ? "rgba(255,255,255,0.04)" : "rgba(57,135,229,0.25)";

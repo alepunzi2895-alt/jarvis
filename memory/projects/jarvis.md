@@ -84,11 +84,30 @@ Alessandro ("mergia tutto su main sempre", vedi [[feedback-merge-to-main]]):
   Windows.
 - **(c2)** Daemon vocale nativo: `core/voice/` (wake_word.py openWakeWord
   modello "hey_jarvis" preaddestrato, stt.py faster-whisper "small" CPU,
-  tts.py edge-tts gratis), persona "Signore"/British/gentile solo su
-  `channel="voice"`, `/voce on|off`. **Bug reale trovato e risolto**:
-  Windows cambia il microfono di default quando colleghi una cuffia (Jabra,
-  nel suo caso) — aggiunto `JARVIS_MIC_DEVICE` per pinnarlo per nome
-  (`core/voice/__init__.py::resolve_input_device`).
+  tts.py edge-tts gratis, camera.py OpenCV per cattura webcam nativa),
+  persona "Signore"/British/gentile solo su `channel="voice"` (modello
+  haiku, più leggero, dato che le risposte vocali sono già vincolate a
+  due frasi), `/voce on|off`.
+  **Limite noto, non risolvibile lato config**: il modello "hey_jarvis"
+  non riconosce la voce/accento di Alessandro (punteggio sempre
+  <0.02 contro soglia 0.5, testato su tutti i canali del mic array) — al
+  suo posto c'è la hotkey globale **Ctrl+Alt+J** (libreria `keyboard`),
+  che avvia lo stesso identico ciclo.
+  **Bug reali trovati e risolti** (in ordine di scoperta): (1) Windows
+  cambia il microfono di default quando colleghi una cuffia — fix
+  `JARVIS_MIC_DEVICE`/`resolve_input_device()`; (2) TTS crashava l'intero
+  daemon cancellando l'mp3 temporaneo mentre PyAV lo teneva ancora aperto
+  — fix `container.close()` esplicito; (3) il thread che ascolta
+  un'interruzione durante il parlato restava agganciato al modello wake
+  word (non thread-safe) fino a 15s dopo la risposta, bloccando il ciclo
+  successivo — fix `cancel_event` + `join()` prima di procedere; (4) su
+  Windows, `print()` su testo trascritto con caratteri non-ASCII
+  (em-dash, accenti) crashava l'intero ciclo in silenzio — fix
+  `sys.stdout.reconfigure(encoding="utf-8")`, il più serio dei quattro
+  perché falliva senza NESSUNA risposta né traccia visibile. Aggiunto
+  anche `JARVIS_SPEAKER_DEVICE`/`resolve_output_device()` come rete di
+  sicurezza per l'uscita audio (verificato con loopback Stereo Mix che il
+  software produce comunque audio vero).
 - **(d)** `core/browser.py`: `BrowserAgent` (Playwright, profilo Chromium
   persistente `.browser_profile/`) — stesso pattern del second brain, Claude
   emette un blocco ` ```browser``` ` quando serve navigare un sito vero.
@@ -99,6 +118,54 @@ Alessandro ("mergia tutto su main sempre", vedi [[feedback-merge-to-main]]):
 **Blocco (b) — EnvironmentRouter + MCPRouter**: unico ancora in pausa. Manca
 il path per l'ambiente IVECO; da chiedere se vuole aggiungere altri MCP
 server oltre TradingView (unico realmente configurato oggi).
+
+## JARVIS v3 — controllo OS reale, fix webcam, riconoscimento volto (2026-07-15, branch `feature/jarvis-v3-os-control`)
+
+Su segnalazione di Alessandro (voce lenta, "chiudi Chrome" non esisteva,
+webcam rotta, vuole riconoscimento volto, microfono sembra sordo
+all'avvio, grafo second brain tagliato). Dettaglio completo nel log delle
+18:00. Riassunto architetturale:
+
+- **Controllo OS reale** (prima non esisteva per voce/chat, solo `/apri`
+  esplicito): `core/system_executor.py` esteso con `close_app` (psutil),
+  `volume`, `lock_workstation`, `show_desktop`, `screenshot`,
+  `power_action` (shutdown/restart/logoff, sempre dietro conferma).
+  `core/intents.py` (nuovo): intercetta frasi brevi (≤10 parole) ed
+  esegue subito, senza `claude -p` — zero costo/latenza per i comandi
+  semplici. `core/system_actions.py` (nuovo, stesso pattern di
+  `core/browser.py`): blocco ` ```system``` ` che Claude puo' emettere
+  per le richieste composte che intents.py lascia passare. Spegnimento/
+  riavvio/logout dal canale **vocale** sono rifiutati a priori (redirect
+  a Telegram/dashboard, dove serve comunque `/confirm`). Nuovo
+  `core/executor_singleton.py` (istanza condivisa fra bot.py/
+  web_bridge.py/daemon.py, evita import circolare con claude_bridge).
+- **Webcam**: bug reale trovato in DUE punti indipendenti — ne'
+  `core/voice/camera.py` ne' `web/public/app.js` riconoscevano la parola
+  "webcam" (solo camera/telecamera/fotocamera), quindi "apri la webcam"
+  cadeva come task generico e Claude improvvisava aprendo un browser.
+  Fissato in entrambi i punti.
+- **Riconoscimento volto**: `core/voice/face_id.py`, OpenCV LBPH
+  (richiede `opencv-contrib-python`, non `opencv-python` — sostituito).
+  Solo personalizzazione, non sicurezza. `/enroll_face` su Telegram per
+  arruolare Alessandro (~20 frame webcam). Dati in `.face_data/`
+  (gitignored, biometrico). **Nota per il futuro**: la wheel pip di
+  opencv-contrib-python 5.0.0.93 non include le Haar cascade XML in
+  `cv2/data/` — cascade committata in `core/voice/data/` invece di
+  dipendere dal pacchetto.
+- **Velocita' voce**: whisper pre-caricato all'avvio del daemon
+  (`stt.warm_up()`) invece che alla prima trascrizione reale — probabile
+  causa del "non mi sente appena parte". Il pavimento di ~11-12s per
+  risposta vera (CLI `claude -p` per messaggio) resta invariato: per
+  scendere sotto serve l'API diretta invece del CLI, non fatto oggi.
+- **Persona vocale**: non piu' tetto rigido di due frasi — resta breve
+  per le conferme d'azione, risposte complete per domande vere.
+- **Grafo second brain**: `web/public/app.js` ora fa zoom-to-fit
+  (bounding box ricalcolato ogni frame) — prima disegnava a scala 1:1 e
+  con molti nodi si vedeva solo il cluster centrale.
+
+**Non ancora verificato dal vivo** (richiede lui): comandi OS reali a
+voce/testo, `/enroll_face` + riconoscimento successivo, grafo completo
+nel browser vero.
 
 **Vault Obsidian reale**: `C:\Users\f45038c\Downloads\jarvis\jarvis\` (creato
 da Obsidian stesso dentro il repo del codice — riconosciuto dal `.obsidian/`

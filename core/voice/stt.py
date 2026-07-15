@@ -27,6 +27,14 @@ def _get_model() -> WhisperModel:
     return _model
 
 
+def warm_up() -> None:
+    """Carica il modello whisper subito, invece che al lazy-load della prima
+    trascrizione reale (~30s la prima volta) — altrimenti la primissima
+    attivazione dopo un riavvio del daemon sembra "non aver sentito" il
+    microfono, quando in realta' sta solo caricando il modello in silenzio."""
+    _get_model()
+
+
 def record_until_silence() -> np.ndarray:
     """Registra dal microfono finché non rileva una pausa di silenzio (o il tetto massimo)."""
     silence_chunks_needed = max(1, int(SILENCE_HANG_MS / (CHUNK_SAMPLES / SAMPLE_RATE * 1000)))

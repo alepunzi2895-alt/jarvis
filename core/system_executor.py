@@ -24,6 +24,8 @@ from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 
+import psutil
+
 from core.obsidian import ObsidianVault
 
 GIT_ALLOWED_SUBCOMMANDS = {"status", "log", "diff", "branch", "pull", "add", "commit"}
@@ -41,6 +43,21 @@ APP_REGISTRY: dict[str, str] = {
     "vs code": "code.exe",
     "visual studio code": "code.exe",
     "vscode": "code.exe",
+    "chrome": "chrome.exe",
+    "google chrome": "chrome.exe",
+    "edge": "msedge.exe",
+    "microsoft edge": "msedge.exe",
+    "spotify": "Spotify.exe",
+    "calcolatrice": "calc.exe",
+    "calculator": "calc.exe",
+    "paint": "mspaint.exe",
+    "terminale": "wt.exe",
+    "prompt dei comandi": "cmd.exe",
+    "cmd": "cmd.exe",
+    "powershell": "powershell.exe",
+    "task manager": "Taskmgr.exe",
+    "gestione attivita": "Taskmgr.exe",
+    "gestione attività": "Taskmgr.exe",
 }
 
 # App Electron/portable che spesso non si registrano tra le "App Paths" di
@@ -82,6 +99,21 @@ def _resolve_app_path(name: str) -> str | None:
         except OSError:
             continue
     return None
+
+
+def _resolve_image_name(name: str) -> str | None:
+    """Nome del processo (es. 'chrome.exe') da cercare/terminare per chiudere
+    un'app — stessa risoluzione di open_app ma ritorna solo il nome immagine,
+    non il path completo."""
+    clean = name.strip().lower()
+    if clean in APP_REGISTRY:
+        return Path(APP_REGISTRY[clean]).name
+    if clean in KNOWN_USER_APPS:
+        return Path(KNOWN_USER_APPS[clean]).name
+    path = _resolve_app_path(clean) or _resolve_known_user_app(clean)
+    if path:
+        return Path(path).name
+    return clean if clean.endswith(".exe") else f"{clean}.exe"
 
 
 @dataclass
@@ -163,6 +195,8 @@ class SystemExecutor:
             return self._read_file(force=True, **pending)
         if kind == "list_dir":
             return self._list_dir(force=True, **pending)
+        if kind == "power":
+            return self._power_action(force=True, **pending)
         return ExecResult(ok=False, stderr="Tipo di azione sconosciuto.")
 
     def deny(self, token: str) -> bool:
@@ -257,3 +291,98 @@ class SystemExecutor:
 
     def git(self, action: str, repo: str | Path) -> ExecResult:
         return self.run(f"git {action}", cwd=repo)
+
+    def close_app(self, name: str) -> ExecResult:
+        image = _resolve_image_name(name)
+        if not image:
+            return ExecResult(ok=False, stderr=f'App "{name}" non riconosciuta.')
+        closed = 0
+        for proc in psutil.process_iter(["name"]):
+            try:
+                if (proc.info["name"] or "").lower() == image.lower():
+                    proc.terminate()
+                    closed += 1
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+        if closed == 0:
+            return ExecResult(ok=False, stderr=f'"{name}" non risulta aperto.')
+        self._log("close_app", f"{name} ({closed} processi)")
+        return ExecResult(ok=True, stdout=f"{closed} processo/i chiusi.")
+
+    def _powershell(self, script: str, timeout: int = 10) -> ExecResult:
+        try:
+            proc = subprocess.run(
+                ["powershell", "-NoProfile", "-Command", script],
+                capture_output=True, text=True, timeout=timeout,
+            )
+        except (subprocess.TimeoutExpired, OSError) as e:
+            return ExecResult(ok=False, stderr=str(e))
+        return ExecResult(ok=proc.returncode == 0, stdout=proc.stdout, stderr=proc.stderr, exit_code=proc.returncode)
+
+    # Trucco noto/documentato: WScript.Shell.SendKeys accetta i codici carattere
+    # 173/174/175 e Windows li instrada come i tasti multimediali mute/vol-/vol+
+    # della tastiera, senza bisogno di P/Invoke o librerie audio dedicate.
+    _VOLUME_KEYS = {"up": 175, "down": 174, "mute": 173, "unmute": 173}
+
+    def volume(self, direction: str) -> ExecResult:
+        key = self._VOLUME_KEYS.get(direction)
+        if key is None:
+            return ExecResult(ok=False, stderr=f'Direzione volume "{direction}" sconosciuta.')
+        result = self._powershell(f"(New-Object -ComObject WScript.Shell).SendKeys([char]{key})")
+        if result.ok:
+            self._log("volume", direction)
+        return result
+
+    def lock_workstation(self) -> ExecResult:
+        try:
+            subprocess.Popen(["rundll32.exe", "user32.dll,LockWorkStation"])
+        except OSError as e:
+            return ExecResult(ok=False, stderr=str(e))
+        self._log("lock_workstation", "")
+        return ExecResult(ok=True)
+
+    def show_desktop(self) -> ExecResult:
+        result = self._powershell("(New-Object -ComObject Shell.Application).ToggleDesktop()")
+        if result.ok:
+            self._log("show_desktop", "")
+        return result
+
+    def screenshot(self, save_dir: str | Path | None = None) -> ExecResult:
+        directory = Path(save_dir) if save_dir else Path.home() / "Pictures" / "JarvisScreenshots"
+        directory.mkdir(parents=True, exist_ok=True)
+        path = directory / f"screenshot-{date.today().isoformat()}-{uuid.uuid4().hex[:6]}.png"
+        script = (
+            "Add-Type -AssemblyName System.Windows.Forms,System.Drawing; "
+            "$b = [System.Windows.Forms.SystemInformation]::VirtualScreen; "
+            "$bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height; "
+            "$g = [System.Drawing.Graphics]::FromImage($bmp); "
+            "$g.CopyFromScreen($b.Location, [System.Drawing.Point]::Empty, $b.Size); "
+            f"$bmp.Save('{path}'); $g.Dispose(); $bmp.Dispose()"
+        )
+        result = self._powershell(script, timeout=20)
+        if not result.ok:
+            return result
+        self._log("screenshot", str(path))
+        return ExecResult(ok=True, stdout=str(path))
+
+    _POWER_COMMANDS = {
+        "shutdown": ["shutdown", "/s", "/t", "0"],
+        "restart": ["shutdown", "/r", "/t", "0"],
+        "logoff": ["shutdown", "/l"],
+    }
+
+    def power_action(self, mode: str) -> ExecResult:
+        return self._power_action(mode=mode, force=False)
+
+    def _power_action(self, mode: str, force: bool = False) -> ExecResult:
+        cmd = self._POWER_COMMANDS.get(mode)
+        if not cmd:
+            return ExecResult(ok=False, stderr=f'Modalita\' "{mode}" sconosciuta.')
+        if not force:
+            return self._stage_confirmation("power", {"mode": mode})
+        try:
+            subprocess.Popen(cmd)
+        except OSError as e:
+            return ExecResult(ok=False, stderr=str(e))
+        self._log("power", mode)
+        return ExecResult(ok=True)

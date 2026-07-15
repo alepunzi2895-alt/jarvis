@@ -16,8 +16,9 @@ import uuid
 
 import keyboard
 
-from core import turso
+from core import turso, intents
 from core.claude_bridge import load_state
+from core.executor_singleton import executor
 from core.voice import camera, stt, tts
 from core.voice.wake_word import WakeWordListener
 
@@ -89,12 +90,15 @@ def _speak_with_interrupt(engine: tts.TTSEngine, listener: WakeWordListener, tex
 
 
 def main() -> None:
+    print("caricamento modelli (whisper, wake word)... qualche secondo, attendere")
+    listener = WakeWordListener()
+    engine = tts.get_engine()
+    stt.warm_up()  # forza il caricamento ora, non alla prima trascrizione reale
+
     print(
         f'daemon vocale attivo — di\' "hey jarvis" oppure premi {HOTKEY} '
         f"(modello: {WakeWordListener.__module__})"
     )
-    listener = WakeWordListener()
-    engine = tts.get_engine()
 
     hotkey_pressed = threading.Event()
     keyboard.add_hotkey(HOTKEY, hotkey_pressed.set)
@@ -116,6 +120,13 @@ def main() -> None:
                 _speak_with_interrupt(engine, listener, "Non ho sentito bene, Signore. Mi ripeta pure.")
                 continue
             print(f"> {text}")
+
+            intent = intents.parse_intent(text)
+            if intent:
+                response = intents.execute_intent(intent, executor, voice=True)
+                print(f"< {response}")
+                _speak_with_interrupt(engine, listener, response)
+                continue
 
             image_b64 = None
             if camera.wants_camera(text):
