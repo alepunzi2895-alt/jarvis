@@ -15,6 +15,8 @@ import numpy as np
 import sounddevice as sd
 import edge_tts
 
+from core.voice import resolve_output_device
+
 VOICE = os.getenv("JARVIS_TTS_VOICE", "it-IT-GiuseppeMultilingualNeural")
 
 
@@ -37,7 +39,7 @@ class EdgeTTSEngine(TTSEngine):
         path = self._synthesize(text)
         try:
             data, samplerate = self._decode(path)
-            sd.play(data, samplerate)
+            sd.play(data, samplerate, device=resolve_output_device())
             sd.wait()
         finally:
             try:

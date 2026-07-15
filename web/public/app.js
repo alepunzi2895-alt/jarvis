@@ -476,6 +476,10 @@ function setupBrainCanvas() {
     brainCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
   }
   window.addEventListener("resize", resize);
+  // window.resize non scatta quando l'utente ridimensiona la finestra
+  // fluttuante trascinando l'angolo (CSS resize) — serve un observer
+  // dedicato sul canvas stesso per aggiornare la risoluzione interna.
+  new ResizeObserver(resize).observe(brainCanvas);
   resize();
 
   brainCanvas.addEventListener("mousemove", (e) => {

@@ -9,6 +9,7 @@ subito in ascolto di un nuovo comando (niente secondo modello per "stop").
 """
 
 import os
+import sys
 import threading
 import time
 import uuid
@@ -19,6 +20,15 @@ from core import turso
 from core.claude_bridge import load_state
 from core.voice import camera, stt, tts
 from core.voice.wake_word import WakeWordListener
+
+# Su Windows, stdout/stderr reindirizzati su file usano di default la
+# codepage della console (es. cp1252), che non sa codificare em-dash,
+# virgolette tipografiche o certi caratteri prodotti dalla trascrizione.
+# Senza questo, un print() su quel testo lancia UnicodeEncodeError — preso
+# dal try/except del loop, quindi l'intero ciclo falliva in silenzio senza
+# rispondere affatto, con zero indizi per l'utente.
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 HOTKEY = os.getenv("JARVIS_HOTKEY", "ctrl+alt+j")
 
