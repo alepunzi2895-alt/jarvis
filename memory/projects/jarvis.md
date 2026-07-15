@@ -167,6 +167,17 @@ all'avvio, grafo second brain tagliato). Dettaglio completo nel log delle
 voce/testo, `/enroll_face` + riconoscimento successivo, grafo completo
 nel browser vero.
 
+**Voce su API Anthropic diretta** (stesso giorno, branch
+`feature/jarvis-voice-direct-api`, gia' mergiato): `core/claude_api.py`
+sostituisce `claude -p` SOLO per il canale vocale — Telegram/dashboard
+restano su `core/claude_bridge.py`. Second brain in sola lettura per la
+voce (niente scrittura di nodi). Cronologia conversazione voce in memoria
+di processo, non persistita (si azzera al riavvio del daemon).
+**Bloccante**: manca `ANTHROPIC_API_KEY` nel `.env` — l'autenticazione del
+CLI `claude` (login/abbonamento) non vale per l'SDK Python diretto, sono
+due sistemi di credenziali separati. Il daemon risponde a voce "manca la
+chiave API" finche' non viene aggiunta.
+
 **Vault Obsidian reale**: `C:\Users\f45038c\Downloads\jarvis\jarvis\` (creato
 da Obsidian stesso dentro il repo del codice — riconosciuto dal `.obsidian/`
 interno). Escluso da git (`/jarvis/` in `.gitignore`).
