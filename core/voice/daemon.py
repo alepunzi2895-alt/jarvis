@@ -60,13 +60,22 @@ def _poll_task(task_id: str) -> dict | None:
 
 
 def _speak_with_interrupt(engine: tts.TTSEngine, listener: WakeWordListener, text: str) -> None:
+    stop_watching = threading.Event()
+
     def watch() -> None:
-        if listener.wait(timeout=INTERRUPT_WATCH_SECONDS):
+        if listener.wait(timeout=INTERRUPT_WATCH_SECONDS, cancel_event=stop_watching) and not stop_watching.is_set():
             engine.stop()
 
     watcher = threading.Thread(target=watch, daemon=True)
     watcher.start()
     engine.speak(text)
+    # Il watcher usa lo stesso WakeWordListener (stesso modello, non
+    # thread-safe) del loop principale — va fermato e atteso PRIMA di
+    # tornare, altrimenti resta agganciato al microfono fino a
+    # INTERRUPT_WATCH_SECONDS mentre il loop prova già ad ascoltare la
+    # prossima attivazione, e i due usi concorrenti si bloccano a vicenda.
+    stop_watching.set()
+    watcher.join(timeout=2)
 
 
 def main() -> None:
