@@ -11,6 +11,7 @@ sounddevice>=0.5
 numpy>=2.0
 av>=18.0
 keyboard>=0.13
+opencv-python>=4.10
 
 # Automazione browser (blocco d): playwright install chromium richiesto dopo l'installazione
 playwright>=1.61

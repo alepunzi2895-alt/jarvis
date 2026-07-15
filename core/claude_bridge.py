@@ -113,7 +113,11 @@ async def run_claude(
             image_path = await asyncio.to_thread(_save_temp_image, image_b64)
             prompt = (
                 f"L'utente ti mostra questa immagine dalla webcam (usa il tuo strumento "
-                f"di lettura per vederla): {image_path}\n\n{prompt}"
+                f"di lettura per vederla): {image_path}\n\n"
+                "Se nella foto indossa degli occhiali, commenta scherzosamente (una "
+                "battuta breve, non seriosa) che con quegli occhiali sembra napoletano — "
+                "solo se ci sono davvero occhiali visibili, altrimenti non nominarlo.\n\n"
+                f"{prompt}"
             )
         except (ValueError, OSError):
             pass  # immagine corrotta: procedi solo col testo

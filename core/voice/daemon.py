@@ -17,7 +17,7 @@ import keyboard
 
 from core import turso
 from core.claude_bridge import load_state
-from core.voice import stt, tts
+from core.voice import camera, stt, tts
 from core.voice.wake_word import WakeWordListener
 
 HOTKEY = os.getenv("JARVIS_HOTKEY", "ctrl+alt+j")
@@ -41,11 +41,11 @@ def _current_workspace() -> str:
     return load_state().get("ws", "jarvis")
 
 
-def _push_task(prompt: str, workspace: str) -> str:
+def _push_task(prompt: str, workspace: str, image_b64: str | None = None) -> str:
     task_id = str(uuid.uuid4())
     turso.execute(
-        "INSERT INTO tasks (id, channel, workspace, prompt, status) VALUES (?, 'voice', ?, ?, 'pending')",
-        [task_id, workspace, prompt],
+        "INSERT INTO tasks (id, channel, workspace, prompt, image_b64, status) VALUES (?, 'voice', ?, ?, ?, 'pending')",
+        [task_id, workspace, prompt, image_b64],
     )
     return task_id
 
@@ -107,8 +107,15 @@ def main() -> None:
                 continue
             print(f"> {text}")
 
+            image_b64 = None
+            if camera.wants_camera(text):
+                print("(comando camera rilevato, catturo un frame dalla webcam...)")
+                image_b64 = camera.capture_frame_b64()
+                if image_b64 is None:
+                    print("(webcam non disponibile)")
+
             workspace = _current_workspace()
-            task_id = _push_task(text, workspace)
+            task_id = _push_task(text, workspace, image_b64)
             result = _poll_task(task_id)
             response = result["result"] if result else "Timeout, Signore. Nessuna risposta dal bridge locale."
             print(f"< {response}")
