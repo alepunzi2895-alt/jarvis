@@ -14,6 +14,8 @@ import threading
 import sounddevice as sd
 from openwakeword.model import Model
 
+from core.voice import resolve_input_device
+
 WAKE_WORD_MODEL = os.getenv("JARVIS_WAKE_WORD_MODEL", "hey_jarvis")
 THRESHOLD = float(os.getenv("JARVIS_WAKE_WORD_THRESHOLD", "0.5"))
 SAMPLE_RATE = 16000
@@ -44,6 +46,7 @@ class WakeWordListener:
             channels=1,
             dtype="int16",
             blocksize=CHUNK_SAMPLES,
+            device=resolve_input_device(),
             callback=callback,
         ):
             detected.wait(timeout=timeout)

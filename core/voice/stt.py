@@ -8,6 +8,8 @@ import numpy as np
 import sounddevice as sd
 from faster_whisper import WhisperModel
 
+from core.voice import resolve_input_device
+
 WHISPER_MODEL_NAME = os.getenv("JARVIS_WHISPER_MODEL", "small")
 SAMPLE_RATE = 16000
 CHUNK_SAMPLES = 1280
@@ -34,7 +36,13 @@ def record_until_silence() -> np.ndarray:
     silence_run = 0
     started_talking = False
 
-    with sd.InputStream(samplerate=SAMPLE_RATE, channels=1, dtype="int16", blocksize=CHUNK_SAMPLES) as stream:
+    with sd.InputStream(
+        samplerate=SAMPLE_RATE,
+        channels=1,
+        dtype="int16",
+        blocksize=CHUNK_SAMPLES,
+        device=resolve_input_device(),
+    ) as stream:
         for _ in range(max_chunks):
             chunk, _ = stream.read(CHUNK_SAMPLES)
             frames.append(chunk.copy())

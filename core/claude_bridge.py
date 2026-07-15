@@ -11,7 +11,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from core import turso, brain, persona
+from core import turso, brain, browser, persona
 
 load_dotenv()
 
@@ -49,7 +49,19 @@ SYSTEM = (
     '"edges":[{"source":"...","target":"...","relation":"..."}]}\n'
     "```\n"
     "Sii selettivo — non un nodo per ogni risposta. Il blocco viene rimosso prima di "
-    "mostrare la risposta, quindi non commentarlo a parole."
+    "mostrare la risposta, quindi non commentarlo a parole.\n\n"
+    "Se l'utente ti chiede di navigare un sito vero, cercare qualcosa e aprirlo, o "
+    "guardare un video (non una domanda a cui sai già rispondere), aggiungi IN FONDO "
+    "alla risposta un blocco:\n"
+    "```browser\n"
+    '{"action":"open","url":"..."}\n'
+    "```\n"
+    "oppure\n"
+    "```browser\n"
+    '{"action":"search","engine":"youtube","query":"...","open_first_result":true}\n'
+    "```\n"
+    '("engine" può essere "google" o "youtube"). Usalo solo quando serve davvero '
+    "aprire un browser reale — non per domande generiche."
 )
 
 # --------------------------------------------------------------------------- state
@@ -161,6 +173,9 @@ async def run_claude(
 
         if turso.ENABLED and text:
             text = await asyncio.to_thread(brain.extract_and_store, text, ws)
+
+        if text:
+            text = await browser.extract_and_execute(text)
 
         return (text, new_sid, cost)
     finally:

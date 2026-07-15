@@ -11,3 +11,6 @@ node_modules/
 
 # Immagini temporanee (snapshot camera) per il round-trip verso Claude
 /.tmp/
+
+# Profilo Chromium persistente per l'automazione browser (dati, non codice)
+/.browser_profile/
