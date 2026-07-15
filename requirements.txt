@@ -11,7 +11,9 @@ sounddevice>=0.5
 numpy>=2.0
 av>=18.0
 keyboard>=0.13
-opencv-python>=4.10
+# contrib (non solo opencv-python) serve per cv2.face (riconoscimento volto, LBPH)
+opencv-contrib-python>=4.10
+psutil>=6.0
 
 # Automazione browser (blocco d): playwright install chromium richiesto dopo l'installazione
 playwright>=1.61

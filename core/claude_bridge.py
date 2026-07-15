@@ -11,7 +11,9 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from core import turso, brain, browser, persona
+from core import turso, brain, browser, persona, system_actions
+from core.executor_singleton import executor as _system_executor
+from core.voice import face_id
 
 load_dotenv()
 
@@ -65,7 +67,24 @@ SYSTEM = (
     '{"action":"search","engine":"youtube","query":"...","open_first_result":true}\n'
     "```\n"
     '("engine" può essere "google" o "youtube"). Usalo solo quando serve davvero '
-    "aprire un browser reale — non per domande generiche."
+    "aprire un browser reale — non per domande generiche. NON usarlo MAI per "
+    "concetti locali della dashboard/daemon (es. \"apri la webcam\", \"apri il "
+    "second brain\"): quelli sono pannelli gestiti localmente, non siti web da "
+    "navigare, e non vanno mai risolti aprendo un URL.\n\n"
+    "Se l'utente chiede un'azione REALE sul suo PC Windows (aprire/chiudere "
+    "un'applicazione, alzare/abbassare/mutare il volume, bloccare lo schermo, "
+    "mostrare il desktop, fare uno screenshot, spegnere/riavviare/disconnettere "
+    "il PC), aggiungi IN FONDO alla risposta un blocco:\n"
+    "```system\n"
+    '{"action":"open_app","name":"chrome"}\n'
+    "```\n"
+    'Altre "action" disponibili: "close_app" (con "name"), "volume" (con '
+    '"direction": up/down/mute/unmute), "lock", "show_desktop", "screenshot", '
+    '"power" (con "mode": shutdown/restart/logoff — spegnimento/riavvio/logout '
+    "chiedono sempre conferma esplicita, non avviene subito). I comandi brevi e "
+    "diretti vengono gia' gestiti prima di arrivare a te: se ricevi comunque una "
+    "richiesta simile, è quasi certamente parte di una richiesta più composta — "
+    "esegui comunque l'azione col blocco."
 )
 
 # --------------------------------------------------------------------------- state
@@ -111,9 +130,22 @@ async def run_claude(
     if image_b64:
         try:
             image_path = await asyncio.to_thread(_save_temp_image, image_b64)
+
+            identity_line = ""
+            try:
+                name, confidence = await asyncio.to_thread(face_id.recognize_file, image_path)
+                if name:
+                    identity_line = (
+                        f"Riconoscimento locale (webcam): la persona nella foto e' quasi "
+                        f"certamente {name.capitalize()} — puoi rivolgerti a lui per nome se "
+                        "ha senso nel contesto, senza bisogno di chiedere conferma.\n\n"
+                    )
+            except Exception:
+                pass  # riconoscimento best-effort: se fallisce si procede senza identita'
+
             prompt = (
-                f"L'utente ti mostra questa immagine dalla webcam (usa il tuo strumento "
-                f"di lettura per vederla): {image_path}\n\n"
+                f"{identity_line}L'utente ti mostra questa immagine dalla webcam (usa il tuo "
+                f"strumento di lettura per vederla): {image_path}\n\n"
                 "Se nella foto indossa degli occhiali, commenta scherzosamente (una "
                 "battuta breve, non seriosa) che con quegli occhiali sembra napoletano — "
                 "solo se ci sono davvero occhiali visibili, altrimenti non nominarlo.\n\n"
@@ -191,6 +223,8 @@ async def run_claude(
 
         if text:
             text = await browser.extract_and_execute(text)
+        if text:
+            text = await system_actions.extract_and_execute(text, _system_executor)
 
         return (text, new_sid, cost)
     finally:

@@ -105,13 +105,15 @@ def test_execution_logged_to_vault(executor, allowed_dir, vault):
 
 
 def test_open_app_from_registry(executor):
+    # "firefox" non e' tra gli alias diretti di APP_REGISTRY: deve passare
+    # dalla risoluzione dinamica via App Paths di Windows.
     with patch(
         "core.system_executor._resolve_app_path",
-        return_value=r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+        return_value=r"C:\Program Files\Mozilla Firefox\firefox.exe",
     ), patch("core.system_executor.subprocess.Popen") as popen:
-        result = executor.open_app("chrome")
+        result = executor.open_app("firefox")
     assert result.ok is True
-    popen.assert_called_once_with([r"C:\Program Files\Google\Chrome\Application\chrome.exe"])
+    popen.assert_called_once_with([r"C:\Program Files\Mozilla Firefox\firefox.exe"])
 
 
 def test_open_app_not_found(executor):
@@ -125,3 +127,48 @@ def test_open_app_from_registry_alias(executor):
         result = executor.open_app("notepad")
     assert result.ok is True
     popen.assert_called_once_with(["notepad.exe"])
+
+
+def _fake_process(name):
+    proc = MagicMock()
+    proc.info = {"name": name}
+    return proc
+
+
+def test_close_app_terminates_matching_processes(executor):
+    procs = [_fake_process("chrome.exe"), _fake_process("chrome.exe"), _fake_process("notepad.exe")]
+    with patch("core.system_executor.psutil.process_iter", return_value=procs):
+        result = executor.close_app("chrome")
+    assert result.ok is True
+    assert procs[0].terminate.called and procs[1].terminate.called
+    assert not procs[2].terminate.called
+
+
+def test_close_app_not_running(executor):
+    with patch("core.system_executor.psutil.process_iter", return_value=[]):
+        result = executor.close_app("chrome")
+    assert result.ok is False
+
+
+def test_volume_sends_media_key(executor):
+    with patch("core.system_executor.subprocess.run", return_value=_fake_proc()) as run:
+        result = executor.volume("up")
+    assert result.ok is True
+    assert "175" in run.call_args[0][0][-1]
+
+
+def test_power_action_needs_confirmation_then_executes(executor):
+    staged = executor.power_action("shutdown")
+    assert staged.needs_confirmation is True
+    assert staged.token is not None
+
+    with patch("core.system_executor.subprocess.Popen") as popen:
+        result = executor.confirm(staged.token)
+    assert result.ok is True
+    popen.assert_called_once_with(["shutdown", "/s", "/t", "0"])
+
+
+def test_power_action_unknown_mode(executor):
+    result = executor.power_action("hibernate")
+    assert result.ok is False
+    assert result.needs_confirmation is False

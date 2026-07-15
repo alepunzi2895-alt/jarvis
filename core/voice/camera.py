@@ -13,9 +13,17 @@ import re
 
 import cv2
 
+_CAM_WORDS = r"webcam|telecamera|fotocamera|camera"
+_CAM_VERBS = r"vedi|guarda|guardi|mostra|mostri|cosa|apri|apra|accendi|accenda|attiva|attivi"
+
+# Copre sia "webcam... cosa vedi" sia il semplice "apri/accendi la webcam" —
+# quest'ultimo prima non veniva riconosciuto (nessun "vedi"/"cosa" nella
+# frase), quindi cadeva come task generico a Claude, che non avendo modo di
+# "aprire" davvero la webcam finiva per improvvisare un'azione sbagliata
+# (es. aprire un browser). Con questo pattern la richiesta scatta sempre la
+# cattura locale, a prescindere dal verbo usato.
 CAMERA_INTENT_RE = re.compile(
-    r"\b(webcam|telecamera|fotocamera|camera)\b.*\b(vedi|guarda|guardi|mostra|cosa)\b"
-    r"|\b(vedi|guarda|guardi|cosa vedi)\b.*\b(webcam|telecamera|fotocamera|camera)\b",
+    rf"\b({_CAM_WORDS})\b.*\b({_CAM_VERBS})\b|\b({_CAM_VERBS})\b.*\b({_CAM_WORDS})\b",
     re.IGNORECASE,
 )
 

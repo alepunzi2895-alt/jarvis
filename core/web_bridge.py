@@ -10,8 +10,9 @@ Nessuna porta aperta in ingresso: solo richieste outbound, come per Telegram.
 import os
 import asyncio
 
-from core import turso
+from core import turso, intents
 from core.claude_bridge import run_claude
+from core.executor_singleton import executor
 
 POLL_SEC = float(os.getenv("JARVIS_WEB_POLL_SEC", "3"))
 
@@ -63,6 +64,12 @@ async def poll_web_queue() -> None:
 
         print(f"> [web] {task['prompt'][:80]}")
         try:
+            intent = intents.parse_intent(task["prompt"]) if not task.get("image_b64") else None
+            if intent:
+                response = intents.execute_intent(intent, executor, voice=False)
+                await _push_result(task["id"], "done", response, None, 0.0)
+                continue
+
             result, sid, cost = await run_claude(
                 task["prompt"],
                 ws=task.get("workspace"),
