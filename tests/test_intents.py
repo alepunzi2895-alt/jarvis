@@ -3,6 +3,19 @@ from unittest.mock import MagicMock, patch
 from core import intents
 
 
+class _SyncThread:
+    """Sostituisce threading.Thread nei test: esegue il target subito (stesso
+    thread), cosi' le asserzioni su brain.log_interaction non sono in gara con
+    un thread di sfondo che potrebbe non aver ancora girato (execute_intent lo
+    lancia fire-and-forget, senza join, apposta per non bloccare la risposta)."""
+
+    def __init__(self, target=None, args=(), kwargs=None, daemon=None):
+        self._target, self._args, self._kwargs = target, args, kwargs or {}
+
+    def start(self):
+        self._target(*self._args, **self._kwargs)
+
+
 def test_open_and_close_app():
     assert intents.parse_intent("apri chrome") == {"type": "open_app", "name": "chrome"}
     assert intents.parse_intent("chiudi chrome") == {"type": "close_app", "name": "chrome"}
@@ -56,6 +69,7 @@ def test_execute_intent_open_app():
 
 def test_execute_intent_logs_interaction_when_turso_enabled(monkeypatch):
     monkeypatch.setattr("core.turso.ENABLED", True)
+    monkeypatch.setattr("core.intents.threading.Thread", _SyncThread)
     executor = MagicMock()
     executor.open_app.return_value = MagicMock(ok=True)
     with patch("core.brain.log_interaction") as log:
@@ -67,6 +81,7 @@ def test_execute_intent_logs_interaction_when_turso_enabled(monkeypatch):
 
 def test_execute_intent_logs_voice_channel_and_falls_back_to_a_label(monkeypatch):
     monkeypatch.setattr("core.turso.ENABLED", True)
+    monkeypatch.setattr("core.intents.threading.Thread", _SyncThread)
     executor = MagicMock()
     executor.lock_workstation.return_value = MagicMock(ok=True)
     with patch("core.brain.log_interaction") as log:

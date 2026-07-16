@@ -23,6 +23,7 @@ eseguire le stesse azioni tramite un blocco ```system``` (core/system_actions.py
 from __future__ import annotations
 
 import re
+import threading
 
 from core import turso
 from core.system_executor import APP_REGISTRY, DYNAMIC_APP_NAMES, KNOWN_USER_APPS, SystemExecutor
@@ -110,12 +111,20 @@ def execute_intent(
     rapidi non passano MAI da Claude (e' il loro scopo — zero costo/latenza),
     quindi senza questo il grafo second brain non rifletterebbe mai "apri
     chrome"/"che ore sono"/ecc. — richiesta esplicita di Alessandro
-    (2026-07-16): "ogni interazione e domanda aggiorna il grafo"."""
+    (2026-07-16): "ogni interazione e domanda aggiorna il grafo".
+
+    Il log gira su un thread a parte, senza attenderlo: e' una scrittura
+    Turso (~1s) che altrimenti romperebbe la garanzia di "zero latenza" che
+    e' la ragion d'essere di questo modulo. Un thread semplice invece di
+    asyncio perche' questa funzione e' chiamata sia da contesti async
+    (bot.py, core/web_bridge.py) sia da un loop sincrono puro
+    (core/voice/daemon.py) — un thread funziona identico in entrambi."""
     response = _execute(intent, executor, voice)
     if turso.ENABLED:
         from core import brain  # import qui: evita di caricare brain.py se turso e' disabilitato
 
-        brain.log_interaction(raw_text or f"[comando] {intent.get('type', '?')}", workspace, "voice" if voice else "text")
+        label = raw_text or f"[comando] {intent.get('type', '?')}"
+        threading.Thread(target=brain.log_interaction, args=(label, workspace, "voice" if voice else "text"), daemon=True).start()
     return response
 
 

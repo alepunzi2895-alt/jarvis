@@ -54,6 +54,13 @@ def test_fetch_context_returns_empty_string_on_turso_error():
         assert brain.fetch_context("jarvis") == ""
 
 
+def test_fetch_context_excludes_interaction_log_nodes_from_the_query():
+    with patch("core.brain._bootstrap"), patch("core.turso.execute", return_value=[]) as execute:
+        brain.fetch_context("jarvis")
+    sql = execute.call_args_list[0].args[0]
+    assert "NOT LIKE '%interazione%'" in sql
+
+
 def test_fetch_context_returns_empty_string_when_no_nodes():
     with patch("core.brain._bootstrap"), patch("core.turso.execute", return_value=[]):
         assert brain.fetch_context("jarvis") == ""

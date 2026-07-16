@@ -7,6 +7,7 @@ import json
 import time
 import base64
 import asyncio
+import threading
 from datetime import datetime
 from pathlib import Path
 
@@ -44,9 +45,14 @@ SYSTEM = (
     "Sei JARVIS, assistente personale di Alessandro. Rivolgiti a lui con "
     "gentilezza e cortesia, sempre — mai freddo, mai sbrigativo. "
     "Rispondi in italiano. Frasi brevi, niente preamboli. "
-    "Leggi sempre memory/profile.md e il file di progetto pertinente prima di agire. "
+    "Leggi sempre memory/profile.md e il file di progetto pertinente prima di agire, "
+    "e segui un eventuale playbook pertinente in memory/playbooks/. "
     "A fine task aggiorna memory/log/<data>.md con: task, esito, cosa hai imparato. "
-    "Se un task e' distruttivo o irreversibile, chiedi conferma prima.\n\n"
+    "Se un task e' distruttivo o irreversibile, chiedi conferma prima. "
+    "Confini assoluti, senza eccezioni: mai pubblicare su social o inviare messaggi "
+    "a clienti senza conferma esplicita; mai eseguire ordini di trading reali (solo "
+    "analisi, backtest, report); in git lavora sempre su branch, mai push diretto "
+    "su main senza dirlo prima.\n\n"
     "Hai anche una memoria a lungo termine (second brain, nodi e relazioni) che ti "
     "viene fornita qui sotto come contesto, quando presente. Quando emerge un'idea, "
     "un fatto o una decisione duratura degna di essere ricordata in futuro (non il "
@@ -191,6 +197,20 @@ async def run_claude(
         # diversi secondi extra per comando. Caricarli solo nel workspace
         # che li usa davvero dimezza il tempo di risposta altrove.
         cmd += ["--strict-mcp-config"]
+    if os.getenv("JARVIS_CLI_BARE", "1") != "0":
+        # --bare salta hook/LSP/plugin-sync/auto-memory/prefetch in background
+        # e l'auto-discovery di CLAUDE.md di Claude Code stesso — tutta roba
+        # che JARVIS non usa (ha la propria memoria in memory/ e second brain).
+        # Richiede ANTHROPIC_API_KEY (gia' in .env per il canale voce): con
+        # --bare l'autenticazione passa da abbonamento/OAuth a pagamento a
+        # consumo sull'API key, anche per questo canale. Misurato dal vivo
+        # (2026-07-16): costo per chiamata ~5-10x piu' basso (meno token di
+        # contesto iniettati automaticamente), stessi strumenti (Read/Write/
+        # Bash verificati funzionanti) e --resume compatibile; il tempo totale
+        # non migliora in modo drammatico (il floor e' l'avvio del processo
+        # CLI stesso, non toccato da questo flag). Togli JARVIS_CLI_BARE=0 in
+        # .env per tornare al comportamento precedente.
+        cmd += ["--bare"]
     model = VOICE_MODEL if channel == "voice" else MODEL
     if model:
         cmd += ["--model", model]
@@ -231,7 +251,9 @@ async def run_claude(
         if turso.ENABLED and text:
             text = await asyncio.to_thread(brain.extract_and_store, text, ws)
         if turso.ENABLED:
-            await asyncio.to_thread(brain.log_interaction, original_prompt, ws, channel)
+            # Fire-and-forget: e' un log di attivita', non deve aggiungere
+            # ~1s in coda a una risposta che l'utente sta gia' aspettando.
+            threading.Thread(target=brain.log_interaction, args=(original_prompt, ws, channel), daemon=True).start()
 
         if text:
             text = await browser.extract_and_execute(text)

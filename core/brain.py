@@ -23,7 +23,8 @@ from core.obsidian import ObsidianVault
 BRAIN_BLOCK_RE = re.compile(r"```brain\s*\n(.*?)\n```", re.DOTALL)
 SLUG_RE = re.compile(r"[^a-z0-9]+")
 
-CONTEXT_LIMIT = 40
+CONTEXT_LIMIT = 15  # oltre questo, il contesto iniettato in OGNI messaggio diventa pesante (misurato: 15KB+ con 40) senza guadagno proporzionale
+SUMMARY_MAX_CHARS = 200
 
 _bootstrapped = False
 _vault_checked = False
@@ -91,11 +92,17 @@ def fetch_context(workspace: str, limit: int = CONTEXT_LIMIT) -> str:
     Il second brain e' un arricchimento del prompt, non un requisito: un blip di
     rete Turso (transitorio, pattern noto su questa macchina — vedi
     [[network-quirks-this-pc]]) non deve mai far fallire l'intera risposta a
-    Claude, quindi degrada a "nessun contesto" invece di propagare l'errore."""
+    Claude, quindi degrada a "nessun contesto" invece di propagare l'errore.
+
+    Esclude i nodi "interazione" (log_interaction): esistono per il grafo/
+    Obsidian, non per essere ri-iniettati come fatti da ricordare — il loro
+    hits cresce ad ogni scambio, quindi finirebbero sempre in cima
+    all'ordinamento e soffocherebbero i nodi con fatti veri ma piu' rari."""
     try:
         _bootstrap()
         nodes = turso.execute(
             "SELECT id, label, summary, workspace, tags FROM brain_nodes "
+            "WHERE tags IS NULL OR tags NOT LIKE '%interazione%' "
             "ORDER BY (workspace = ?) DESC, hits DESC, updated_at DESC LIMIT ?",
             [workspace, limit],
         )
@@ -114,7 +121,10 @@ def fetch_context(workspace: str, limit: int = CONTEXT_LIMIT) -> str:
         lines = ["## Second brain — nodi noti (memoria a lungo termine)"]
         for n in nodes:
             tag = f" [{n['workspace']}]" if n.get("workspace") else ""
-            summary = f" — {n['summary']}" if n.get("summary") else ""
+            raw_summary = n.get("summary") or ""
+            if len(raw_summary) > SUMMARY_MAX_CHARS:
+                raw_summary = raw_summary[:SUMMARY_MAX_CHARS].rstrip() + "…"
+            summary = f" — {raw_summary}" if raw_summary else ""
             lines.append(f"- {n['label']}{tag}{summary}")
         if edges:
             lines.append("\nRelazioni:")

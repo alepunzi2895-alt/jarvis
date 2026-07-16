@@ -38,6 +38,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import os
+import threading
 from datetime import datetime
 
 import anthropic
@@ -176,7 +177,11 @@ async def run_voice(prompt: str, ws: str, image_b64: str | None = None) -> tuple
         from core import brain  # import qui: evita di caricare brain.py se turso e' disabilitato
 
         text = await asyncio.to_thread(brain.extract_and_store, text, ws)
-        await asyncio.to_thread(brain.log_interaction, prompt, ws, "voice")
+        # Fire-and-forget (thread, non asyncio.to_thread): questa funzione e'
+        # spesso invocata via asyncio.run() per singola chiamata
+        # (core/voice/daemon.py) — un task asyncio non atteso verrebbe
+        # cancellato alla chiusura del loop prima di completare, un thread no.
+        threading.Thread(target=brain.log_interaction, args=(prompt, ws, "voice"), daemon=True).start()
 
     text = await browser.extract_and_execute(text)
     text = await system_actions.extract_and_execute(text, _system_executor)
