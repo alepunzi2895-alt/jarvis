@@ -40,8 +40,15 @@ def wants_camera(text: str) -> bool:
 
 
 def capture_frame_b64(device_index: int = 0) -> str | None:
-    """Cattura un singolo frame dalla webcam, ritorna JPEG base64 o None se non disponibile."""
-    cap = cv2.VideoCapture(device_index)
+    """Cattura un singolo frame dalla webcam, ritorna JPEG base64 o None se non disponibile.
+
+    Backend forzato a DirectShow (CAP_DSHOW): senza specificarlo, OpenCV su
+    Windows sceglie MSMF/auto-detect per questa webcam, che impiega 30-60s per
+    aprire il device invece di ~2.5s con DSHOW — misurato dal vivo su questa
+    macchina (bug reale, 2026-07-16: "apri la webcam" sembrava rotto/lentissimo
+    e Claude, senza immagine ancora pronta in tempo, a volte improvvisava
+    aprendo un browser)."""
+    cap = cv2.VideoCapture(device_index, cv2.CAP_DSHOW)
     try:
         if not cap.isOpened():
             return None
