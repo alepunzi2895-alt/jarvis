@@ -18,12 +18,23 @@ import json
 import os
 import re
 from pathlib import Path
+from urllib.parse import urlparse
 
 from playwright.async_api import async_playwright, BrowserContext, Playwright
 
 BROWSER_BLOCK_RE = re.compile(r"```browser\s*\n(.*?)\n```", re.DOTALL)
 
 PROFILE_DIR = Path(os.getenv("JARVIS_HOME", str(Path(__file__).parent.parent))) / ".browser_profile"
+
+# Nessun indirizzo locale e' mai un sito vero da navigare (dashboard, second
+# brain, webcam sono concetti locali, non pagine web — il SYSTEM prompt lo
+# dice esplicitamente a Claude, ma un'istruzione a parole non e' bastata: lo
+# stesso bug ("apro la dashboard" -> ERR_CONNECTION_REFUSED su localhost:3000,
+# che non e' nemmeno un server in esecuzione) si e' ripresentato tre volte
+# (15/07 mattina, 15/07 sera, 16/07) nonostante il prompt lo vietasse gia'.
+# Bloccato qui, a livello di codice, invece di continuare a fidarsi del solo
+# prompt.
+_LOCAL_HOSTS = {"localhost", "127.0.0.1", "0.0.0.0", "::1"}
 
 SEARCH_URLS = {
     "google": "https://www.google.com/search?q={query}",
@@ -72,6 +83,11 @@ class BrowserAgent:
             return await context.new_page()
 
     async def open(self, url: str) -> str:
+        if (urlparse(url).hostname or "") in _LOCAL_HOSTS:
+            return (
+                "Non apro un browser per un indirizzo locale: dashboard, second brain e "
+                "webcam sono gestiti in locale, non sono siti da navigare."
+            )
         page = await self._new_page()
         await page.goto(url, wait_until="domcontentloaded")
         return f"Aperto {url}."
