@@ -12,7 +12,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from core import turso, brain, browser, persona, system_actions
+from core import turso, brain, browser, persona, system_actions, weather
 from core.executor_singleton import executor as _system_executor
 from core.voice import face_id
 
@@ -130,6 +130,7 @@ async def run_claude(
     ws = ws or state["ws"]
     cwd = WORKSPACES.get(ws, str(JARVIS_HOME))
     sid = state["sessions"].get(ws)
+    original_prompt = prompt  # per il log second-brain: prima che venga arricchito col testo webcam/identita'
 
     image_path = None
     if image_b64:
@@ -161,6 +162,9 @@ async def run_claude(
 
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
     system_prompt = f"{SYSTEM}\n\nData e ora attuali: {now}."
+    weather_line = await asyncio.to_thread(weather.get_weather_line)
+    if weather_line:
+        system_prompt += f" Meteo attuale: {weather_line}."
     if turso.ENABLED:
         ctx = await asyncio.to_thread(brain.fetch_context, ws)
         if ctx:
@@ -226,6 +230,8 @@ async def run_claude(
 
         if turso.ENABLED and text:
             text = await asyncio.to_thread(brain.extract_and_store, text, ws)
+        if turso.ENABLED:
+            await asyncio.to_thread(brain.log_interaction, original_prompt, ws, channel)
 
         if text:
             text = await browser.extract_and_execute(text)

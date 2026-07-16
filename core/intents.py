@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import re
 
+from core import turso
 from core.system_executor import APP_REGISTRY, DYNAMIC_APP_NAMES, KNOWN_USER_APPS, SystemExecutor
 
 _MAX_WORDS = 10  # oltre questa soglia, non e' un comando semplice: passa da Claude
@@ -98,8 +99,27 @@ def parse_intent(text: str) -> dict | None:
 _POWER_LABELS = {"shutdown": "spegnere il PC", "restart": "riavviare il PC", "logoff": "disconnettere l'utente"}
 
 
-def execute_intent(intent: dict, executor: SystemExecutor, voice: bool) -> str:
-    """Esegue l'azione e ritorna una frase pronta da mostrare/pronunciare."""
+def execute_intent(
+    intent: dict, executor: SystemExecutor, voice: bool, workspace: str = "jarvis", raw_text: str = ""
+) -> str:
+    """Esegue l'azione, logga l'interazione nel second brain, ritorna una frase
+    pronta da mostrare/pronunciare.
+
+    Il log e' qui (non nei 3 chiamanti: bot.py, core/web_bridge.py,
+    core/voice/daemon.py) per avere un solo punto d'ingresso: questi comandi
+    rapidi non passano MAI da Claude (e' il loro scopo — zero costo/latenza),
+    quindi senza questo il grafo second brain non rifletterebbe mai "apri
+    chrome"/"che ore sono"/ecc. — richiesta esplicita di Alessandro
+    (2026-07-16): "ogni interazione e domanda aggiorna il grafo"."""
+    response = _execute(intent, executor, voice)
+    if turso.ENABLED:
+        from core import brain  # import qui: evita di caricare brain.py se turso e' disabilitato
+
+        brain.log_interaction(raw_text or f"[comando] {intent.get('type', '?')}", workspace, "voice" if voice else "text")
+    return response
+
+
+def _execute(intent: dict, executor: SystemExecutor, voice: bool) -> str:
     kind = intent["type"]
     sir = ", Signore" if voice else ""
 

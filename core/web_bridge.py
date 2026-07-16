@@ -69,7 +69,9 @@ async def poll_web_queue() -> None:
 
             intent = intents.parse_intent(task["prompt"]) if not image_b64 else None
             if intent:
-                response = intents.execute_intent(intent, executor, voice=False)
+                response = intents.execute_intent(
+                    intent, executor, voice=False, workspace=task.get("workspace") or "jarvis", raw_text=task["prompt"]
+                )
                 await _push_result(task["id"], "done", response, None, 0.0)
                 continue
 

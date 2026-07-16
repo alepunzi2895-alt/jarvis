@@ -215,7 +215,7 @@ async def handle(text: str) -> None:
     # spegni/riavvia) — riconosciuti subito, senza passare da Claude
     intent = intents.parse_intent(text)
     if intent:
-        return send(intents.execute_intent(intent, executor, voice=False))
+        return send(intents.execute_intent(intent, executor, voice=False, workspace=state["ws"], raw_text=text))
 
     # "scatta/fotografa/apri la webcam e dimmi cosa vedi" da Telegram: senza
     # questo Claude non ha modo di ottenere un'immagine vera e finisce per

@@ -16,11 +16,16 @@ core/browser.py), quindi funziona identico sia da CLI sia da qui.
 
 Decisione esplicita di Alessandro (2026-07-15): SOLO il canale vocale passa
 all'API diretta — Telegram/dashboard restano su claude -p (servono gli
-strumenti file/bash per i task reali). La memoria a lungo termine (second
-brain) qui e' SOLO in lettura: il contesto viene iniettato come sempre
-(fetch_context), ma questo canale non scrive mai nodi nuovi — se emerge
-qualcosa di memorabile durante una conversazione vocale, tocca a un
-passaggio testuale (Telegram/dashboard) registrarlo.
+strumenti file/bash per i task reali).
+
+Aggiornamento 2026-07-16 (richiesta esplicita: "ogni interazione e domanda
+aggiorna il grafo"): il second brain qui non e' piu' solo in lettura — questo
+canale ora estrae e scrive anche i blocchi ```brain``` come claude_bridge.py.
+Correggeva anche un bug reale: prima di questo fix, un blocco ```brain```
+emesso da Claude durante una risposta vocale (il SYSTEM condiviso lo incoraggia
+per qualunque canale, non solo testo) non veniva MAI ripulito qui — sarebbe
+finito letto ad alta voce come JSON grezzo dal motore TTS invece di restare
+invisibile come sul canale testuale.
 
 Cronologia conversazione: tenuta in memoria di processo (non su
 state.json) — la voce e' per natura effimera, e persisterla creerebbe una
@@ -37,7 +42,7 @@ from datetime import datetime
 
 import anthropic
 
-from core import browser, persona, system_actions, turso
+from core import browser, persona, system_actions, turso, weather
 from core.claude_bridge import SYSTEM
 from core.executor_singleton import executor as _system_executor
 from core.voice import face_id
@@ -97,6 +102,9 @@ def reset_history(ws: str) -> None:
 async def _build_system_prompt(ws: str) -> str:
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
     system_prompt = f"{SYSTEM}\n\nData e ora attuali: {now}."
+    weather_line = await asyncio.to_thread(weather.get_weather_line)
+    if weather_line:
+        system_prompt += f" Meteo attuale: {weather_line}."
     if turso.ENABLED:
         ctx = await asyncio.to_thread(_fetch_context, ws)
         if ctx:
@@ -163,6 +171,12 @@ async def run_voice(prompt: str, ws: str, image_b64: str | None = None) -> tuple
         messages=messages,
     )
     text = next((b.text for b in response.content if b.type == "text"), "") or "(nessun output)"
+
+    if turso.ENABLED:
+        from core import brain  # import qui: evita di caricare brain.py se turso e' disabilitato
+
+        text = await asyncio.to_thread(brain.extract_and_store, text, ws)
+        await asyncio.to_thread(brain.log_interaction, prompt, ws, "voice")
 
     text = await browser.extract_and_execute(text)
     text = await system_actions.extract_and_execute(text, _system_executor)

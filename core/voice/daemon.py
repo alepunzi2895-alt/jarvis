@@ -126,7 +126,9 @@ def main() -> None:
 
             intent = intents.parse_intent(text)
             if intent:
-                response = intents.execute_intent(intent, executor, voice=True)
+                response = intents.execute_intent(
+                    intent, executor, voice=True, workspace=_current_workspace(), raw_text=text
+                )
                 print(f"< {response}")
                 _speak_with_interrupt(engine, listener, response)
                 continue

@@ -201,3 +201,46 @@ Whitelist `SystemExecutor` = repo JARVIS + `ConciergeFlow` +
 - Reti di questa macchina: blip DNS/timeout transitori ricorrenti durante
   questa sessione (Turso, cdn.playwright.dev) — sempre risolti da soli in
   pochi minuti, coerente con [[network-quirks-this-pc]].
+
+## JARVIS v3.1 — meteo, log di ogni interazione, hardening second brain (2026-07-16, branch `feature/jarvis-weather-brain-logging`, mergiato in main)
+
+Su richiesta di Alessandro (JARVIS "come un sistema operativo": webcam+battuta
+occhiali, ora, meteo, check TradeFlow, più "sistema tutto cio' che non
+funziona" e "ogni interazione aggiorna il grafo Obsidian"). Verificato che
+webcam/battuta napoletano/controllo OS/riconoscimento volto/ora erano già
+implementati e intatti (blocchi v3 precedenti) — non ricostruiti.
+
+- **`core/weather.py`** (nuovo): Open-Meteo + fallback IP-geolocation, nessuna
+  API key, cache 20 min. Iniettato nel system prompt come data/ora, in
+  entrambi `core/claude_bridge.py` e `core/claude_api.py`. Override:
+  `JARVIS_WEATHER_LAT/LON/CITY`.
+- **`core/brain.py::log_interaction()`** (nuovo): un nodo per giorno+workspace
+  (non uno per domanda) bump-ato ad OGNI interazione — comandi rapidi di
+  `core/intents.py` inclusi (prima non toccavano mai il second brain, zero
+  passaggio da Claude). Wired in `claude_bridge.run_claude()`,
+  `claude_api.run_voice()`, `intents.execute_intent()` (nuovi parametri
+  `workspace`/`raw_text`, propagati da bot.py/web_bridge.py/daemon.py).
+- **Bug fix**: `claude_api.run_voice()` non chiamava mai
+  `brain.extract_and_store()` — un blocco ```brain``` emesso durante una
+  risposta vocale sarebbe stato letto ad alta voce come JSON grezzo. Corretto
+  e, su richiesta esplicita di oggi, la voce ora SCRIVE nel second brain
+  (superata la decisione "sola lettura" del 2026-07-15).
+- **Bug fix**: `brain.fetch_context()`/`extract_and_store()` chiamavano
+  `_bootstrap()`/Turso senza try/except — un blip di rete transitorio (vedi
+  [[network-quirks-this-pc]]) faceva fallire l'intera risposta a Claude
+  invece di degradare silenziosamente. Ora tornano un default sicuro su
+  qualunque eccezione — il second brain resta un arricchimento, mai un
+  requisito per rispondere.
+- Verificato con chiamate reali (non mock): meteo live → "32°C, cielo sereno,
+  vento 12 km/h (Palma)"; nodo + nota Obsidian creati per davvero su Turso/
+  vault veri. 41/41 test passano (17 nuovi: `tests/conftest.py` con guardrail
+  che disabilita Turso/vault reali nei test — questa macchina ha credenziali
+  vere in `.env`, senza guardrail i test avrebbero scritto dati finti nel
+  second brain/vault di produzione).
+- **Non verificato dal vivo** (richiede lui): "che meteo c'è" a voce reale,
+  grafo dashboard che mostra il nodo "Interazioni ws — data" crescere ad ogni
+  scambio nel browser vero.
+- TradeFlow AI controllato (sola analisi, JARVIS non tocca quel repo): bot
+  fermo dal 2026-07-10 (bug reale, fix scritto ma non deployato + serve
+  restart VPS) e cron giornaliero fermo da una settimana — dettagli in
+  `memory/projects/tradeflow-ai.md`.

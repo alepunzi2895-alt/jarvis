@@ -14,6 +14,7 @@ import json
 import os
 import re
 import uuid
+from datetime import date
 from pathlib import Path
 
 from core import turso
@@ -86,38 +87,45 @@ def _get_node_id(label_key: str) -> str | None:
 
 
 def fetch_context(workspace: str, limit: int = CONTEXT_LIMIT) -> str:
-    """Nodi rilevanti (workspace corrente prima, poi piu' rinforzati/recenti) + relazioni."""
-    _bootstrap()
-    nodes = turso.execute(
-        "SELECT id, label, summary, workspace, tags FROM brain_nodes "
-        "ORDER BY (workspace = ?) DESC, hits DESC, updated_at DESC LIMIT ?",
-        [workspace, limit],
-    )
-    if not nodes:
+    """Nodi rilevanti (workspace corrente prima, poi piu' rinforzati/recenti) + relazioni.
+    Il second brain e' un arricchimento del prompt, non un requisito: un blip di
+    rete Turso (transitorio, pattern noto su questa macchina — vedi
+    [[network-quirks-this-pc]]) non deve mai far fallire l'intera risposta a
+    Claude, quindi degrada a "nessun contesto" invece di propagare l'errore."""
+    try:
+        _bootstrap()
+        nodes = turso.execute(
+            "SELECT id, label, summary, workspace, tags FROM brain_nodes "
+            "ORDER BY (workspace = ?) DESC, hits DESC, updated_at DESC LIMIT ?",
+            [workspace, limit],
+        )
+        if not nodes:
+            return ""
+
+        ids = [n["id"] for n in nodes]
+        id_to_label = {n["id"]: n["label"] for n in nodes}
+        placeholders = ",".join("?" * len(ids))
+        edges = turso.execute(
+            f"SELECT source_id, target_id, relation FROM brain_edges "
+            f"WHERE source_id IN ({placeholders}) AND target_id IN ({placeholders})",
+            ids + ids,
+        )
+
+        lines = ["## Second brain — nodi noti (memoria a lungo termine)"]
+        for n in nodes:
+            tag = f" [{n['workspace']}]" if n.get("workspace") else ""
+            summary = f" — {n['summary']}" if n.get("summary") else ""
+            lines.append(f"- {n['label']}{tag}{summary}")
+        if edges:
+            lines.append("\nRelazioni:")
+            for e in edges:
+                src = id_to_label.get(e["source_id"], "?")
+                tgt = id_to_label.get(e["target_id"], "?")
+                rel = e.get("relation") or "collegato a"
+                lines.append(f"- {src} -> {rel} -> {tgt}")
+        return "\n".join(lines)
+    except Exception:  # noqa: BLE001
         return ""
-
-    ids = [n["id"] for n in nodes]
-    id_to_label = {n["id"]: n["label"] for n in nodes}
-    placeholders = ",".join("?" * len(ids))
-    edges = turso.execute(
-        f"SELECT source_id, target_id, relation FROM brain_edges "
-        f"WHERE source_id IN ({placeholders}) AND target_id IN ({placeholders})",
-        ids + ids,
-    )
-
-    lines = ["## Second brain — nodi noti (memoria a lungo termine)"]
-    for n in nodes:
-        tag = f" [{n['workspace']}]" if n.get("workspace") else ""
-        summary = f" — {n['summary']}" if n.get("summary") else ""
-        lines.append(f"- {n['label']}{tag}{summary}")
-    if edges:
-        lines.append("\nRelazioni:")
-        for e in edges:
-            src = id_to_label.get(e["source_id"], "?")
-            tgt = id_to_label.get(e["target_id"], "?")
-            rel = e.get("relation") or "collegato a"
-            lines.append(f"- {src} -> {rel} -> {tgt}")
-    return "\n".join(lines)
 
 
 def _mirror_node_to_vault(vault: ObsidianVault, label: str, summary: str | None, workspace: str, tags: list) -> None:
@@ -209,20 +217,59 @@ def _store(payload: dict, workspace: str) -> None:
 
 
 def extract_and_store(result_text: str, workspace: str) -> str:
-    """Estrae ed elabora ogni blocco ```brain```, ritorna il testo senza quei blocchi."""
+    """Estrae ed elabora ogni blocco ```brain```, ritorna il testo senza quei blocchi.
+    Il blocco va rimosso dal testo mostrato/pronunciato anche se il bootstrap
+    Turso fallisce (blip di rete transitorio) — altrimenti l'utente vedrebbe/
+    sentirebbe il JSON grezzo del blocco."""
     matches = list(BRAIN_BLOCK_RE.finditer(result_text))
     if not matches:
         return result_text
 
-    _bootstrap()
-    for m in matches:
-        try:
-            payload = json.loads(m.group(1))
-        except json.JSONDecodeError:
-            continue
-        try:
-            _store(payload, workspace)
-        except (OSError, RuntimeError):
-            pass  # errore Turso non deve far fallire la risposta all'utente
+    try:
+        _bootstrap()
+        for m in matches:
+            try:
+                payload = json.loads(m.group(1))
+            except json.JSONDecodeError:
+                continue
+            try:
+                _store(payload, workspace)
+            except Exception:  # noqa: BLE001
+                pass  # errore Turso non deve far fallire la risposta all'utente
+    except Exception:  # noqa: BLE001
+        pass  # bootstrap fallito: niente scrittura, ma il blocco va ripulito comunque
 
     return BRAIN_BLOCK_RE.sub("", result_text).strip()
+
+
+def log_interaction(prompt: str, workspace: str, channel: str) -> None:
+    """Aggiorna un nodo di log per-giorno/workspace ad OGNI interazione (comando
+    rapido di core/intents.py, domanda vocale, chat testuale) — cosi' il grafo
+    second brain riflette ogni scambio, non solo i fatti che Claude sceglie di
+    ricordare di propria iniziativa (richiesta esplicita di Alessandro,
+    2026-07-16: "ogni interazione e domanda aggiorna il grafo").
+
+    Un nodo per giorno+workspace (non uno per domanda) evita che migliaia di
+    scambi banali ("che ore sono") sommergano il grafo di nodi usa-e-getta:
+    ogni interazione bumpa hits/updated_at e aggiorna la sintesi con l'ultimo
+    scambio, riusando lo stesso upsert di _store(). Best-effort come il resto
+    del modulo: un errore Turso non deve mai rompere la risposta all'utente."""
+    try:
+        _bootstrap()
+        today = date.today().isoformat()
+        label = f"Interazioni {workspace} — {today}"
+        snippet = " ".join(prompt.split())[:140]
+        _store(
+            {
+                "nodes": [
+                    {
+                        "label": label,
+                        "summary": f'Ultima ({channel}): "{snippet}"',
+                        "tags": ["interazione", channel],
+                    }
+                ]
+            },
+            workspace,
+        )
+    except Exception:  # noqa: BLE001
+        pass

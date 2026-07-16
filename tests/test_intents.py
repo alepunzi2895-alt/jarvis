@@ -1,4 +1,4 @@
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from core import intents
 
@@ -52,3 +52,34 @@ def test_execute_intent_open_app():
     result = intents.execute_intent({"type": "open_app", "name": "chrome"}, executor, voice=False)
     assert "chrome" in result.lower()
     executor.open_app.assert_called_once_with("chrome")
+
+
+def test_execute_intent_logs_interaction_when_turso_enabled(monkeypatch):
+    monkeypatch.setattr("core.turso.ENABLED", True)
+    executor = MagicMock()
+    executor.open_app.return_value = MagicMock(ok=True)
+    with patch("core.brain.log_interaction") as log:
+        intents.execute_intent(
+            {"type": "open_app", "name": "chrome"}, executor, voice=False, workspace="jarvis", raw_text="apri chrome"
+        )
+    log.assert_called_once_with("apri chrome", "jarvis", "text")
+
+
+def test_execute_intent_logs_voice_channel_and_falls_back_to_a_label(monkeypatch):
+    monkeypatch.setattr("core.turso.ENABLED", True)
+    executor = MagicMock()
+    executor.lock_workstation.return_value = MagicMock(ok=True)
+    with patch("core.brain.log_interaction") as log:
+        intents.execute_intent({"type": "lock"}, executor, voice=True)  # niente raw_text
+    assert log.call_args.args[1] == "jarvis"  # workspace di default
+    assert log.call_args.args[2] == "voice"
+    assert "lock" in log.call_args.args[0]
+
+
+def test_execute_intent_skips_logging_when_turso_disabled():
+    # turso.ENABLED e' gia' False di default nei test (tests/conftest.py)
+    executor = MagicMock()
+    executor.open_app.return_value = MagicMock(ok=True)
+    with patch("core.brain.log_interaction") as log:
+        intents.execute_intent({"type": "open_app", "name": "chrome"}, executor, voice=False)
+    log.assert_not_called()
