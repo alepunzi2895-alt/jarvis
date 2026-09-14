@@ -244,3 +244,127 @@ implementati e intatti (blocchi v3 precedenti) — non ricostruiti.
   fermo dal 2026-07-10 (bug reale, fix scritto ma non deployato + serve
   restart VPS) e cron giornaliero fermo da una settimana — dettagli in
   `memory/projects/tradeflow-ai.md`.
+
+## JARVIS v4 — always-on, voce streaming+GPU, stato progetti (2026-09-14, branch feature/jarvis-autostart + feature/jarvis-voice-streaming + feature/jarvis-project-status, mergiati in main)
+
+Sessione ripresa dopo ~2 mesi di pausa (ultimo log 2026-07-16). Richiesta di
+Alessandro: JARVIS "vero concetto di Iron Man" — usa la sua macchina,
+risponde in fretta a comando vocale, verifica stato progetti, e altro.
+Verificato a inizio sessione: v3.1 intatto ma bot.py/daemon vocale
+entrambi SPENTI (nessun processo attivo) — avviati a mano. Piano approvato
+in Plan Mode a blocchi. Tentata prima esecuzione con 3 subagent fork
+paralleli su worktree isolati — tutti e 3 falliti a meta' per rate limit
+di sessione (429, reset 20:30 Europe/Rome). Due worktree avevano gia'
+scritto un file completo ciascuno prima di fallire (setup_autostart.ps1,
+core/project_status.py) — salvati e riusati invece di ricostruire da
+zero; il terzo (voce) non aveva scritto nulla, ricostruito direttamente.
+
+**Blocco A — avvio automatico** (`setup_autostart.ps1`/
+`uninstall_autostart.ps1`): due Scheduled Task (`\JARVIS\Bot`,
+`\JARVIS\VoiceDaemon`), avvio a ogni logon, nessuna finestra (wrapper
+`.vbs` -> `pythonw.exe` dentro `cmd /c ... > logs\*.log 2>&1` — senza il
+redirect, `sys.stdout is None` di un processo GUI-subsystem farebbe
+esplodere `daemon.py` all'avvio contro `sys.stdout.reconfigure(...)`),
+restart automatico se crasha (5 tentativi/2min), flag batteria
+(portatile). Registrato ed eseguito dal vivo con successo — connessione
+TLS reale a Telegram (149.154.166.110:443) confermata per il processo
+lanciato dal task.
+
+**Limite scoperto sul campo, non una scelta progettuale**: da una sessione
+Claude Code (stesso utente Windows, stessa sessione, verificato) NON si
+riesce a terminare un processo lanciato da uno Scheduled Task — "Accesso
+negato" sia con `Stop-Process` che `taskkill` che (silenziosamente)
+`Stop-ScheduledTask` sui processi orfani sotto `pythonw.exe`. Owner e
+SessionId combaciano esattamente con quelli della sessione Claude Code
+stessa — non e' un problema di utente/sessione diversi. Causa quasi certa:
+EDR aziendale (macchina nel dominio `IVECOEUROPE`) o una restrizione del
+token di questa sessione di automazione. **Conseguenza pratica**: dopo
+QUALSIASI modifica a bot.py/daemon una volta che l'autostart e' attivo, se
+il processo vecchio e' gia' in esecuzione, farlo ripartire con il codice
+nuovo richiede o un vero logoff/riavvio di Windows o che Alessandro lo
+chiuda lui stesso (Task Manager, ha accesso pieno) — una sessione Claude
+Code da sola non ci riesce piu' una volta che il task e' partito. Successo
+in questa sessione (2026-09-14): il vecchio bot.py e' rimasto sul codice
+pre-merge (impossibile far ripartire); VoiceDaemon invece e' ripartito
+pulito col nuovo codice perche' non stava gia' girando quando il merge e'
+avvenuto.
+
+**Blocco B — voce streaming + GPU** (`core/claude_api.py`,
+`core/voice/tts.py`, `core/voice/daemon.py`, `core/voice/stt.py`):
+`run_voice_streaming()` sostituisce la chiamata bloccante — Claude genera
+via `client.messages.stream()`, JARVIS inizia a parlare dalla prima frase
+pronta (regex split su `.!?`/newline) invece di aspettare tutta la
+risposta; si ferma di colpo a parlare appena vede l'inizio di un fence
+```` ``` ````: i blocchi ```brain```/```browser```/```system``` restano
+SEMPRE fuori dall'audio (il testo completo continua ad accumularsi
+invariato per l'estrazione a valle) — stesso rischio del bug "JSON letto
+ad alta voce" gia' capitato una volta (2026-07-16), qui strutturalmente
+impossibile. `tts.py::speak_stream()` sintetizza la frase N+1 (edge-tts
+via websocket, gia' capace di streaming — prima sfruttato solo per il
+salvataggio su file intero) mentre la N sta suonando, coda `asyncio.Queue`
+apposta NON limitata (una `maxsize=1` sembra piu' "naturale" per un
+lookahead di una frase sola ma rischia il deadlock se il consumer esce
+mentre il producer e' bloccato su `queue.put()`). Interruzione (hotkey/
+wake word mentre JARVIS parla) confermata ancora funzionante, ora piu'
+granulare (per frase, non piu' per l'intera risposta). GPU: `stt.py` prova
+`device="cuda"`, fallback automatico e loggato a `device="cpu"` —
+**verificato dal vivo che il fallback scatta davvero su questa macchina**:
+`RuntimeError: CUDA driver version is insufficient for CUDA runtime
+version` — la NVIDIA T1200 c'e' ma non e' sfruttata finche' non si
+aggiorna il driver NVIDIA (non fatto oggi, decisione sua). 63/63 test
+verdi (7 nuovi, incluso un test dedicato che conferma che un fence ```
+interrompe la voce ma non l'estrazione blocchi). **Non verificato dal vivo
+in questa sessione**: audio/microfono reali (richiede la presenza fisica
+di Alessandro) — pero' il VoiceDaemon gira gia' con questo identico
+codice (vedi Blocco A), pronto per essere provato.
+
+**Blocco C — stato progetti + digest mattutino** (`core/project_status.py`
+nuovo, `bot.py`, `core/intents.py`, `core/web_bridge.py`): un solo punto
+(`check_all()`+`format_report()`, riusato ovunque) richiamato da comando
+Telegram `/progetti`, intent veloce testo/voce ("stato progetti"/"come
+vanno i progetti" — necessario perche' il canale vocale non ha accesso
+reale a strumenti, senza l'intent non potrebbe mai eseguire git per
+davvero), e un digest mattutino opzionale (`JARVIS_DAILY_DIGEST_HOUR=8`,
+loop interno a bot.py visto che ora resta sempre acceso). Riusa
+`SystemExecutor.git()` gia' esistente (sola lettura: `status`/`log`,
+nessun subprocess nuovo), incrocia con la sezione `## Stato` di
+`memory/projects/<nome>.md` (testo grezzo, flag vocale solo se contiene
+🔴). **Bug reale di configurazione trovato e corretto**: `WS_AURA` in
+`.env` puntava a `conciergebookings`, cartella sparita da mesi (probabile
+rename esterno a JARVIS durante la pausa di 2 mesi) — il repo vero e'
+`auraibiza` (CLAUDE.md interno si autodescrive come Aura Ibiza). Corretto
+anche in `JARVIS_ALLOWED_DIRS` (whitelist separata controllata da
+`SystemExecutor.git()` — senza questo fix i controlli sarebbero comunque
+rimasti bloccati dietro conferma). Verificato dal vivo sui 3 repo reali:
+AURA/TradeFlow/WhiteSoul tutti puliti su `main`, flag "problema noto"
+confermato per TradeFlow (bot ancora fermo dal 2026-07-10, non risolto
+lato loro — vedi `memory/projects/tradeflow-ai.md`). Pannello dashboard
+**rimandato su richiesta esplicita di Alessandro** (AURA/TradeFlow/
+WhiteSoul non hanno un endpoint pubblico come TradeFlow — servirebbe prima
+far scrivere a JARVIS uno snapshot su Turso, lavoro a parte non fatto).
+
+**In sospeso, non costruito**:
+- **Blocco D (Iveco)**: Alessandro vuole che JARVIS usi il browser per
+  leggere pagine e capire cosa sta facendo su Databricks, interroghi
+  Databricks Genie, risponda alle chat Microsoft Teams, apra/legga le
+  mail Outlook. Segnalato il rischio reale (dati aziendali Iveco verso
+  l'API Anthropic, non un tool aziendale approvato; automazione di sessioni
+  SSO Teams/Outlook puo' violare policy IT o far scattare anti-abuse
+  aziendale) e proposto un default: Genie via API con un suo token (in
+  linea con quello che gia' fa li'), Outlook sola lettura, Teams sola
+  lettura + bozze da approvare (MAI invio automatico a suo nome — stessa
+  regola gia' sua per i clienti in CLAUDE.md, qui estesa ai colleghi).
+  Chiesto esplicitamente se ha gia' verificato con IT/policy Iveco — non
+  ancora risposto. **Nulla progettato ne' iniziato.**
+- Chiesto e non ancora risposto: "deve rispondermi sempre vocalmente"
+  significa anche le risposte testo/Telegram lette ad alta voce dagli
+  altoparlanti del PC (oltre al canale vocale, che gia' parla sempre e
+  oggi lo fa in streaming) — non costruito finche' non conferma, per non
+  far parlare il PC a vuoto quando lui e' altrove o in un contesto
+  d'ufficio.
+
+**Da verificare dal vivo (richiede lui)**: chiudere il vecchio processo
+bot.py (Task Manager o riavvio PC) perche' `/progetti`/digest/intent
+prendano il posto del vecchio codice; un vero logoff/logon per confermare
+il riavvio automatico end-to-end; "hey jarvis"/hotkey per sentire la voce
+piu' reattiva dal vivo; il digest delle 8:00 di domani mattina.
