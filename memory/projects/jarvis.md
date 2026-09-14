@@ -368,3 +368,19 @@ bot.py (Task Manager o riavvio PC) perche' `/progetti`/digest/intent
 prendano il posto del vecchio codice; un vero logoff/logon per confermare
 il riavvio automatico end-to-end; "hey jarvis"/hotkey per sentire la voce
 piu' reattiva dal vivo; il digest delle 8:00 di domani mattina.
+
+**Stesso giorno, dopo**: confermato "sempre vocalmente" -> anche testo/
+Telegram parla dagli altoparlanti PC (`bot.py::speak_locally()`, riusa
+`/voce on|off` esistente, non un interruttore nuovo — vedi log 22:29).
+Confermato IT/policy Iveco ok per il Blocco D, poi "procedi senza
+approvazione": costruita la fase 1 — `core/databricks.py` (OAuth M2M +
+Genie Conversation API, verificato contro la doc ufficiale; QAS
+raggiungibile da Claude via blocco ```genie```, PRD solo da `/genie_prd`
++ conferma esplicita, mai automatico) e `core/screen_context.py`
+(Teams/Outlook/schermo -> screenshot -> image_b64, stesso schema della
+webcam). **Bloccanti per l'uso reale**: manca lo space_id del Genie Space
+(Alessandro deve indicarlo — l'API lo richiede sempre, "Genie senza
+spazio" non esiste); Teams/Outlook mai loggati nel browser persistente di
+JARVIS (richiede un suo login manuale una tantum nella finestra visibile
+che si apre). Mai un invio automatico su Teams/mail — solo bozze, per
+scelta esplicita di sicurezza. Dettaglio completo in log 2026-09-14 22:29.
