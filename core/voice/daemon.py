@@ -23,7 +23,7 @@ import uuid
 import anthropic
 import keyboard
 
-from core import turso, intents, claude_api, screen_context
+from core import turso, intents, claude_api, screen_context, telegram
 from core.claude_bridge import load_state
 from core.executor_singleton import executor
 from core.voice import camera, stt, tts
@@ -55,6 +55,17 @@ def _voice_enabled() -> bool:
 
 def _current_workspace() -> str:
     return load_state().get("ws", "jarvis")
+
+
+def _notify_telegram(prompt: str, response: str) -> None:
+    """Cosi' puoi rileggere su Telegram anche cio' che dici/senti a voce —
+    richiesta esplicita di Alessandro (2026-09-14): non solo ascoltare,
+    anche poterlo ritrovare per iscritto. Fire-and-forget in un thread (non
+    asyncio.to_thread: qui il ciclo principale e' sincrono, non gira dentro
+    un event loop) — core/telegram.py e' condiviso con bot.py apposta,
+    invece di duplicare la logica di invio in un secondo processo."""
+    text = f'\U0001F3A4 "{prompt}"\n\n{response}'
+    threading.Thread(target=telegram.send_to_owner, args=(text,), daemon=True).start()
 
 
 def _log_task(prompt: str, workspace: str, image_b64: str | None, result: str, cost: float, status: str) -> None:
@@ -161,6 +172,7 @@ def main() -> None:
                     intent, executor, voice=True, workspace=_current_workspace(), raw_text=text
                 )
                 print(f"< {response}")
+                _notify_telegram(text, response)
                 _speak_with_interrupt(engine, listener, response)
                 continue
 
@@ -210,6 +222,7 @@ def main() -> None:
             print(f"< {response}")
 
             _log_task(text, workspace, image_b64, response, cost, status)
+            _notify_telegram(text, response)
             if not spoken:
                 _speak_with_interrupt(engine, listener, response)
         except Exception as e:  # noqa: BLE001
