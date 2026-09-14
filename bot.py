@@ -125,10 +125,11 @@ def cmd_help() -> str:
         "Anche scrivendo normale (senza /) riconosco comandi rapidi come "
         '"apri chrome", "chiudi vs code", "alza il volume", "blocca lo '
         'schermo", "fai uno screenshot", "spegni il pc" — eseguiti subito, '
-        'senza passare da Claude, incluso "stato progetti".\n\n'
-        'Chiedendo normalmente puoi anche farmi guardare Teams, Outlook, lo '
-        'schermo, o interrogare Databricks Genie (ambiente di test) — passano '
-        "da Claude, non sono istantanei come i comandi rapidi sopra.\n\n"
+        'senza passare da Claude, incluso "stato progetti" e "controlla la '
+        'posta" (Outlook desktop via COM).\n\n'
+        "Chiedendo normalmente puoi anche farmi guardare Teams, lo schermo, "
+        "o interrogare Databricks Genie (ambiente di test) — questi passano "
+        "da Claude, non sono istantanei.\n\n"
         f"Workspaces: {', '.join(WORKSPACES)}"
     )
 

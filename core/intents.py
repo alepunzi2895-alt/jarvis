@@ -95,6 +95,11 @@ def parse_intent(text: str) -> dict | None:
     if _PROJECT_STATUS_RE.search(t):
         return {"type": "project_status"}
 
+    from core.outlook import OUTLOOK_INTENT_RE  # import qui: evita di caricare pywin32 se l'intent non serve mai
+
+    if OUTLOOK_INTENT_RE.search(t):
+        return {"type": "outlook"}
+
     low = t.lower()
     for app in _APP_NAMES:
         if re.search(rf"\b{re.escape(app)}\b", low):
@@ -184,5 +189,14 @@ def _execute(intent: dict, executor: SystemExecutor, voice: bool) -> str:
         from core import project_status  # import qui: evita l'overhead se l'intent non serve mai
 
         return project_status.format_report(project_status.check_all(executor), voice=voice)
+
+    if kind == "outlook":
+        from core import outlook  # import qui: evita di caricare pywin32 se l'intent non serve mai
+
+        try:
+            emails = outlook.list_recent_emails_sync()
+        except outlook.OutlookError as e:
+            return str(e)
+        return outlook.format_summary(emails, voice=voice)
 
     return "Comando riconosciuto ma non ancora gestito."

@@ -8,9 +8,10 @@ def test_target_for_teams():
     assert screen_context.target_for("cosa mi hanno scritto su teams") == "teams"
 
 
-def test_target_for_outlook():
-    assert screen_context.target_for("ho mail nuove su Outlook?") == "outlook"
-    assert screen_context.target_for("controlla la posta") == "outlook"
+def test_target_for_outlook_no_longer_handled_here():
+    # Outlook/mail passano da core/outlook.py (intent dedicato, COM) - qui
+    # "controlla la posta" senza altre parole cade a None, non a screen/teams.
+    assert screen_context.target_for("controlla la posta") is None
 
 
 def test_target_for_generic_screen():
