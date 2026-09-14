@@ -13,7 +13,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from core import turso, brain, browser, persona, system_actions, weather
+from core import turso, brain, browser, databricks, persona, system_actions, weather
 from core.executor_singleton import executor as _system_executor
 from core.voice import face_id
 
@@ -95,7 +95,24 @@ SYSTEM = (
     "chiedono sempre conferma esplicita, non avviene subito). I comandi brevi e "
     "diretti vengono gia' gestiti prima di arrivare a te: se ricevi comunque una "
     "richiesta simile, è quasi certamente parte di una richiesta più composta — "
-    "esegui comunque l'azione col blocco."
+    "esegui comunque l'azione col blocco.\n\n"
+    "Se l'utente chiede di interrogare Databricks Genie (analisi/domande sui "
+    "dati Iveco), aggiungi IN FONDO alla risposta un blocco:\n"
+    "```genie\n"
+    '{"question":"..."}\n'
+    "```\n"
+    "Riformula la domanda in modo chiaro e autosufficiente (Genie non vede "
+    "questa conversazione). Interroga SEMPRE E SOLO l'ambiente di test (QAS) — "
+    "non esiste nessun modo per te di raggiungere l'ambiente di produzione: se "
+    "l'utente lo chiede esplicitamente, digli di usare /genie_prd <domanda> su "
+    "Telegram, che richiede una sua conferma separata.\n\n"
+    "Se ricevi un'immagine allegata che NON è la webcam (mostra invece Teams, "
+    "Outlook, o una schermata del PC/Databricks), leggila e rispondi in base a "
+    "cosa mostra. Se ti viene chiesto di 'rispondere' a un messaggio Teams o a "
+    "una mail, scrivi solo una bozza di testo nella tua risposta normale — non "
+    "hai nessun modo di inviarla tu stesso, dev'essere l'utente a copiarla e "
+    "mandarla di persona. Non affermare mai di aver inviato o pubblicato "
+    "qualcosa su Teams/Outlook: non puoi farlo."
 )
 
 # --------------------------------------------------------------------------- state
@@ -257,6 +274,8 @@ async def run_claude(
 
         if text:
             text = await browser.extract_and_execute(text)
+        if text:
+            text = await databricks.extract_and_execute(text)
         if text:
             text = await system_actions.extract_and_execute(text, _system_executor)
 
