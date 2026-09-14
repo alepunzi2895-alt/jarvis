@@ -20,7 +20,7 @@ from core.claude_bridge import (
     save_state,
     run_claude,
 )
-from core import web_bridge, intents
+from core import web_bridge, intents, project_status
 from core.executor_singleton import executor, vault
 from core.voice import camera
 
@@ -79,6 +79,7 @@ def cmd_help() -> str:
         "/ws <nome>     cambia workspace\n"
         "/new           nuova sessione (dimentica contesto chat)\n"
         "/status        stato\n"
+        "/progetti      stato git + note JARVIS dei progetti\n"
         "/log           log di oggi\n"
         "/note <testo>  scrive nella daily note del vault Obsidian\n"
         "/search <query> cerca nelle note del vault\n"
@@ -92,7 +93,7 @@ def cmd_help() -> str:
         "Anche scrivendo normale (senza /) riconosco comandi rapidi come "
         '"apri chrome", "chiudi vs code", "alza il volume", "blocca lo '
         'schermo", "fai uno screenshot", "spegni il pc" — eseguiti subito, '
-        "senza passare da Claude.\n\n"
+        'senza passare da Claude, incluso "stato progetti".\n\n'
         f"Workspaces: {', '.join(WORKSPACES)}"
     )
 
@@ -113,6 +114,10 @@ def cmd_status() -> str:
         f"Path: {WORKSPACES.get(ws)}\n"
         f"Sessione: {sid[:8] + '…' if sid else 'nuova'}"
     )
+
+
+def cmd_progetti() -> str:
+    return project_status.format_report(project_status.check_all(executor), voice=False)
 
 
 async def handle(text: str) -> None:
@@ -140,6 +145,9 @@ async def handle(text: str) -> None:
 
         if cmd == "/status":
             return send(cmd_status())
+
+        if cmd == "/progetti":
+            return send(await asyncio.to_thread(cmd_progetti))
 
         if cmd == "/log":
             return send(cmd_log())
@@ -215,7 +223,11 @@ async def handle(text: str) -> None:
     # spegni/riavvia) — riconosciuti subito, senza passare da Claude
     intent = intents.parse_intent(text)
     if intent:
-        return send(intents.execute_intent(intent, executor, voice=False, workspace=state["ws"], raw_text=text))
+        # asyncio.to_thread: "stato progetti" arriva fino a ~6 subprocess git in
+        # sequenza (~0.2-0.5s l'uno) — troppo per il path pensato per costo/
+        # latenza zero, non deve pero' bloccare il polling Telegram nel frattempo.
+        response = await asyncio.to_thread(intents.execute_intent, intent, executor, False, state["ws"], text)
+        return send(response)
 
     # "scatta/fotografa/apri la webcam e dimmi cosa vedi" da Telegram: senza
     # questo Claude non ha modo di ottenere un'immagine vera e finisce per
@@ -280,8 +292,32 @@ async def telegram_loop() -> None:
                 send(f"Errore: {html.escape(str(e))[:1000]}")
 
 
+DIGEST_HOUR = int(os.getenv("JARVIS_DAILY_DIGEST_HOUR", "-1"))
+
+
+async def daily_digest_loop() -> None:
+    """Digest mattutino stato progetti su Telegram. Un loop interno invece di
+    un secondo task pianificato di Windows: bot.py ora resta sempre acceso
+    (avvio automatico), quindi non serve un secondo processo solo per
+    l'orario. Disattivo di default (JARVIS_DAILY_DIGEST_HOUR assente/fuori
+    range 0-23)."""
+    if not 0 <= DIGEST_HOUR <= 23:
+        return
+    while True:
+        now = dt.datetime.now()
+        target = now.replace(hour=DIGEST_HOUR, minute=0, second=0, microsecond=0)
+        if target <= now:
+            target += dt.timedelta(days=1)
+        await asyncio.sleep((target - now).total_seconds())
+        try:
+            report = await asyncio.to_thread(cmd_progetti)
+            send(f"Buongiorno.\n\n{report}")
+        except Exception as e:  # noqa: BLE001
+            print(f"digest mattutino fallito (ignorato): {e}")
+
+
 async def main() -> None:
-    tasks = [asyncio.create_task(telegram_loop())]
+    tasks = [asyncio.create_task(telegram_loop()), asyncio.create_task(daily_digest_loop())]
     if web_bridge.ENABLED:
         tasks.append(asyncio.create_task(web_bridge.poll_web_queue()))
     else:

@@ -45,6 +45,24 @@ def test_long_compound_requests_are_left_to_claude():
     assert intents.parse_intent(long_text) is None
 
 
+def test_parse_intent_project_status():
+    assert intents.parse_intent("stato progetti") == {"type": "project_status"}
+    assert intents.parse_intent("come vanno i progetti") == {"type": "project_status"}
+    assert intents.parse_intent("qual e' la situazione dei progetti") == {"type": "project_status"}
+
+
+def test_execute_intent_project_status():
+    executor = MagicMock()
+    with (
+        patch("core.project_status.check_all", return_value=["finto"]) as check_all,
+        patch("core.project_status.format_report", return_value="report finto") as format_report,
+    ):
+        result = intents.execute_intent({"type": "project_status"}, executor, voice=False)
+    check_all.assert_called_once_with(executor)
+    format_report.assert_called_once_with(["finto"], voice=False)
+    assert result == "report finto"
+
+
 def test_execute_intent_power_refuses_on_voice():
     executor = MagicMock()
     result = intents.execute_intent({"type": "power", "mode": "shutdown"}, executor, voice=True)
