@@ -6,6 +6,7 @@ Gira in parallelo al poller della web dashboard (stesso processo, stesso cervell
 """
 
 import os
+import re
 import html
 import asyncio
 import datetime as dt
@@ -19,10 +20,11 @@ from core.claude_bridge import (
     state,
     save_state,
     run_claude,
+    load_state,
 )
 from core import web_bridge, intents, project_status
 from core.executor_singleton import executor, vault
-from core.voice import camera
+from core.voice import camera, tts
 
 load_dotenv()
 
@@ -68,6 +70,45 @@ def typing() -> None:
     asyncio.get_running_loop().run_in_executor(None, _typing_sync)
 
 
+# --------------------------------------------------------------------------- voce locale
+#
+# "Deve rispondermi sempre vocalmente" (richiesta esplicita 2026-09-14): non
+# solo il canale vocale nativo, anche le risposte testo/Telegram escono
+# dagli altoparlanti del PC — utile solo se sei fisicamente li'. Rispetta lo
+# stesso interruttore /voce on|off gia' usato dal daemon vocale (niente
+# nuovo comando: "voce in pausa" deve valere ovunque, non solo per hey
+# jarvis). Applicato alle risposte vere e proprie (task Claude, comandi
+# rapidi, /progetti) — non a dump di riferimento lunghi (/help, /log,
+# /search, /status), che leggere ad alta voce sarebbe solo fastidioso.
+
+_voice_engine = tts.get_engine()
+_MD_LINK_RE = re.compile(r"\[([^\]]*)\]\([^)]*\)")
+_MD_SYMBOLS_RE = re.compile(r"[*_`#]+")
+
+
+def _for_speech(text: str) -> str:
+    """Copia ripulita per il TTS — il testo mostrato su Telegram non cambia."""
+    text = _MD_LINK_RE.sub(r"\1", text)
+    text = _MD_SYMBOLS_RE.sub("", text)
+    return text.strip()
+
+
+def _speak_sync(text: str) -> None:
+    text = _for_speech(text)
+    if not text:
+        return
+    try:
+        _voice_engine.speak(text)
+    except Exception as e:  # noqa: BLE001 — la voce locale non deve mai far fallire la risposta testuale
+        print(f"(voce locale fallita, ignorata: {e})")
+
+
+def speak_locally(text: str) -> None:
+    """Fire-and-forget (thread, come send()): non blocca il loop asyncio."""
+    if load_state().get("voice_enabled", True):
+        asyncio.get_running_loop().run_in_executor(None, _speak_sync, text)
+
+
 # --------------------------------------------------------------------------- comandi
 
 
@@ -87,7 +128,7 @@ def cmd_help() -> str:
         "/run <comando> esegue un comando nel workspace attivo (whitelist)\n"
         "/confirm <token> conferma un'azione in sospeso\n"
         "/deny <token>  annulla un'azione in sospeso\n"
-        "/voce on|off   attiva/mette in pausa il daemon vocale (hey jarvis)\n"
+        "/voce on|off   attiva/mette in pausa la voce (hey jarvis + risposte parlate qui)\n"
         "/enroll_face   impara il tuo volto dalla webcam (per il riconoscimento in camera)\n"
         "/help          questo messaggio\n\n"
         "Anche scrivendo normale (senza /) riconosco comandi rapidi come "
@@ -147,7 +188,9 @@ async def handle(text: str) -> None:
             return send(cmd_status())
 
         if cmd == "/progetti":
-            return send(await asyncio.to_thread(cmd_progetti))
+            statuses = await asyncio.to_thread(project_status.check_all, executor)
+            speak_locally(project_status.format_report(statuses, voice=True))
+            return send(project_status.format_report(statuses, voice=False))
 
         if cmd == "/log":
             return send(cmd_log())
@@ -227,6 +270,7 @@ async def handle(text: str) -> None:
         # sequenza (~0.2-0.5s l'uno) — troppo per il path pensato per costo/
         # latenza zero, non deve pero' bloccare il polling Telegram nel frattempo.
         response = await asyncio.to_thread(intents.execute_intent, intent, executor, False, state["ws"], text)
+        speak_locally(response)
         return send(response)
 
     # "scatta/fotografa/apri la webcam e dimmi cosa vedi" da Telegram: senza
@@ -245,6 +289,7 @@ async def handle(text: str) -> None:
     finally:
         keepalive.cancel()
 
+    speak_locally(result)
     tail = f"\n\n— {state['ws']} · ${cost:.3f}" if cost else f"\n\n— {state['ws']}"
     send(result + tail)
 
