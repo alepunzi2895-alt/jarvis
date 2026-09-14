@@ -121,6 +121,7 @@ def cmd_help() -> str:
         "/voce on|off   attiva/mette in pausa la voce (hey jarvis + risposte parlate qui)\n"
         "/enroll_face   impara il tuo volto dalla webcam (per il riconoscimento in camera)\n"
         "/genie_prd <domanda>  interroga Databricks Genie in PRODUZIONE (chiede conferma)\n"
+        "/sql_prd <query>      query SQL Databricks in PRODUZIONE, sola lettura (chiede conferma)\n"
         "/help          questo messaggio\n\n"
         "Anche scrivendo normale (senza /) riconosco comandi rapidi come "
         '"apri chrome", "chiudi vs code", "alza il volume", "blocca lo '
@@ -237,7 +238,7 @@ async def handle(text: str) -> None:
             try:
                 answer = await asyncio.to_thread(databricks.confirm_prd, arg)
                 return send(f"Genie (PRODUZIONE): {answer}")
-            except databricks.GenieError:
+            except (databricks.GenieError, databricks.SqlError):
                 return send(f"Errore: {result.stderr}")
 
         if cmd == "/deny":
@@ -248,9 +249,18 @@ async def handle(text: str) -> None:
         if cmd == "/genie_prd":
             if not arg:
                 return send("Uso: /genie_prd <domanda>")
-            token = databricks.stage_prd_confirmation(arg)
+            token = databricks.stage_prd_confirmation("genie", arg)
             return send(
                 f'Genie su PRODUZIONE (non test): "{arg}"\n'
+                f"Confermi? /confirm {token} oppure /deny {token}"
+            )
+
+        if cmd == "/sql_prd":
+            if not arg:
+                return send("Uso: /sql_prd <query SQL, sola lettura>")
+            token = databricks.stage_prd_confirmation("sql", arg)
+            return send(
+                f"Query SQL su PRODUZIONE (non test): {arg}\n"
                 f"Confermi? /confirm {token} oppure /deny {token}"
             )
 
