@@ -23,7 +23,7 @@ import uuid
 import anthropic
 import keyboard
 
-from core import turso, intents, claude_api
+from core import turso, intents, claude_api, screen_context
 from core.claude_bridge import load_state
 from core.executor_singleton import executor
 from core.voice import camera, stt, tts
@@ -170,6 +170,13 @@ def main() -> None:
                 image_b64 = camera.capture_frame_b64()
                 if image_b64 is None:
                     print("(webcam non disponibile)")
+            else:
+                screen_target = screen_context.target_for(text)
+                if screen_target:
+                    print(f"(comando schermo rilevato: {screen_target}, catturo...)")
+                    image_b64 = asyncio.run(screen_context.capture(screen_target))
+                    if image_b64 is None:
+                        print("(cattura schermo fallita)")
 
             workspace = _current_workspace()
             cost = 0.0

@@ -46,7 +46,7 @@ from datetime import datetime
 
 import anthropic
 
-from core import browser, persona, system_actions, turso, weather
+from core import browser, databricks, persona, system_actions, turso, weather
 from core.claude_bridge import SYSTEM
 from core.executor_singleton import executor as _system_executor
 from core.voice import face_id
@@ -258,6 +258,7 @@ async def run_voice_streaming(
         threading.Thread(target=brain.log_interaction, args=(prompt, ws, "voice"), daemon=True).start()
 
     text = await browser.extract_and_execute(text)
+    text = await databricks.extract_and_execute(text)
     text = await system_actions.extract_and_execute(text, _system_executor)
 
     new_history = [*history, {"role": "user", "content": prompt}, {"role": "assistant", "content": text}]

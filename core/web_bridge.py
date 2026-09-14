@@ -10,7 +10,7 @@ Nessuna porta aperta in ingresso: solo richieste outbound, come per Telegram.
 import os
 import asyncio
 
-from core import turso, intents
+from core import turso, intents, screen_context
 from core.claude_bridge import run_claude
 from core.executor_singleton import executor
 from core.voice import camera
@@ -85,6 +85,10 @@ async def poll_web_queue() -> None:
             # improvvisa (es. aprendo un browser verso la dashboard stessa).
             if not image_b64 and camera.wants_camera(task["prompt"]):
                 image_b64 = await asyncio.to_thread(camera.capture_frame_b64)
+            if not image_b64:
+                screen_target = screen_context.target_for(task["prompt"])
+                if screen_target:
+                    image_b64 = await screen_context.capture(screen_target)
 
             result, sid, cost = await run_claude(
                 task["prompt"],

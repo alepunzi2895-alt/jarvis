@@ -22,7 +22,7 @@ from core.claude_bridge import (
     run_claude,
     load_state,
 )
-from core import web_bridge, intents, project_status
+from core import web_bridge, intents, project_status, screen_context, databricks
 from core.executor_singleton import executor, vault
 from core.voice import camera, tts
 
@@ -130,11 +130,15 @@ def cmd_help() -> str:
         "/deny <token>  annulla un'azione in sospeso\n"
         "/voce on|off   attiva/mette in pausa la voce (hey jarvis + risposte parlate qui)\n"
         "/enroll_face   impara il tuo volto dalla webcam (per il riconoscimento in camera)\n"
+        "/genie_prd <domanda>  interroga Databricks Genie in PRODUZIONE (chiede conferma)\n"
         "/help          questo messaggio\n\n"
         "Anche scrivendo normale (senza /) riconosco comandi rapidi come "
         '"apri chrome", "chiudi vs code", "alza il volume", "blocca lo '
         'schermo", "fai uno screenshot", "spegni il pc" — eseguiti subito, '
         'senza passare da Claude, incluso "stato progetti".\n\n'
+        'Chiedendo normalmente puoi anche farmi guardare Teams, Outlook, lo '
+        'schermo, o interrogare Databricks Genie (ambiente di test) — passano '
+        "da Claude, non sono istantanei come i comandi rapidi sopra.\n\n"
         f"Workspaces: {', '.join(WORKSPACES)}"
     )
 
@@ -237,12 +241,27 @@ async def handle(text: str) -> None:
             result = executor.confirm(arg)
             if result.ok:
                 return send(result.stdout.strip() or "Eseguito.")
-            return send(f"Errore: {result.stderr}")
+            # Non trovato tra le azioni di SystemExecutor: puo' essere una
+            # domanda Genie su PRD in sospeso (/genie_prd) - store separato.
+            try:
+                answer = await asyncio.to_thread(databricks.confirm_prd, arg)
+                return send(f"Genie (PRODUZIONE): {answer}")
+            except databricks.GenieError:
+                return send(f"Errore: {result.stderr}")
 
         if cmd == "/deny":
             if not arg:
                 return send("Uso: /deny <token>")
-            return send("Annullato." if executor.deny(arg) else "Token non trovato.")
+            return send("Annullato." if (executor.deny(arg) or databricks.deny_prd(arg)) else "Token non trovato.")
+
+        if cmd == "/genie_prd":
+            if not arg:
+                return send("Uso: /genie_prd <domanda>")
+            token = databricks.stage_prd_confirmation(arg)
+            return send(
+                f'Genie su PRODUZIONE (non test): "{arg}"\n'
+                f"Confermi? /confirm {token} oppure /deny {token}"
+            )
 
         if cmd == "/voce":
             if arg not in ("on", "off"):
@@ -280,6 +299,15 @@ async def handle(text: str) -> None:
     image_b64 = None
     if camera.wants_camera(text):
         image_b64 = await asyncio.to_thread(camera.capture_frame_b64)
+
+    # "guarda Teams/Outlook/lo schermo/cosa sto facendo su Databricks" -
+    # stesso schema della webcam sopra, verso core/screen_context.py.
+    # Mutuamente esclusivo con la webcam: una domanda che nomina davvero
+    # "webcam/telecamera" resta quella, non ha senso provare entrambe.
+    if image_b64 is None:
+        screen_target = screen_context.target_for(text)
+        if screen_target:
+            image_b64 = await screen_context.capture(screen_target)
 
     # task normale
     typing()
