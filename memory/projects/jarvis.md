@@ -395,3 +395,11 @@ aperto. Aggiunta voce->Telegram per iscritto (`core/telegram.py` +
 desktop** (`core/outlook.py`, `pywin32`), non piu' screenshot browser —
 sola lettura, intent veloce "controlla la posta", verificato dal vivo
 contro la sua Inbox reale. Dettaglio in log 2026-09-14 23:21.
+
+**Stesso giorno, ultimo**: chiarito che "Genie Code" (assistente di coding
+Databricks, ex Databricks Assistant) e' un prodotto diverso dall'AI/BI
+Genie gia' costruito — nessuna API esterna, non automatizzabile.
+Aggiunta invece la Statement Execution API di Databricks
+(`core/databricks.py`, blocco ```dbsql```, sola lettura sempre, QAS di
+default, PRD via `/sql_prd` + conferma). Verificato con query reale su
+QAS. Dettaglio in log 2026-09-14 23:41.
