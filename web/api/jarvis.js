@@ -60,6 +60,7 @@ async function initSchema(db) {
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
   )`);
   await db.execute(`ALTER TABLE tasks ADD COLUMN image_b64 TEXT`).catch(() => {});
+  await db.execute(`ALTER TABLE tasks ADD COLUMN audio_b64 TEXT`).catch(() => {});
   await db.execute(`CREATE TABLE IF NOT EXISTS approvals (
     id TEXT PRIMARY KEY, kind TEXT, payload TEXT, status TEXT NOT NULL DEFAULT 'pending',
     requested_by TEXT,
@@ -105,12 +106,16 @@ function login(req, res, body) {
 
 async function taskPush(db, req, body) {
   requireBrowserAuth(req);
-  const { workspace, prompt, image_b64 } = body;
-  if (!prompt) throw new Error("prompt required");
+  const { workspace, prompt, image_b64, audio_b64 } = body;
+  if (!prompt && !audio_b64) throw new Error("prompt or audio_b64 required");
   const id = uuid();
+  // channel='transcribe': segnala al bridge locale (core/web_bridge.py) di
+  // trascrivere prima di trattarlo come un task normale — riusa la stessa
+  // riga/lo stesso id, non una coda separata.
+  const channel = audio_b64 ? "transcribe" : "web";
   await db.execute({
-    sql: `INSERT INTO tasks (id, channel, workspace, prompt, status, image_b64) VALUES (?, 'web', ?, ?, 'pending', ?)`,
-    args: [id, workspace || "jarvis", prompt, image_b64 || null],
+    sql: `INSERT INTO tasks (id, channel, workspace, prompt, status, image_b64, audio_b64) VALUES (?, ?, ?, ?, 'pending', ?, ?)`,
+    args: [id, channel, workspace || "jarvis", prompt || "", image_b64 || null, audio_b64 || null],
   });
   return { ok: true, task_id: id };
 }

@@ -9,6 +9,9 @@ Nessuna porta aperta in ingresso: solo richieste outbound, come per Telegram.
 
 import os
 import asyncio
+import base64
+import tempfile
+from pathlib import Path
 
 from core import turso, intents, screen_context
 from core.claude_bridge import run_claude
@@ -23,7 +26,7 @@ ENABLED = turso.ENABLED
 async def _claim_next_task() -> dict | None:
     def work():
         rows = turso.execute(
-            "SELECT id, channel, workspace, prompt, image_b64 FROM tasks "
+            "SELECT id, channel, workspace, prompt, image_b64, audio_b64 FROM tasks "
             "WHERE status='pending' ORDER BY created_at ASC LIMIT 1"
         )
         if not rows:
@@ -36,6 +39,45 @@ async def _claim_next_task() -> dict | None:
         return task
 
     return await asyncio.to_thread(work)
+
+
+async def _transcribe_audio(audio_b64: str) -> str:
+    """Trascrive in locale (faster-whisper, stesso motore del daemon vocale
+    nativo) l'audio registrato dal microfono del dashboard — il
+    riconoscimento cloud del browser (Web Speech API/Google) si e' rivelato
+    irraggiungibile su questa rete (memory/log 2026-09-14): il browser ora
+    registra soltanto (MediaRecorder, gia' verificato funzionante) e manda
+    l'audio grezzo qui invece di trascriverlo lui stesso."""
+
+    def work() -> str:
+        from core.voice import stt  # import qui: faster-whisper solo se serve davvero
+
+        raw = base64.b64decode(audio_b64)
+        fd, tmp_path = tempfile.mkstemp(suffix=".webm")
+        os.close(fd)
+        path = Path(tmp_path)
+        try:
+            path.write_bytes(raw)
+            return stt.transcribe_file(str(path))
+        finally:
+            path.unlink(missing_ok=True)
+
+    return await asyncio.to_thread(work)
+
+
+async def _update_prompt(task_id: str, prompt: str) -> None:
+    """Scrive la trascrizione nella riga (channel->'web', come un task
+    testuale normale) cosi' la dashboard, che sta gia' facendo polling su
+    questo task, mostra subito "hai detto: ..." invece di restare sul
+    placeholder mentre Claude elabora la risposta vera."""
+
+    def work():
+        turso.execute(
+            "UPDATE tasks SET prompt=?, channel='web', updated_at=CURRENT_TIMESTAMP WHERE id=?",
+            [prompt, task_id],
+        )
+
+    await asyncio.to_thread(work)
 
 
 async def _push_result(task_id: str, status: str, result: str, session_id: str | None, cost_usd: float) -> None:
@@ -63,8 +105,17 @@ async def poll_web_queue() -> None:
             await asyncio.sleep(POLL_SEC)
             continue
 
-        print(f"> [web] {task['prompt'][:80]}")
         try:
+            audio_b64 = task.get("audio_b64")
+            if audio_b64:
+                text = await _transcribe_audio(audio_b64)
+                if not text:
+                    await _push_result(task["id"], "error", "Non ho capito niente dall'audio, Signore. Riprova.", None, 0.0)
+                    continue
+                task["prompt"] = text
+                await _update_prompt(task["id"], text)
+
+            print(f"> [web] {task['prompt'][:80]}")
             image_b64 = task.get("image_b64")
 
             intent = intents.parse_intent(task["prompt"]) if not image_b64 else None
