@@ -17,3 +17,6 @@ node_modules/
 
 # Modello di riconoscimento volto (dati biometrici locali, non codice)
 /.face_data/
+
+# Log dei processi avviati da Task Scheduler (setup_autostart.ps1)
+/logs/
