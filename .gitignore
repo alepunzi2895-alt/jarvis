@@ -20,3 +20,7 @@ node_modules/
 
 # Log dei processi avviati da Task Scheduler (setup_autostart.ps1)
 /logs/
+
+# Launcher .vbs generati a runtime da setup_autostart.ps1 (path assoluti
+# specifici di questa macchina, non codice)
+/scripts/

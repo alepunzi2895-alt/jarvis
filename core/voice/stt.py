@@ -21,8 +21,18 @@ _model: WhisperModel | None = None
 
 
 def _get_model() -> WhisperModel:
+    """Prova la GPU (piu' veloce), torna su CPU se CUDA/cuDNN non sono
+    disponibili o utilizzabili su questa macchina — mai bloccare l'avvio del
+    daemon per questo, e mai far credere che la GPU sia in uso quando in
+    realta' e' scattato il fallback."""
     global _model
-    if _model is None:
+    if _model is not None:
+        return _model
+    try:
+        _model = WhisperModel(WHISPER_MODEL_NAME, device="cuda", compute_type="float16")
+        print("whisper: GPU (CUDA) in uso")
+    except Exception as e:  # noqa: BLE001 — qualunque problema CUDA/cuDNN, degrado a CPU
+        print(f"whisper: GPU non disponibile ({e}) — uso CPU")
         _model = WhisperModel(WHISPER_MODEL_NAME, device="cpu", compute_type="int8")
     return _model
 
