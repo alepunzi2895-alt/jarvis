@@ -93,7 +93,7 @@ def test_ask_genie_requires_credentials():
 
 
 def test_prd_confirmation_flow(monkeypatch):
-    token = databricks.stage_prd_confirmation("domanda su produzione")
+    token = databricks.stage_prd_confirmation("genie", "domanda su produzione")
     assert token in databricks._pending
 
     called = {}
@@ -110,7 +110,7 @@ def test_prd_confirmation_flow(monkeypatch):
 
 
 def test_deny_prd_removes_pending():
-    token = databricks.stage_prd_confirmation("x")
+    token = databricks.stage_prd_confirmation("genie", "x")
     assert databricks.deny_prd(token) is True
     assert databricks.deny_prd(token) is False  # gia' rimosso, seconda deny non trova nulla
 
