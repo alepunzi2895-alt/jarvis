@@ -79,3 +79,15 @@ def record_until_silence() -> np.ndarray:
 def transcribe(audio: np.ndarray, language: str = "it") -> str:
     segments, _ = _get_model().transcribe(audio, language=language)
     return " ".join(s.text for s in segments).strip()
+
+
+def transcribe_file(path: str, language: str = "it") -> str:
+    """Come transcribe(), ma da un file audio su disco (webm/ogg/mp3/wav...)
+    invece che da un array registrato dal microfono nativo — usata per
+    l'audio caricato dal mic del dashboard web (MediaRecorder del browser,
+    non Web Speech API: quest'ultima si e' rivelata irraggiungibile su
+    questa rete, vedi memory/log 2026-09-14). faster-whisper decodifica il
+    file da solo (via PyAV, gia' una dipendenza) — nessun bisogno di
+    convertire prima in PCM."""
+    segments, _ = _get_model().transcribe(path, language=language)
+    return " ".join(s.text for s in segments).strip()

@@ -232,13 +232,21 @@ async function loadHistory() {
   }
 }
 
-// ── Ascolto continuo a mani libere (Web Speech API, nativa browser) ──
-// Il riconoscimento vocale del browser trascrive TUTTO quello che sente
-// (TV, conversazioni), non solo i comandi per JARVIS — l'unico modo per
-// distinguerli senza un motore di wake-word dedicato è richiedere la parola
-// "Jarvis" nella frase e sottoporre solo quello che viene dopo. Il microfono
-// resta "armato" dopo un click e si riavvia da solo ad ogni pausa di
-// silenzio, finché non lo spegni tu con un secondo click.
+// ── Voce dal microfono (registrazione locale + trascrizione sul PC) ──
+// La Web Speech API del browser (riconoscimento cloud di Google) si è
+// rivelata irraggiungibile su questa rete — verificato dal vivo il
+// 2026-09-14: nessun onstart/onerror, il motore non parte mai, solo
+// onend immediato. Invece di inseguire quel problema di rete, il
+// microfono ora registra soltanto (MediaRecorder, funzionante) e manda
+// l'audio al bridge locale, che lo trascrive con lo stesso motore
+// (faster-whisper) già usato dal daemon vocale nativo — sola andata,
+// nessuna dipendenza da servizi esterni.
+//
+// Niente più parola d'attivazione "Jarvis": il click stesso è già
+// l'attivazione (a differenza dell'ascolto continuo di prima, qui non si
+// rischia di trascrivere rumore ambientale). Si ferma da solo dopo una
+// pausa di silenzio (stessa soglia/logica di core/voice/stt.py,
+// SILENCE_HANG_MS) o dopo un tetto massimo, oppure con un secondo click.
 
 // Intercetta i comandi che aprono/chiudono le finestre PRIMA di sottoporli
 // a Claude — istantaneo, nessuna chiamata task per queste azioni di UI.
@@ -267,69 +275,164 @@ function handleVoiceUiCommand(text) {
   return false;
 }
 
+const MIC_SILENCE_RMS = 12; // scala 0-255 (AnalyserNode su dati Uint8 centrati a 128)
+const MIC_SILENCE_HANG_MS = 1200; // stessa soglia di core/voice/stt.py::SILENCE_HANG_MS
+const MIC_MAX_RECORD_MS = 15000;
+
 function setupVoice() {
-  const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   const micBtn = $("#mic-btn");
-  if (!Recognition) {
+  if (!navigator.mediaDevices || !window.MediaRecorder) {
     micBtn.disabled = true;
-    micBtn.title = "Riconoscimento vocale non supportato in questo browser";
+    micBtn.title = "Registrazione audio non supportata in questo browser";
     return;
   }
 
-  const OFF_TITLE = "Clicca per attivare l'ascolto (di' \"Jarvis\" + comando)";
-  const ON_TITLE = "Ascolto continuo attivo — di' \"Jarvis\" + comando — clicca per fermare";
+  const OFF_TITLE = "Clicca e parla — si ferma da solo al silenzio";
+  const ON_TITLE = "Sto ascoltando — clicca per fermare";
   micBtn.title = OFF_TITLE;
 
-  let armed = false;
+  let recording = false;
+  let recorder = null;
+  let monitorInterval = null;
+  let audioCtx = null;
 
-  const rec = new Recognition();
-  rec.lang = "it-IT";
-  rec.continuous = true;
-  rec.interimResults = false;
-  rec.maxAlternatives = 1;
+  function stopMonitoring() {
+    if (monitorInterval) {
+      clearInterval(monitorInterval);
+      monitorInterval = null;
+    }
+    if (audioCtx) {
+      audioCtx.close().catch(() => {});
+      audioCtx = null;
+    }
+  }
 
-  const NOISE_WORDS = new Set(["oh", "ah", "eh", "ehi", "ehm", "uhm", "mh", "boh"]);
-  const WAKE_WORD = "jarvis";
-
-  rec.onresult = (e) => {
-    const raw = e.results[e.results.length - 1][0].transcript.trim();
-    if (!raw) return;
-    const idx = raw.toLowerCase().indexOf(WAKE_WORD);
-    if (idx === -1) return; // niente parola d'attivazione: audio ambientale, ignora
-
-    const text = raw.slice(idx + WAKE_WORD.length).replace(/^[,.\s]+/, "").trim();
-    if (!text || text.length < 4 || NOISE_WORDS.has(text.toLowerCase())) return;
-    if (handleVoiceUiCommand(text)) return;
-    submitTask(text);
-  };
-
-  rec.onerror = (e) => {
-    if (e.error === "not-allowed" || e.error === "service-not-allowed") {
-      armed = false;
+  async function start() {
+    if (recording) return;
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch {
       micBtn.title = "Microfono non autorizzato dal browser";
+      return;
     }
-    // altri errori (es. "no-speech") sono normali in ascolto continuo:
-    // onend riavvia da solo se siamo ancora armati.
-  };
 
-  rec.onend = () => {
-    if (armed) {
-      try { rec.start(); } catch { /* già in ascolto, ignora */ }
-    } else {
+    recording = true;
+    micBtn.classList.add("listening");
+    micBtn.title = ON_TITLE;
+
+    const chunks = [];
+    recorder = new MediaRecorder(stream);
+    recorder.ondataavailable = (e) => {
+      if (e.data.size > 0) chunks.push(e.data);
+    };
+    recorder.onstop = () => {
+      stopMonitoring();
+      stream.getTracks().forEach((t) => t.stop());
       micBtn.classList.remove("listening");
-    }
-  };
+      micBtn.title = OFF_TITLE;
+      recording = false;
+      const blob = new Blob(chunks, { type: recorder.mimeType || "audio/webm" });
+      if (blob.size > 500) handleRecordedAudio(blob); // scarta registrazioni vuote/troppo brevi
+    };
+    recorder.start();
+
+    // Rilevamento silenzio lato browser (AnalyserNode) - ferma la
+    // registrazione da solo, stessa soglia/logica del daemon nativo.
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const source = audioCtx.createMediaStreamSource(stream);
+    const analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 2048;
+    source.connect(analyser);
+    const data = new Uint8Array(analyser.fftSize);
+
+    let silenceStartedAt = null;
+    let spokeAtLeastOnce = false;
+    const startedAt = Date.now();
+
+    monitorInterval = setInterval(() => {
+      analyser.getByteTimeDomainData(data);
+      let sumSquares = 0;
+      for (let i = 0; i < data.length; i++) {
+        const v = data[i] - 128;
+        sumSquares += v * v;
+      }
+      const rms = Math.sqrt(sumSquares / data.length);
+
+      if (rms > MIC_SILENCE_RMS) {
+        spokeAtLeastOnce = true;
+        silenceStartedAt = null;
+      } else if (spokeAtLeastOnce) {
+        if (silenceStartedAt === null) silenceStartedAt = Date.now();
+        if (Date.now() - silenceStartedAt > MIC_SILENCE_HANG_MS) stop();
+      }
+      if (Date.now() - startedAt > MIC_MAX_RECORD_MS) stop();
+    }, 100);
+  }
+
+  function stop() {
+    if (recorder && recorder.state !== "inactive") recorder.stop();
+  }
 
   micBtn.addEventListener("click", () => {
-    armed = !armed;
-    micBtn.title = armed ? ON_TITLE : OFF_TITLE;
-    if (armed) {
-      micBtn.classList.add("listening");
-      try { rec.start(); } catch { /* già in ascolto */ }
-    } else {
-      try { rec.stop(); } catch { /* noop */ }
-    }
+    if (recording) stop();
+    else start();
   });
+}
+
+async function handleRecordedAudio(blob) {
+  const reader = new FileReader();
+  const audioB64 = await new Promise((resolve, reject) => {
+    reader.onloadend = () => resolve(reader.result.split(",")[1]);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
+  });
+  submitTaskAudio(audioB64);
+}
+
+async function submitTaskAudio(audioB64) {
+  openWindow("win-chat");
+  const el = appendEntry("🎙️ (trascrizione in corso…)");
+  try {
+    const { task_id } = await api("task_push", { workspace: currentWs, audio_b64: audioB64 });
+    pollTranscribedTask(task_id, el);
+  } catch (err) {
+    fillEntry(el, { status: "error", result: err.message });
+  }
+}
+
+// Come pollTask, ma per un task nato da audio: appena il bridge locale ha
+// trascritto (task.prompt si popola), se il testo e' un comando locale di
+// finestra lo gestisce subito qui (stesso schema di handleVoiceUiCommand,
+// prima riservato al riconoscimento vocale del browser) invece di aspettare
+// che Claude gli risponda con del testo per un'azione che Claude non puo'
+// comunque eseguire lui stesso.
+async function pollTranscribedTask(taskId, el) {
+  let transcribed = false;
+  for (let i = 0; i < 200; i++) {
+    await new Promise((r) => setTimeout(r, 1000));
+    let task;
+    try {
+      ({ task } = await api("task_poll", { task_id: taskId }));
+    } catch {
+      fillEntry(el, { status: "error", result: "Connessione persa." });
+      return;
+    }
+
+    if (!transcribed && task.prompt) {
+      transcribed = true;
+      el.querySelector(".prompt").textContent = task.prompt;
+      if (handleVoiceUiCommand(task.prompt)) {
+        fillEntry(el, { status: "done", result: "Fatto." });
+        return;
+      }
+    }
+    if (task.status === "done" || task.status === "error") {
+      fillEntry(el, task);
+      return;
+    }
+  }
+  fillEntry(el, { status: "error", result: "Timeout: nessuna risposta dal bridge locale." });
 }
 
 // ── TradeFlow widget ─────────────────────────────────────────────────
