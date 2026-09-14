@@ -18,3 +18,6 @@ anthropic>=0.116  # canale vocale: API diretta invece del processo CLI claude -p
 
 # Automazione browser (blocco d): playwright install chromium richiesto dopo l'installazione
 playwright>=1.61
+
+# Outlook desktop via COM (blocco d) - richiede Outlook classico installato
+pywin32>=312
