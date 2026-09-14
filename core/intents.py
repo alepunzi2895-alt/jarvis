@@ -53,6 +53,12 @@ _SHOW_DESKTOP_RE = re.compile(r"\bmostra\w*\b.*\bdesktop\b|\bminimizza tutto\b",
 _SCREENSHOT_RE = re.compile(
     r"\b(fai|scatta|cattura)\w*\b.*\bscreenshot\b|\bcattura\w*\b.*\bschermo\b", re.IGNORECASE
 )
+_PROJECT_STATUS_RE = re.compile(
+    r"\b(stato|situazione)\s+(dei\s+|di\s+)?progetti\b"
+    r"|\bprogetti\b.*\b(stato|situazione)\b"
+    r"|\bcome\s+vanno\b.*\bprogetti\b",
+    re.IGNORECASE,
+)
 
 
 def parse_intent(text: str) -> dict | None:
@@ -85,6 +91,9 @@ def parse_intent(text: str) -> dict | None:
         return {"type": "show_desktop"}
     if _SCREENSHOT_RE.search(t):
         return {"type": "screenshot"}
+
+    if _PROJECT_STATUS_RE.search(t):
+        return {"type": "project_status"}
 
     low = t.lower()
     for app in _APP_NAMES:
@@ -170,5 +179,10 @@ def _execute(intent: dict, executor: SystemExecutor, voice: bool) -> str:
     if kind == "close_app":
         result = executor.close_app(intent["name"])
         return f"Chiudo {intent['name']}{sir}." if result.ok else f"{intent['name']}: {result.stderr}"
+
+    if kind == "project_status":
+        from core import project_status  # import qui: evita l'overhead se l'intent non serve mai
+
+        return project_status.format_report(project_status.check_all(executor), voice=voice)
 
     return "Comando riconosciuto ma non ancora gestito."
