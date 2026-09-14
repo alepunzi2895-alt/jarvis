@@ -92,6 +92,37 @@ def _speak_with_interrupt(engine: tts.TTSEngine, listener: WakeWordListener, tex
     watcher.join(timeout=2)
 
 
+async def _run_voice_turn(
+    engine: tts.TTSEngine, listener: WakeWordListener, prompt: str, workspace: str, image_b64: str | None
+) -> tuple[str, float]:
+    """Come _speak_with_interrupt(), ma per la risposta streaming: Claude
+    genera e JARVIS inizia a parlare dalla prima frase pronta, invece di
+    aspettare tutta la risposta (core/claude_api.py::run_voice_streaming +
+    core/voice/tts.py::speak_stream). Stesso pattern watcher/evento di
+    _speak_with_interrupt, solo piu' granulare (l'interruzione puo' fermare
+    la voce fra una frase e l'altra, non solo a fine risposta) — la
+    generazione/estrazione blocchi (```brain```/```browser```/```system```)
+    prosegue comunque fino in fondo anche se l'utente interrompe l'audio."""
+    result = claude_api.VoiceStreamResult()
+    stop_watching = threading.Event()
+    interrupted = threading.Event()
+
+    def watch() -> None:
+        if listener.wait(timeout=INTERRUPT_WATCH_SECONDS, cancel_event=stop_watching) and not stop_watching.is_set():
+            interrupted.set()
+            engine.stop()
+
+    watcher = threading.Thread(target=watch, daemon=True)
+    watcher.start()
+    try:
+        sentences = claude_api.run_voice_streaming(prompt, workspace, image_b64, result)
+        await engine.speak_stream(sentences, interrupted)
+    finally:
+        stop_watching.set()
+        watcher.join(timeout=2)
+    return result.text, result.cost
+
+
 def main() -> None:
     print("caricamento modelli (whisper, wake word)... qualche secondo, attendere")
     listener = WakeWordListener()
@@ -143,8 +174,10 @@ def main() -> None:
             workspace = _current_workspace()
             cost = 0.0
             status = "done"
+            spoken = False  # _run_voice_turn parla gia' in streaming se arriva fin li' senza eccezioni
             try:
-                response, cost = asyncio.run(claude_api.run_voice(text, workspace, image_b64))
+                response, cost = asyncio.run(_run_voice_turn(engine, listener, text, workspace, image_b64))
+                spoken = True
             except anthropic.AuthenticationError:
                 response = (
                     "Chiave API di Anthropic rifiutata, Signore. Alessandro deve "
@@ -170,7 +203,8 @@ def main() -> None:
             print(f"< {response}")
 
             _log_task(text, workspace, image_b64, response, cost, status)
-            _speak_with_interrupt(engine, listener, response)
+            if not spoken:
+                _speak_with_interrupt(engine, listener, response)
         except Exception as e:  # noqa: BLE001
             # Un daemon di sfondo non deve morire per un errore in un singolo
             # ciclo — si logga e si torna in ascolto.

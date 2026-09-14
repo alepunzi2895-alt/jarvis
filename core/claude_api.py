@@ -38,7 +38,10 @@ from __future__ import annotations
 import asyncio
 import base64
 import os
+import re
 import threading
+from collections.abc import AsyncIterator
+from dataclasses import dataclass
 from datetime import datetime
 
 import anthropic
@@ -119,10 +122,36 @@ def _fetch_context(ws: str):
     return brain.fetch_context(ws)
 
 
-async def run_voice(prompt: str, ws: str, image_b64: str | None = None) -> tuple[str, float]:
-    """Chiama l'API Anthropic direttamente (nessun processo CLI). Ritorna
-    (testo, costo_stimato)."""
-    client = _get_client()
+@dataclass
+class VoiceStreamResult:
+    """Raccoglie l'esito di run_voice_streaming() — un generator puo' fare
+    yield di frasi ma non anche return-are (testo, costo) al chiamante,
+    quindi li scrive qui mano a mano che diventano noti."""
+
+    text: str = ""
+    cost: float = 0.0
+
+
+# Confine di frase: spazio/newline che segue .!? — lookbehind, cosi' lo
+# spazio stesso non finisce ne' nella frase completata ne' nel frammento
+# successivo. Nessuna libreria di sentence-splitting nel repo: per frasi
+# corte (persona vocale) un regex semplice basta, non serve NLTK/spaCy.
+_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+|\n+")
+_FENCE = "```"
+
+
+def _split_sentences(buf: str) -> tuple[list[str], str]:
+    """Frasi complete + un frammento finale (senza terminatore certo, quindi
+    potenzialmente ancora incompleto) che resta accumulato per il prossimo
+    pezzo di stream."""
+    parts = _SENTENCE_SPLIT_RE.split(buf)
+    return parts[:-1], parts[-1]
+
+
+async def _build_messages(prompt: str, ws: str, image_b64: str | None) -> tuple[str, list[dict], list[dict]]:
+    """Fattorizza la costruzione di system prompt/content/messages, condivisa
+    da run_voice_streaming() — l'unica differenza fra le due era la chiamata
+    finale (create() vs stream()), non la preparazione della richiesta."""
     system_prompt = await _build_system_prompt(ws)
 
     user_text = prompt
@@ -164,14 +193,59 @@ async def run_voice(prompt: str, ws: str, image_b64: str | None = None) -> tuple
 
     history = _history.get(ws, [])
     messages = [*history, {"role": "user", "content": content}]
+    return system_prompt, history, messages
 
-    response = await client.messages.create(
-        model=MODEL,
-        max_tokens=MAX_TOKENS,
-        system=system_prompt,
-        messages=messages,
-    )
-    text = next((b.text for b in response.content if b.type == "text"), "") or "(nessun output)"
+
+async def run_voice_streaming(
+    prompt: str, ws: str, image_b64: str | None, result: VoiceStreamResult
+) -> AsyncIterator[str]:
+    """Come run_voice(), ma genera (yield) le frasi della risposta mano a
+    mano che Claude le completa, invece di aspettare tutta la risposta —
+    core/voice/tts.py::speak_stream() le sintetizza/parla una per volta.
+    Testo/costo finali (identici a quello che tornava run_voice()) finiscono
+    in `result`.
+
+    Sicurezza: il SYSTEM prompt condiviso istruisce Claude a mettere i
+    blocchi ```brain```/```browser```/```system``` IN FONDO alla risposta —
+    appena compare un fence ``` nel testo non ancora pronunciato si smette
+    di generare frasi da parlare (fence_seen=True), ma l'accumulo del testo
+    completo per l'estrazione blocchi prosegue invariato, identico a prima.
+    Mai il rischio di far leggere JSON grezzo dal TTS (bug reale gia'
+    successo una volta — vedi la cronologia in cima al modulo)."""
+    client = _get_client()
+    system_prompt, history, messages = await _build_messages(prompt, ws, image_b64)
+
+    full_text = ""
+    buf = ""
+    fence_seen = False
+    usage = None
+
+    async with client.messages.stream(
+        model=MODEL, max_tokens=MAX_TOKENS, system=system_prompt, messages=messages
+    ) as stream:
+        async for delta in stream.text_stream:
+            full_text += delta
+            if fence_seen:
+                continue
+            buf += delta
+            fence_idx = buf.find(_FENCE)
+            if fence_idx != -1:
+                pre, buf, fence_seen = buf[:fence_idx], "", True
+                complete, _leftover = _split_sentences(pre)  # frammento prima del fence: scartato, mai pronunciato
+                for s in complete:
+                    if s.strip():
+                        yield s.strip()
+                continue
+            complete, buf = _split_sentences(buf)
+            for s in complete:
+                if s.strip():
+                    yield s.strip()
+        if not fence_seen and buf.strip():
+            yield buf.strip()
+        final_message = await stream.get_final_message()
+        usage = final_message.usage
+
+    text = full_text or "(nessun output)"
 
     if turso.ENABLED:
         from core import brain  # import qui: evita di caricare brain.py se turso e' disabilitato
@@ -189,4 +263,15 @@ async def run_voice(prompt: str, ws: str, image_b64: str | None = None) -> tuple
     new_history = [*history, {"role": "user", "content": prompt}, {"role": "assistant", "content": text}]
     _history[ws] = new_history[-MAX_HISTORY_MESSAGES:]
 
-    return text, _estimate_cost(response.usage)
+    result.text = text
+    result.cost = _estimate_cost(usage) if usage else 0.0
+
+
+async def run_voice(prompt: str, ws: str, image_b64: str | None = None) -> tuple[str, float]:
+    """Chiama l'API Anthropic direttamente (nessun processo CLI). Ritorna
+    (testo, costo_stimato) — wrapper sottile su run_voice_streaming() per chi
+    non ha bisogno dell'audio incrementale (es. i test)."""
+    result = VoiceStreamResult()
+    async for _ in run_voice_streaming(prompt, ws, image_b64, result):
+        pass
+    return result.text, result.cost
