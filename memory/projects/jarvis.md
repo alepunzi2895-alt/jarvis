@@ -384,3 +384,14 @@ spazio" non esiste); Teams/Outlook mai loggati nel browser persistente di
 JARVIS (richiede un suo login manuale una tantum nella finestra visibile
 che si apre). Mai un invio automatico su Teams/mail — solo bozze, per
 scelta esplicita di sicurezza. Dettaglio completo in log 2026-09-14 22:29.
+
+**Stesso giorno, ancora dopo**: mic della dashboard segnalato non
+funzionante — testato dal vivo (claude-in-chrome), codice/permesso OK
+nella sessione di test, ma Alessandro conferma che nel suo browser reale
+il pulsante non cambia mai aspetto al click; ipotesi principale permesso
+microfono bloccato nel suo Chrome, non confermato, resta un problema
+aperto. Aggiunta voce->Telegram per iscritto (`core/telegram.py` +
+`daemon.py::_notify_telegram()`). **Outlook ora e' via COM su Outlook
+desktop** (`core/outlook.py`, `pywin32`), non piu' screenshot browser —
+sola lettura, intent veloce "controlla la posta", verificato dal vivo
+contro la sua Inbox reale. Dettaglio in log 2026-09-14 23:21.
