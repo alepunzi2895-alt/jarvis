@@ -22,7 +22,7 @@ from core.claude_bridge import (
     run_claude,
     load_state,
 )
-from core import web_bridge, intents, project_status, screen_context, databricks
+from core import web_bridge, intents, project_status, screen_context, databricks, telegram
 from core.executor_singleton import executor, vault
 from core.voice import camera, tts
 
@@ -39,20 +39,10 @@ if vault is None:
 # --------------------------------------------------------------------------- telegram
 
 
-def _send_sync(text: str, parse: str | None = None) -> None:
-    for chunk in [text[i : i + 3900] for i in range(0, len(text), 3900)] or ["(vuoto)"]:
-        payload = {"chat_id": OWNER_ID, "text": chunk, "disable_web_page_preview": True}
-        if parse:
-            payload["parse_mode"] = parse
-        try:
-            requests.post(f"{API}/sendMessage", json=payload, timeout=30)
-        except Exception as e:  # noqa: BLE001
-            print("send error:", e)
-
-
 def send(text: str, parse: str | None = None) -> None:
-    """Fire-and-forget: non blocca il loop asyncio (gira su thread separato)."""
-    asyncio.get_running_loop().run_in_executor(None, _send_sync, text, parse)
+    """Fire-and-forget: non blocca il loop asyncio (gira su thread separato).
+    Invio vero in core/telegram.py, condiviso col daemon vocale."""
+    asyncio.get_running_loop().run_in_executor(None, telegram.send_to_owner, text, parse)
 
 
 def _typing_sync() -> None:
