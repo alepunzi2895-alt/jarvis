@@ -8,6 +8,7 @@ core/voice/daemon.py.
 import contextlib
 import io
 import os
+import re
 import asyncio
 import tempfile
 import threading
@@ -145,3 +146,44 @@ class EdgeTTSEngine(TTSEngine):
 
 def get_engine() -> TTSEngine:
     return EdgeTTSEngine()
+
+
+# --------------------------------------------------------------------------- voce locale (risposte non-vocali)
+#
+# "Deve rispondermi sempre vocalmente" (2026-09-14): le risposte di QUALSIASI
+# canale locale (Telegram, dashboard web) escono anche dagli altoparlanti del
+# PC, non solo il canale vocale nativo. Un solo punto condiviso, cosi' bot.py
+# e core/web_bridge.py non duplicano motore/pulizia markdown/interruttore.
+
+_MD_LINK_RE = re.compile(r"\[([^\]]*)\]\([^)]*\)")
+_MD_SYMBOLS_RE = re.compile(r"[*_`#]+")
+_shared_engine: TTSEngine | None = None
+
+
+def clean_for_speech(text: str) -> str:
+    """Copia ripulita per il TTS — il testo mostrato all'utente non cambia."""
+    text = _MD_LINK_RE.sub(r"\1", text)
+    text = _MD_SYMBOLS_RE.sub("", text)
+    return text.strip()
+
+
+def _speak_sync(text: str) -> None:
+    global _shared_engine
+    text = clean_for_speech(text)
+    if not text:
+        return
+    if _shared_engine is None:
+        _shared_engine = get_engine()
+    try:
+        _shared_engine.speak(text)
+    except Exception as e:  # noqa: BLE001 — la voce locale non deve mai far fallire la risposta testuale
+        print(f"(voce locale fallita, ignorata: {e})")
+
+
+def speak_if_enabled(text: str) -> None:
+    """Fire-and-forget (thread): non blocca il loop asyncio chiamante.
+    Rispetta lo stesso interruttore /voce on|off del daemon vocale."""
+    from core.claude_bridge import load_state  # import qui: evita import circolare a freddo
+
+    if load_state().get("voice_enabled", True):
+        asyncio.get_running_loop().run_in_executor(None, _speak_sync, text)

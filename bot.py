@@ -6,7 +6,6 @@ Gira in parallelo al poller della web dashboard (stesso processo, stesso cervell
 """
 
 import os
-import re
 import html
 import asyncio
 import datetime as dt
@@ -20,7 +19,6 @@ from core.claude_bridge import (
     state,
     save_state,
     run_claude,
-    load_state,
 )
 from core import web_bridge, intents, project_status, screen_context, databricks, telegram
 from core.executor_singleton import executor, vault
@@ -70,33 +68,10 @@ def typing() -> None:
 # jarvis). Applicato alle risposte vere e proprie (task Claude, comandi
 # rapidi, /progetti) — non a dump di riferimento lunghi (/help, /log,
 # /search, /status), che leggere ad alta voce sarebbe solo fastidioso.
+# Motore/pulizia markdown/interruttore condivisi con core/web_bridge.py in
+# core/voice/tts.py::speak_if_enabled().
 
-_voice_engine = tts.get_engine()
-_MD_LINK_RE = re.compile(r"\[([^\]]*)\]\([^)]*\)")
-_MD_SYMBOLS_RE = re.compile(r"[*_`#]+")
-
-
-def _for_speech(text: str) -> str:
-    """Copia ripulita per il TTS — il testo mostrato su Telegram non cambia."""
-    text = _MD_LINK_RE.sub(r"\1", text)
-    text = _MD_SYMBOLS_RE.sub("", text)
-    return text.strip()
-
-
-def _speak_sync(text: str) -> None:
-    text = _for_speech(text)
-    if not text:
-        return
-    try:
-        _voice_engine.speak(text)
-    except Exception as e:  # noqa: BLE001 — la voce locale non deve mai far fallire la risposta testuale
-        print(f"(voce locale fallita, ignorata: {e})")
-
-
-def speak_locally(text: str) -> None:
-    """Fire-and-forget (thread, come send()): non blocca il loop asyncio."""
-    if load_state().get("voice_enabled", True):
-        asyncio.get_running_loop().run_in_executor(None, _speak_sync, text)
+speak_locally = tts.speak_if_enabled
 
 
 # --------------------------------------------------------------------------- comandi
