@@ -171,14 +171,29 @@ async function taskResultPush(db, body) {
 async function runtimeStatus(db, req) {
   // Legge il flag "speaking" scritto da core/voice/tts.py — cosi' la bolla
   // centrale della dashboard puo' reagire quando JARVIS parla davvero,
-  // qualunque canale (Telegram/voce/dashboard) abbia innescato la voce.
+  // qualunque canale (Telegram/voce/dashboard) abbia innescato la voce, e il
+  // mic della dashboard puo' zittirsi per non risentirsi da solo.
+  //
+  // Scadenza di sicurezza (2026-09-15): la scrittura "speaking=0" a fine
+  // parlato e' fire-and-forget lato Python (core/voice/tts.py::
+  // _set_speaking_bg) - se quella singola scrittura fallisce (blip di rete,
+  // capitato dal vivo lo stesso giorno), il flag resta bloccato a "1" PER
+  // SEMPRE, zittendo il microfono in eterno senza che nessuna nuova
+  // richiesta possa mai arrivare per sbloccarlo (deadlock: mic muto -> nessun
+  // comando nuovo -> nessuna nuova risposta -> il flag non si aggiorna mai
+  // piu'). Il filtro `updated_at` qui sotto rende il "vero" auto-scadente:
+  // se non viene rinnovato entro 20s (piu' lungo di quasi ogni risposta
+  // vocale reale), si considera comunque "falso" senza bisogno che la
+  // scrittura di reset arrivi mai.
   requireBrowserAuth(req);
   await db.execute(`CREATE TABLE IF NOT EXISTS runtime_flags (
     key TEXT PRIMARY KEY, value TEXT, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
   )`).catch(() => {});
-  const r = await db.execute({ sql: "SELECT value FROM runtime_flags WHERE key='speaking'", args: [] });
-  const speaking = r.rows.length > 0 && r.rows[0].value === "1";
-  return { ok: true, speaking };
+  const r = await db.execute({
+    sql: "SELECT 1 FROM runtime_flags WHERE key='speaking' AND value='1' AND updated_at > datetime('now', '-20 seconds')",
+    args: [],
+  });
+  return { ok: true, speaking: r.rows.length > 0 };
 }
 
 async function brainGraph(db, req) {

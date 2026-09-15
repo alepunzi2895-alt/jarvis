@@ -1,3 +1,6 @@
+import asyncio
+import threading
+
 from core.voice import tts
 
 
@@ -56,3 +59,55 @@ def test_bootstrap_runs_create_table_once(monkeypatch):
 
     assert len(calls) == 1
     assert "CREATE TABLE IF NOT EXISTS runtime_flags" in calls[0]
+
+
+class _FakeStreamingEngine:
+    """Registra le frasi ricevute da speak_stream() invece di sintetizzarle
+    davvero — verifica solo che _speak_sync() spezzi il testo per frase e
+    lo passi a speak_stream() (streaming), non piu' a speak() (un blocco
+    unico) — richiesta esplicita di Alessandro (2026-09-15) di ridurre il
+    tempo prima di sentire la prima parola."""
+
+    def __init__(self):
+        self.streamed_sentences: list[str] = []
+        self.speak_called_with: str | None = None
+
+    def speak(self, text):
+        self.speak_called_with = text
+
+    async def speak_stream(self, sentences, stop_event):
+        async for s in sentences:
+            self.streamed_sentences.append(s)
+
+
+def test_speak_sync_streams_per_sentence_not_as_one_block(monkeypatch):
+    engine = _FakeStreamingEngine()
+    monkeypatch.setattr(tts, "_shared_engine", engine)
+
+    tts._speak_sync("Prima frase. Seconda frase! Terza?")
+
+    assert engine.speak_called_with is None  # mai il vecchio percorso "un blocco solo"
+    assert engine.streamed_sentences == ["Prima frase.", "Seconda frase!", "Terza?"]
+
+
+def test_speak_sync_swallows_errors_from_streaming_engine(monkeypatch):
+    class _BoomEngine:
+        async def speak_stream(self, sentences, stop_event):
+            raise RuntimeError("motore TTS rotto")
+
+    monkeypatch.setattr(tts, "_shared_engine", _BoomEngine())
+    tts._speak_sync("Ciao")  # non deve sollevare
+
+
+def test_speak_sentence_stream_passes_never_set_stop_event():
+    seen = {}
+
+    class _CaptureEngine:
+        async def speak_stream(self, sentences, stop_event):
+            seen["stop_event"] = stop_event
+            async for _ in sentences:
+                pass
+
+    asyncio.run(tts._speak_sentence_stream(_CaptureEngine(), "Una frase."))
+    assert isinstance(seen["stop_event"], threading.Event)
+    assert not seen["stop_event"].is_set()

@@ -210,6 +210,11 @@ def get_engine() -> TTSEngine:
 
 _MD_LINK_RE = re.compile(r"\[([^\]]*)\]\([^)]*\)")
 _MD_SYMBOLS_RE = re.compile(r"[*_`#]+")
+# Stesso confine di frase usato da core/claude_api.py::run_voice_streaming
+# per lo streaming vocale — riusato qui per lo stesso motivo: iniziare a
+# sentire la prima frase mentre le successive sintetizzano ancora, invece
+# di aspettare l'intera risposta come un unico file audio.
+_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+|\n+")
 _shared_engine: TTSEngine | None = None
 
 
@@ -220,7 +225,24 @@ def clean_for_speech(text: str) -> str:
     return text.strip()
 
 
+async def _speak_sentence_stream(engine: TTSEngine, text: str) -> None:
+    async def _sentences():
+        for part in _SENTENCE_SPLIT_RE.split(text):
+            part = part.strip()
+            if part:
+                yield part
+
+    await engine.speak_stream(_sentences(), threading.Event())  # mai interrotto: nessun canale qui ha un hotkey
+
+
 def _speak_sync(text: str) -> None:
+    """2026-09-15: usa speak_stream() (frase per frase, sintesi della
+    prossima mentre la corrente sta gia' suonando) invece di speak() (un
+    unico file per l'intera risposta) — richiesta esplicita di Alessandro
+    di ridurre il tempo prima di sentire la prima parola, stesso guadagno
+    gia' sfruttato dal canale vocale nativo per la voce in streaming da
+    Claude, qui applicato a un testo gia' completo (Telegram/dashboard non
+    generano la risposta a pezzi come l'API diretta della voce)."""
     global _shared_engine
     text = clean_for_speech(text)
     if not text:
@@ -228,7 +250,7 @@ def _speak_sync(text: str) -> None:
     if _shared_engine is None:
         _shared_engine = get_engine()
     try:
-        _shared_engine.speak(text)
+        asyncio.run(_speak_sentence_stream(_shared_engine, text))
     except Exception as e:  # noqa: BLE001 — la voce locale non deve mai far fallire la risposta testuale
         print(f"(voce locale fallita, ignorata: {e})")
 
