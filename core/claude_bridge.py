@@ -27,6 +27,7 @@ MODEL = os.getenv("JARVIS_MODEL", "")  # es. "opus" oppure vuoto = default
 # più leggero taglia parecchi secondi di latenza percepita rispetto al
 # default. Testo/Telegram restano su JARVIS_MODEL (default = normale).
 VOICE_MODEL = os.getenv("JARVIS_VOICE_MODEL", "haiku")
+DATABRICKS_QAS_HOST = os.getenv("DATABRICKS_QAS_HOST", "")
 
 STATE_FILE = JARVIS_HOME / "state.json"
 TMP_DIR = JARVIS_HOME / ".tmp"
@@ -74,7 +75,15 @@ SYSTEM = (
     '{"action":"search","engine":"youtube","query":"...","open_first_result":true}\n'
     "```\n"
     '("engine" può essere "google" o "youtube"). Usalo solo quando serve davvero '
-    "aprire un browser reale — non per domande generiche. Non hai NESSUN modo di "
+    "aprire un browser reale — non per domande generiche. Se l'utente chiede di "
+    "aprire/navigare Databricks (senza specificare produzione), usa il blocco "
+    '```browser``` con "action":"open" e l\'URL dell\'ambiente di test (QAS): '
+    f'{DATABRICKS_QAS_HOST or "(non configurato)"}. Non hai un URL diretto per aprire '
+    "una conversazione/notebook specifico ne' il pannello Genie Code (l'assistente di "
+    "coding integrato in Databricks, diverso dal Genie AI/BI sopra) — apri solo la home "
+    "dell'ambiente, sara' l'utente a navigare da li' dentro il browser di JARVIS (finestra "
+    "visibile, sessione persistente: la prima volta serve un suo login SSO manuale, poi "
+    "resta salvata). Non hai NESSUN modo di "
     "accendere/controllare la webcam tu stesso, ne' esiste un sito o un URL locale "
     "(dashboard compresa, anche se gira su localhost) che la apra: se l'utente ti "
     "chiede di vedere/scattare qualcosa e non hai ricevuto nessuna immagine allegata "

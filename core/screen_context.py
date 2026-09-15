@@ -39,7 +39,7 @@ _SPA_RENDER_WAIT_SECONDS = 3
 
 _TEAMS_RE = re.compile(r"\bteams\b", re.IGNORECASE)
 _SCREEN_RE = re.compile(
-    r"\bschermo\b|\bschermat[ae]\b|\bdesktop\b|\bdatabricks\b"
+    r"\bschermo\b|\bschermat[ae]\b|\bdesktop\b|\bdatabricks\b|\bgenie\b"
     r"|\bcosa\s+(sto\s+facendo|vedo|c'e'|c’e')\b",
     re.IGNORECASE,
 )
@@ -47,10 +47,13 @@ _SCREEN_RE = re.compile(
 
 def target_for(text: str) -> str | None:
     """'teams'/'screen' se il testo chiede di vedere una di queste cose,
-    altrimenti None. 'databricks' senza altro contesto cade su 'screen':
-    JARVIS non sa quale dashboard/notebook specifico intendi, guarda cosa
-    hai gia' aperto. Le mail/Outlook non passano di qui, vedi core/outlook.py
-    (intent dedicato, dati veri via COM invece di uno screenshot)."""
+    altrimenti None. 'databricks'/'genie' senza altro contesto cadono su
+    'screen': JARVIS non sa quale dashboard/notebook specifico intendi (ne'
+    ha un modo di aprire una conversazione Genie Code precisa), guarda cosa
+    hai gia' aperto tu — es. "leggimi l'ultima risposta di Genie Code"
+    presuppone che la finestra sia gia' in primo piano. Le mail/Outlook non
+    passano di qui, vedi core/outlook.py (intent dedicato, dati veri via COM
+    invece di uno screenshot)."""
     if _TEAMS_RE.search(text):
         return "teams"
     if _SCREEN_RE.search(text):
