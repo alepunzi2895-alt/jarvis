@@ -179,6 +179,11 @@ function fillEntry(el, task) {
   if (task.cost_usd) meta.push(`$${Number(task.cost_usd).toFixed(3)}`);
   el.querySelector(".meta").textContent = meta.join(" · ");
   $("#console-log").scrollTop = $("#console-log").scrollHeight;
+  // La bolla torna a idle quando la risposta arriva (se JARVIS deve anche
+  // parlarla, pollSpeakingStatus() la porta a "speaking" al prossimo giro di
+  // polling) — su errore lampeggia rosso per un attimo invece di sparire subito.
+  if (task.status === "error") setOrbAlert();
+  else if (orbState === "thinking") setOrbState("idle");
 }
 
 async function pollTask(taskId, el) {
@@ -207,6 +212,7 @@ async function submitTask(text, imageB64) {
     const body = { workspace: currentWs, prompt: text };
     if (imageB64) body.image_b64 = imageB64;
     const { task_id } = await api("task_push", body);
+    setOrbState("thinking");
     pollTask(task_id, el);
   } catch (err) {
     fillEntry(el, { status: "error", result: err.message });
@@ -415,6 +421,7 @@ function setupVoice() {
 
   function finalizeSegment() {
     recording = false;
+    if (orbState === "listening") setOrbState("idle"); // "thinking" arriva solo se il segmento va sottoposto davvero
     const samples = _concatFloat32(segmentChunks);
     segmentChunks = [];
     const durationMs = (samples.length / audioCtx.sampleRate) * 1000;
@@ -506,12 +513,14 @@ function setupVoice() {
           onsetCandidateMs = 0;
           prerollChunks = [];
           prerollMs = 0;
+          setOrbState("listening");
         }
         return;
       }
 
       segmentChunks.push(data);
       segmentMs += chunkMs;
+      window.JarvisOrb?.setLevel(rms * 2.5); // reagisce al volume vero mentre registra
       if (speaking) {
         silenceMs = 0;
       } else {
@@ -572,6 +581,7 @@ async function submitTaskAudio(audioB64) {
   const el = appendEntry("🎙️ (trascrizione in corso…)");
   try {
     const { task_id } = await api("task_push", { workspace: currentWs, audio_b64: audioB64 });
+    setOrbState("thinking");
     pollTranscribedTask(task_id, el);
   } catch (err) {
     fillEntry(el, { status: "error", result: err.message });
@@ -600,6 +610,7 @@ async function pollTranscribedTask(taskId, el) {
 
     if (task.status === "ignored") {
       el.remove();
+      if (orbState === "thinking") setOrbState("idle");
       return;
     }
     if (!transcribed && task.prompt) {
@@ -1129,12 +1140,34 @@ const ORB_SPEAKING_POLL_MS = 700;
 // setupVoice()) fa tacere completamente il mic mentre JARVIS parla.
 let botSpeaking = false;
 
+// ── Bolla animata (orb.js) — stato/energia riflettono cosa sta facendo
+// davvero JARVIS in questo momento (idle/listening/thinking/speaking/alert).
+// orbState e' la fonte di verita' lato client: pollSpeakingStatus() legge
+// solo "sta parlando adesso?" da Turso ogni 700ms, quindi non deve MAI
+// sovrascrivere alla cieca uno stato piu' specifico (es. "listening" appena
+// scattato) impostato nel frattempo da un altro punto del codice.
+let orbState = "idle";
+let orbStateGen = 0;
+
+function setOrbState(name) {
+  orbState = name;
+  window.JarvisOrb?.setState(name);
+}
+
+function setOrbAlert(durationMs = 2500) {
+  const gen = ++orbStateGen;
+  setOrbState("alert");
+  setTimeout(() => {
+    if (orbStateGen === gen) setOrbState("idle");
+  }, durationMs);
+}
+
 async function pollSpeakingStatus() {
-  const orb = $("#jarvis-orb");
   try {
     const { speaking } = await api("runtime_status");
     botSpeaking = !!speaking;
-    orb.classList.toggle("orb-speaking", botSpeaking);
+    if (botSpeaking && orbState !== "speaking") setOrbState("speaking");
+    else if (!botSpeaking && orbState === "speaking") setOrbState("idle");
   } catch {
     // rete assente/blip transitorio: non toccare lo stato attuale della bolla/mic
   }
@@ -1146,6 +1179,8 @@ async function boot() {
   $("#login-screen").style.display = "none";
   $("#app").classList.add("visible");
   renderPills();
+  window.JarvisOrb = window.createJarvisOrb($("#orb-canvas"));
+  window.JarvisOrb.start();
   setupVoice();
   setupWindows();
   setupCamera();
