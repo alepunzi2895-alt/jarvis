@@ -141,6 +141,49 @@ def test_open_app_from_registry_alias(executor):
     popen.assert_called_once_with(["notepad.exe"])
 
 
+def test_open_app_brings_window_to_foreground(executor):
+    """"quando mi apri altre app mettile in primo piano" (2026-09-15): non
+    basta lanciarle, la finestra deve passare davvero in primo piano —
+    verificato che open_app avvii il meccanismo con il PID giusto (il
+    meccanismo stesso, EnumWindows + AttachThreadInput, e' stato verificato
+    a parte dal vivo contro un'app reale, non solo mockato qui)."""
+    fake_proc = MagicMock()
+    fake_proc.pid = 4242
+    seen_pids = []
+
+    def fake_bring_to_foreground(pid):
+        seen_pids.append(pid)
+
+    with patch("core.system_executor.subprocess.Popen", return_value=fake_proc), \
+         patch("core.system_executor._bring_to_foreground_bg", fake_bring_to_foreground):
+        result = executor.open_app("notepad")
+
+    assert result.ok is True
+    assert seen_pids == [4242]
+
+
+def test_bring_to_foreground_bg_never_raises_on_bad_pid():
+    """Un PID inesistente/gia' morto (finestra chiusa subito, app fallita ad
+    avviarsi, ecc.) non deve mai far esplodere il thread in background —
+    silenziosamente rinuncia a portare in primo piano, l'apertura dell'app
+    resta comunque riuscita."""
+    from core.system_executor import _bring_to_foreground_bg
+
+    thread_ref = {}
+    orig_thread = __import__("threading").Thread
+
+    def _capture_thread(*a, **k):
+        t = orig_thread(*a, **k)
+        thread_ref["t"] = t
+        return t
+
+    with patch("threading.Thread", side_effect=_capture_thread):
+        _bring_to_foreground_bg(999_999_999)  # PID quasi certamente inesistente
+
+    thread_ref["t"].join(timeout=5)
+    assert not thread_ref["t"].is_alive()
+
+
 def _fake_process(name):
     proc = MagicMock()
     proc.info = {"name": name}

@@ -121,6 +121,87 @@ def _resolve_app_path(name: str) -> str | None:
     return None
 
 
+# "quando mi apri altre app mettile in primo piano" (2026-09-15): un
+# subprocess.Popen nudo lancia l'app ma non ne garantisce affatto il focus —
+# Windows nega di default SetForegroundWindow a un processo che non e' esso
+# stesso in primo piano (bot.py gira come task pianificato, non come app
+# interattiva con focus), quindi la finestra puo' aprirsi dietro le altre
+# senza che l'utente se ne accorga. Verificato dal vivo (2026-09-15): un
+# semplice EnumWindows sul PID del processo lanciato + AttachThreadInput
+# (il trick standard per aggirare il blocco di Windows) porta davvero la
+# finestra in primo piano — provato su mspaint.exe, hwnd trovato e
+# GetForegroundWindow() coincide dopo la chiamata. Fire-and-forget in un
+# thread: non deve mai ritardare la risposta "Aperto X." solo per aspettare
+# che la finestra compaia (fino a 4s di polling).
+_FOREGROUND_WAIT_SECONDS = 4.0
+
+
+def _find_window_for_pid(pid: int, timeout: float = _FOREGROUND_WAIT_SECONDS) -> int | None:
+    import time
+
+    import win32gui
+    import win32process
+
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            proc = psutil.Process(pid)
+            target_pids = {pid} | {c.pid for c in proc.children(recursive=True)}
+        except psutil.NoSuchProcess:
+            target_pids = {pid}
+        found: list[int] = []
+
+        def _cb(hwnd: int, _):
+            if not win32gui.IsWindowVisible(hwnd):
+                return
+            _, wpid = win32process.GetWindowThreadProcessId(hwnd)
+            if wpid in target_pids and win32gui.GetWindowText(hwnd):
+                found.append(hwnd)
+
+        win32gui.EnumWindows(_cb, None)
+        if found:
+            return found[0]
+        time.sleep(0.2)
+    return None
+
+
+def _force_foreground(hwnd: int) -> None:
+    import win32api
+    import win32con
+    import win32gui
+    import win32process
+
+    fg_hwnd = win32gui.GetForegroundWindow()
+    fg_thread, _ = win32process.GetWindowThreadProcessId(fg_hwnd)
+    target_thread, _ = win32process.GetWindowThreadProcessId(hwnd)
+    cur_thread = win32api.GetCurrentThreadId()
+    attached = fg_thread != target_thread and fg_thread and target_thread
+    if attached:
+        win32process.AttachThreadInput(cur_thread, fg_thread, True)
+        win32process.AttachThreadInput(target_thread, fg_thread, True)
+    try:
+        win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+        win32gui.SetForegroundWindow(hwnd)
+    finally:
+        if attached:
+            win32process.AttachThreadInput(cur_thread, fg_thread, False)
+            win32process.AttachThreadInput(target_thread, fg_thread, False)
+
+
+def _bring_to_foreground_bg(pid: int) -> None:
+    import threading
+
+    def work() -> None:
+        try:
+            hwnd = _find_window_for_pid(pid)
+            if hwnd:
+                _force_foreground(hwnd)
+        except Exception:  # noqa: BLE001 — mai far fallire l'apertura dell'app per questo
+            pass
+
+    threading.Thread(target=work, daemon=True).start()
+
+
 def _resolve_image_name(name: str) -> str | None:
     """Nome del processo (es. 'chrome.exe') da cercare/terminare per chiudere
     un'app — stessa risoluzione di open_app ma ritorna solo il nome immagine,
@@ -298,10 +379,11 @@ class SystemExecutor:
         if not exe:
             return ExecResult(ok=False, stderr=f'App "{name}" non trovata (ne\' nel registro ne\' tra le App Paths di Windows).')
         try:
-            subprocess.Popen([exe])
+            proc = subprocess.Popen([exe])
         except OSError as e:
             return ExecResult(ok=False, stderr=str(e))
         self._log("open_app", name)
+        _bring_to_foreground_bg(proc.pid)
         return ExecResult(ok=True)
 
     def open_url(self, url: str) -> ExecResult:
