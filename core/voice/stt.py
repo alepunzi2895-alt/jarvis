@@ -76,8 +76,20 @@ def record_until_silence() -> np.ndarray:
     return np.concatenate(frames, axis=0).flatten()
 
 
+# "Jarvis" e' un nome inventato: whisper in italiano lo trascrive in modo
+# incoerente (verificato dal vivo 2026-09-15 con la stessa identica frase
+# sintetizzata: "YARVIS", poi "Giorbis chiarai", a volte lo perde del tutto
+# lasciando solo il comando). Un `initial_prompt` che nomina "Jarvis"
+# polarizza il decoder verso quella grafia esatta — verificato con lo
+# stesso test: risolve la trascrizione errata in tutti i casi provati,
+# molto piu' robusto che rincorrere varianti fonetiche via regex lato
+# server (core/web_bridge.py::_WAKE_WORD_RE, che resta comunque come rete
+# di sicurezza).
+_WAKE_WORD_PROMPT = "Jarvis, il maggiordomo AI di Iron Man."
+
+
 def transcribe(audio: np.ndarray, language: str = "it") -> str:
-    segments, _ = _get_model().transcribe(audio, language=language)
+    segments, _ = _get_model().transcribe(audio, language=language, initial_prompt=_WAKE_WORD_PROMPT)
     return " ".join(s.text for s in segments).strip()
 
 
@@ -89,5 +101,5 @@ def transcribe_file(path: str, language: str = "it") -> str:
     questa rete, vedi memory/log 2026-09-14). faster-whisper decodifica il
     file da solo (via PyAV, gia' una dipendenza) — nessun bisogno di
     convertire prima in PCM."""
-    segments, _ = _get_model().transcribe(path, language=language)
+    segments, _ = _get_model().transcribe(path, language=language, initial_prompt=_WAKE_WORD_PROMPT)
     return " ".join(s.text for s in segments).strip()
