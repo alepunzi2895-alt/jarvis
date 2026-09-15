@@ -256,9 +256,19 @@ async function loadHistory() {
 // equivalente). I segmenti senza "Jarvis" tornano dal bridge con
 // status "ignored" e spariscono dalla console senza lasciare traccia.
 //
-// Limite noto: il segmento inizia a registrare solo DOPO che il volume
-// supera la soglia (nessun pre-buffer) — la primissima sillaba di "Jarvis"
-// può risultare tagliata. Non verificato dal vivo quanto pesi in pratica.
+// 2026-09-15, secondo giro: segnalato dal vivo che spesso la trascrizione
+// tornava vuota ("non ho capito niente dall'audio") anche per frasi vere e
+// intere. Causa quasi certa: la primissima versione catturava ogni
+// segmento con un MediaRecorder NUOVO creato solo dopo aver rilevato voce
+// (nessun pre-buffer, vedi nota sotto) — probabile che tagliasse via più
+// della sola prima sillaba. Riscritto per catturare PCM grezzo in
+// continuo con AudioContext/ScriptProcessorNode (invece di MediaRecorder):
+// un buffer circolare tiene sempre gli ultimi ~PREROLL_MS di audio, cosi'
+// quando si rileva voce il segmento include gia' l'attimo prima
+// dell'attivazione — mai più un inizio tagliato. Il segmento raccolto
+// viene incapsulato in un WAV al volo (nessuna libreria, ~20 righe) invece
+// di un file webm/opus — stessa cosa che core/voice/stt.py sa gia'
+// decodificare, un formato in meno di cui fidarsi.
 
 // Intercetta i comandi che aprono/chiudono le finestre PRIMA di sottoporli
 // a Claude — istantaneo, nessuna chiamata task per queste azioni di UI.
@@ -287,13 +297,61 @@ function handleVoiceUiCommand(text) {
   return false;
 }
 
-const MIC_SILENCE_RMS = 12; // scala 0-255 (AnalyserNode su dati Uint8 centrati a 128)
+const MIC_SILENCE_RMS = 0.02; // scala -1..1 (PCM float32 vero, non più byte 0-255)
 const MIC_SILENCE_HANG_MS = 1200; // stessa soglia di core/voice/stt.py::SILENCE_HANG_MS
 const MIC_MAX_RECORD_MS = 15000;
+const MIC_PREROLL_MS = 400; // audio tenuto PRIMA del rilevamento voce, cosi' l'inizio non si taglia mai
+const MIC_MIN_SEGMENT_MS = 300; // sotto questa durata e' rumore/click, scartato
+
+function _pcmRms(data) {
+  let sum = 0;
+  for (let i = 0; i < data.length; i++) sum += data[i] * data[i];
+  return Math.sqrt(sum / data.length);
+}
+
+function _concatFloat32(chunks) {
+  const total = chunks.reduce((s, c) => s + c.length, 0);
+  const out = new Float32Array(total);
+  let offset = 0;
+  for (const c of chunks) {
+    out.set(c, offset);
+    offset += c.length;
+  }
+  return out;
+}
+
+// WAV mono 16-bit PCM al volo — nessuna libreria, cosi' il server (faster-whisper
+// via PyAV) decodifica un formato semplice e senza ambiguita' invece di webm/opus.
+function _encodeWav(samples, sampleRate) {
+  const buffer = new ArrayBuffer(44 + samples.length * 2);
+  const view = new DataView(buffer);
+  const writeString = (offset, str) => {
+    for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+  };
+  writeString(0, "RIFF");
+  view.setUint32(4, 36 + samples.length * 2, true);
+  writeString(8, "WAVE");
+  writeString(12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true); // PCM
+  view.setUint16(22, 1, true); // mono
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true); // byte rate (16 bit mono)
+  view.setUint16(32, 2, true); // block align
+  view.setUint16(34, 16, true); // bit depth
+  writeString(36, "data");
+  view.setUint32(40, samples.length * 2, true);
+  let offset = 44;
+  for (let i = 0; i < samples.length; i++, offset += 2) {
+    const s = Math.max(-1, Math.min(1, samples[i]));
+    view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+  }
+  return new Blob([buffer], { type: "audio/wav" });
+}
 
 function setupVoice() {
   const micBtn = $("#mic-btn");
-  if (!navigator.mediaDevices || !window.MediaRecorder) {
+  if (!navigator.mediaDevices || !(window.AudioContext || window.webkitAudioContext)) {
     micBtn.disabled = true;
     micBtn.title = "Registrazione audio non supportata in questo browser";
     return;
@@ -306,27 +364,31 @@ function setupVoice() {
   let armed = false;
   let stream = null;
   let audioCtx = null;
-  let monitorInterval = null;
-  let recorder = null;
-  let recording = false;
+  let processor = null;
+  let silentSink = null;
 
-  function stopSegment() {
-    if (recorder && recorder.state !== "inactive") recorder.stop();
+  // Stato del rilevamento voce/silenzio — un buffer circolare di "preroll"
+  // mentre si aspetta l'inizio del parlato, poi il segmento vero e proprio.
+  let recording = false;
+  let prerollChunks = [];
+  let prerollMs = 0;
+  let segmentChunks = [];
+  let segmentMs = 0;
+  let silenceMs = 0;
+
+  function _chunkMs(chunk) {
+    return (chunk.length / audioCtx.sampleRate) * 1000;
   }
 
-  function startSegment() {
-    recording = true;
-    const chunks = [];
-    recorder = new MediaRecorder(stream);
-    recorder.ondataavailable = (e) => {
-      if (e.data.size > 0) chunks.push(e.data);
-    };
-    recorder.onstop = () => {
-      recording = false;
-      const blob = new Blob(chunks, { type: recorder.mimeType || "audio/webm" });
-      if (blob.size > 500) handleRecordedAudio(blob); // scarta segmenti vuoti/troppo brevi
-    };
-    recorder.start();
+  function finalizeSegment() {
+    recording = false;
+    const samples = _concatFloat32(segmentChunks);
+    segmentChunks = [];
+    const durationMs = (samples.length / audioCtx.sampleRate) * 1000;
+    segmentMs = 0;
+    silenceMs = 0;
+    if (durationMs < MIC_MIN_SEGMENT_MS) return; // troppo corto: rumore/click, non voce vera
+    handleRecordedAudio(_encodeWav(samples, audioCtx.sampleRate));
   }
 
   async function arm() {
@@ -341,59 +403,75 @@ function setupVoice() {
     armed = true;
     micBtn.classList.add("listening");
     micBtn.title = ON_TITLE;
+    prerollChunks = [];
+    prerollMs = 0;
+    segmentChunks = [];
+    segmentMs = 0;
+    silenceMs = 0;
+    recording = false;
 
-    // Rilevamento voce/silenzio lato browser (AnalyserNode), sempre attivo
-    // finché armato — decide da solo quando iniziare e fermare ogni
-    // segmento, stessa soglia/logica del daemon nativo.
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     const source = audioCtx.createMediaStreamSource(stream);
-    const analyser = audioCtx.createAnalyser();
-    analyser.fftSize = 2048;
-    source.connect(analyser);
-    const data = new Uint8Array(analyser.fftSize);
+    // ScriptProcessorNode e' deprecato ma universalmente supportato — per un
+    // singolo tool interno non serve il carico in piu' di un AudioWorklet
+    // (un file JS separato solo per questo). Va comunque collegato a una
+    // destinazione per essere eseguito in alcuni browser: un GainNode a
+    // volume zero lo tiene "vivo" senza mandare l'audio agli altoparlanti
+    // (altrimenti si sentirebbe un eco del proprio microfono).
+    processor = audioCtx.createScriptProcessor(4096, 1, 1);
+    silentSink = audioCtx.createGain();
+    silentSink.gain.value = 0;
+    source.connect(processor);
+    processor.connect(silentSink);
+    silentSink.connect(audioCtx.destination);
 
-    let silenceStartedAt = null;
-    let segmentStartedAt = null;
-
-    monitorInterval = setInterval(() => {
-      analyser.getByteTimeDomainData(data);
-      let sumSquares = 0;
-      for (let i = 0; i < data.length; i++) {
-        const v = data[i] - 128;
-        sumSquares += v * v;
-      }
-      const rms = Math.sqrt(sumSquares / data.length);
-      const speaking = rms > MIC_SILENCE_RMS;
+    processor.onaudioprocess = (e) => {
+      const data = e.inputBuffer.getChannelData(0).slice(); // copia: il buffer sorgente viene riusato dal browser
+      const chunkMs = _chunkMs(data);
+      const speaking = _pcmRms(data) > MIC_SILENCE_RMS;
 
       if (!recording) {
+        prerollChunks.push(data);
+        prerollMs += chunkMs;
+        while (prerollChunks.length > 1 && prerollMs - _chunkMs(prerollChunks[0]) >= MIC_PREROLL_MS) {
+          prerollMs -= _chunkMs(prerollChunks.shift());
+        }
         if (speaking) {
-          segmentStartedAt = Date.now();
-          silenceStartedAt = null;
-          startSegment();
+          recording = true;
+          segmentChunks = prerollChunks; // include il pre-buffer: l'inizio non si taglia mai
+          segmentMs = prerollMs;
+          silenceMs = 0;
+          prerollChunks = [];
+          prerollMs = 0;
         }
         return;
       }
 
+      segmentChunks.push(data);
+      segmentMs += chunkMs;
       if (speaking) {
-        silenceStartedAt = null;
+        silenceMs = 0;
       } else {
-        if (silenceStartedAt === null) silenceStartedAt = Date.now();
-        if (Date.now() - silenceStartedAt > MIC_SILENCE_HANG_MS) stopSegment();
+        silenceMs += chunkMs;
       }
-      if (Date.now() - segmentStartedAt > MIC_MAX_RECORD_MS) stopSegment();
-    }, 100);
+      if (silenceMs >= MIC_SILENCE_HANG_MS || segmentMs >= MIC_MAX_RECORD_MS) {
+        finalizeSegment();
+      }
+    };
   }
 
   function disarm() {
     if (!armed) return;
     armed = false;
-    clearInterval(monitorInterval);
-    monitorInterval = null;
-    stopSegment();
+    if (recording) finalizeSegment(); // non perdere un segmento in corso quando si silenzia a mano
+    processor.disconnect();
+    silentSink.disconnect();
     stream.getTracks().forEach((t) => t.stop());
     audioCtx.close().catch(() => {});
     stream = null;
     audioCtx = null;
+    processor = null;
+    silentSink = null;
     micBtn.classList.remove("listening");
     micBtn.title = OFF_TITLE;
   }

@@ -23,3 +23,18 @@ def test_wake_word_followed_by_noise_word_is_ignored():
 
 def test_substring_of_wake_word_does_not_match():
     assert _strip_wake_word("jarvisone apri chrome") is None
+
+
+def test_wake_word_phonetic_variant_yarvis_matches():
+    # Osservato dal vivo (2026-09-15): whisper in italiano puo' trascrivere
+    # "Jarvis" foneticamente come "YARVIS" - senza questa variante il
+    # comando sarebbe stato scartato in silenzio nonostante fosse valido.
+    assert _strip_wake_word("YARVIS leggi l'ultima mail") == "leggi l'ultima mail"
+
+
+def test_wake_word_phonetic_variant_giarvis_matches():
+    assert _strip_wake_word("giarvis apri chrome") == "apri chrome"
+
+
+def test_wake_word_unrelated_word_ending_in_arvis_does_not_match():
+    assert _strip_wake_word("questo scarvis non esiste apri chrome") is None

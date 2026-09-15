@@ -32,7 +32,13 @@ ENABLED = turso.ENABLED
 # chiamate Claude vere prima che esistesse un filtro equivalente) — qui il
 # filtro vive lato server perche' la trascrizione stessa (faster-whisper)
 # avviene qui, non piu' nel browser.
-_WAKE_WORD_RE = re.compile(r"\bjarvis\b", re.IGNORECASE)
+#
+# Non solo "jarvis" esatto: verificato dal vivo (2026-09-15, sintesi vocale
+# di prova) che whisper in italiano puo' trascrivere foneticamente "Jarvis"
+# in modi diversi ("YARVIS" osservato) — un match troppo rigido avrebbe
+# scartato in silenzio comandi veri e propri. "arvis" resta il nucleo
+# fonetico comune a tutte le varianti plausibili.
+_WAKE_WORD_RE = re.compile(r"\b(?:j|gi|y|sci|sh)?arvis\b", re.IGNORECASE)
 _NOISE_WORDS = {"oh", "ah", "eh", "ehi", "ehm", "uhm", "mh", "boh"}
 
 
@@ -70,15 +76,18 @@ async def _transcribe_audio(audio_b64: str) -> str:
     """Trascrive in locale (faster-whisper, stesso motore del daemon vocale
     nativo) l'audio registrato dal microfono del dashboard — il
     riconoscimento cloud del browser (Web Speech API/Google) si e' rivelato
-    irraggiungibile su questa rete (memory/log 2026-09-14): il browser ora
-    registra soltanto (MediaRecorder, gia' verificato funzionante) e manda
-    l'audio grezzo qui invece di trascriverlo lui stesso."""
+    irraggiungibile su questa rete (memory/log 2026-09-14). Il browser cattura
+    PCM grezzo con AudioContext/ScriptProcessorNode e incapsula un WAV al volo
+    (non piu' MediaRecorder/webm dal 2026-09-15 — la cattura per segmenti
+    real-time a mani libere aveva bisogno di un pre-buffer prima del
+    rilevamento voce, impossibile da ottenere pulito ricreando un MediaRecorder
+    ad ogni segmento; il WAV toglie anche l'ambiguita' di formato lato server)."""
 
     def work() -> str:
         from core.voice import stt  # import qui: faster-whisper solo se serve davvero
 
         raw = base64.b64decode(audio_b64)
-        fd, tmp_path = tempfile.mkstemp(suffix=".webm")
+        fd, tmp_path = tempfile.mkstemp(suffix=".wav")
         os.close(fd)
         path = Path(tmp_path)
         try:
