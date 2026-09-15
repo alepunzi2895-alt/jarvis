@@ -297,7 +297,16 @@ function handleVoiceUiCommand(text) {
   return false;
 }
 
-const MIC_SILENCE_RMS = 0.02; // scala -1..1 (PCM float32 vero, non più byte 0-255)
+// 2026-09-15, terzo giro: verificato dal vivo (logs/bot.log) che 0.02 era
+// troppo basso — scattava su rumore di fondo/ventola, restava "in
+// ascolto" per l'intero tetto di 15s ripetutamente, e whisper allucinava
+// testo plausibile su quell'audio quasi silenzioso (frasi tipo "Sottotitoli
+// a cura di QTSS" — artefatto notissimo di whisper su input silenzioso/
+// rumoroso, non un bug di decodifica). Alzata la soglia + richiesto che il
+// suono resti sopra soglia per un tratto minimo continuo (non un singolo
+// blip) prima di considerarlo davvero l'inizio di una frase.
+const MIC_SILENCE_RMS = 0.06; // scala -1..1 (PCM float32 vero, non più byte 0-255)
+const MIC_ONSET_SUSTAIN_MS = 200; // il suono deve restare sopra soglia per questo tratto continuo prima di far scattare la registrazione
 const MIC_SILENCE_HANG_MS = 1200; // stessa soglia di core/voice/stt.py::SILENCE_HANG_MS
 const MIC_MAX_RECORD_MS = 15000;
 const MIC_PREROLL_MS = 400; // audio tenuto PRIMA del rilevamento voce, cosi' l'inizio non si taglia mai
@@ -375,6 +384,8 @@ function setupVoice() {
   let segmentChunks = [];
   let segmentMs = 0;
   let silenceMs = 0;
+  let onsetCandidateMs = 0; // quanto suono continuo sopra soglia si e' visto finora, PRIMA di committare la registrazione
+  let hitMaxDuration = false;
 
   function _chunkMs(chunk) {
     return (chunk.length / audioCtx.sampleRate) * 1000;
@@ -385,9 +396,12 @@ function setupVoice() {
     const samples = _concatFloat32(segmentChunks);
     segmentChunks = [];
     const durationMs = (samples.length / audioCtx.sampleRate) * 1000;
+    const wasMaxDuration = hitMaxDuration;
     segmentMs = 0;
     silenceMs = 0;
+    hitMaxDuration = false;
     if (durationMs < MIC_MIN_SEGMENT_MS) return; // troppo corto: rumore/click, non voce vera
+    if (wasMaxDuration) return; // mai una pausa vera per 15s intere: quasi certamente rumore di fondo, non un comando
     handleRecordedAudio(_encodeWav(samples, audioCtx.sampleRate));
   }
 
@@ -408,6 +422,8 @@ function setupVoice() {
     segmentChunks = [];
     segmentMs = 0;
     silenceMs = 0;
+    onsetCandidateMs = 0;
+    hitMaxDuration = false;
     recording = false;
 
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -436,11 +452,20 @@ function setupVoice() {
         while (prerollChunks.length > 1 && prerollMs - _chunkMs(prerollChunks[0]) >= MIC_PREROLL_MS) {
           prerollMs -= _chunkMs(prerollChunks.shift());
         }
+        // Debounce: un singolo blip sopra soglia (click, colpo di tosse breve)
+        // non deve far scattare una registrazione intera — deve restare
+        // sopra soglia con continuita' per MIC_ONSET_SUSTAIN_MS.
         if (speaking) {
+          onsetCandidateMs += chunkMs;
+        } else {
+          onsetCandidateMs = 0;
+        }
+        if (onsetCandidateMs >= MIC_ONSET_SUSTAIN_MS) {
           recording = true;
           segmentChunks = prerollChunks; // include il pre-buffer: l'inizio non si taglia mai
           segmentMs = prerollMs;
           silenceMs = 0;
+          onsetCandidateMs = 0;
           prerollChunks = [];
           prerollMs = 0;
         }
@@ -454,7 +479,10 @@ function setupVoice() {
       } else {
         silenceMs += chunkMs;
       }
-      if (silenceMs >= MIC_SILENCE_HANG_MS || segmentMs >= MIC_MAX_RECORD_MS) {
+      if (silenceMs >= MIC_SILENCE_HANG_MS) {
+        finalizeSegment();
+      } else if (segmentMs >= MIC_MAX_RECORD_MS) {
+        hitMaxDuration = true;
         finalizeSegment();
       }
     };
