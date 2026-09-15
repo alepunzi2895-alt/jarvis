@@ -412,6 +412,17 @@ Deploy automatico confermato attivo sul dashboard reale. Richiede comunque
 il riavvio del bridge locale per essere provato dal vivo. Dettaglio in
 log 2026-09-14 23:59.
 
+**2026-09-15**: segnalato che la trascrizione dashboard funzionava ma la
+risposta non si sentiva mai, solo testo in console. Causa: `speak_locally()`
+("sempre vocalmente", 22:29 del 14/09) era stata agganciata solo a
+`bot.py` (Telegram), mai a `core/web_bridge.py` — il giro voce della
+dashboard era STT-only fin dalla sua creazione. Estratto motore/pulizia/
+interruttore condiviso in `core/voice/tts.py::speak_if_enabled()`, ora
+chiamato da entrambi i bridge negli stessi punti (post-intent, post-
+run_claude). Branch `fix/dashboard-tts-response`, mergiato e pushato su
+main, 117/117 test verdi. **Non verificato dal vivo**: richiede riavvio
+del bridge locale + un comando vocale reale dalla dashboard.
+
 **Nota per sessioni future**: il commit/push di stasera e' stato bloccato
 una volta dal classificatore di sicurezza di Claude Code per un messaggio
 di commit troppo dettagliato sul contesto di rischio — messaggi di commit
