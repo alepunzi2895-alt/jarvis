@@ -15,6 +15,47 @@ Export JSON da MT5. Log self-learning in `07_self_learning_log.md`.
 - Jarvis NON esegue ordini reali. Mai.
 - Solo: analisi, backtest, report giornaliero, sanity check del codice.
 
+## Contesto business e trading (dal profilo operativo di Alessandro, 2026-09-15)
+Trader algoritmico focalizzato su **oro (XAU/USD)** via MT5, track record
+verificato su Myfxbook (account MFKK). Obiettivo di fondo: passare da
+trading manuale/segnali a sistemi davvero data-driven.
+
+**GoldKilla EA v4.0** (MQL5, separato da TradeFlow ma stesso dominio):
+lotto con compounding, doppio TP (chiude 50% a 1R, trailing del resto
+verso 2R+), confluenza doppia EMA su H1+H4, ADX ≥ 22, filtro zone RSI,
+circuit breaker settimanale a -3%.
+
+**Pipeline Telegram → MT5** (Node.js/Express + Telegraf + lo stesso EA
+MQL5): funziona ma **non è pronta per produzione** — manca parsing
+robusto dei segnali, ridondanza, logging, kill switch su drawdown.
+Prossimo passo dichiarato: irrobustire parser + controlli di rischio +
+test su demo prima di qualunque uso reale.
+
+**Sistema di ricerca strategie** (concept, Python separato da TradeFlow):
+stack previsto VectorBT/Backtrader/NautilusTrader, dati Dukascopy/
+Binance/Polygon, note in Obsidian + Dataview. Domande ancora aperte:
+disponibilità di dati storici di qualità, capitale e scopo operativo
+reale.
+
+**Indicatore TradingView proprietario**: riproduzione Pine v5 di un
+indicatore privato XAU/USD M5 — Bollinger 45/1.8, EMA ribbon 20/50, MA
+9/21, EMA lenta 100, Fibonacci lookback 50, segnali sugli estremi
+locali.
+
+**Filosofia di validazione** (la lezione più importante per chiunque
+lavori qui): i cicli automatici genera-strategia → testa → promuovi sono
+**data mining bias**, non un vero edge. Il valore sta nella
+**validazione**: walk-forward, Deflated Sharpe Ratio, Monte Carlo,
+out-of-sample vero (metodo López de Prado) — non nel generare sempre
+nuove varianti.
+
+**Lezioni tecniche minori**: CSS sempre inline (`<style>`, non
+`<link>`) per evitare FOUC che rompe il layout su Vercel; TradingView
+Scanner bloccato da CORS + IP AWS di Vercel, fonte prezzi affidabile
+resta Yahoo Finance (`XAUUSD=X`/`XAGUSD=X`); Telegram → MT5 va sempre
+mediato da un backend, mai diretto; nei refactor tenere un file baseline
+funzionante per confronto.
+
 ## Stato (aggiornato 2026-09-15, sola lettura — JARVIS non tocca quel repo)
 
 **Il bug del 2026-07-16 qui sotto risulta risolto nel codice**, in due
