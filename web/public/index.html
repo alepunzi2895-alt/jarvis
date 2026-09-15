@@ -116,6 +116,30 @@
         </div>
       </section>
 
+      <section class="floating-window" id="win-weather" style="--x:0px; --y:-260px;">
+        <header class="fw-header">
+          <span class="fw-title">Meteo · <span id="weather-place">—</span></span>
+          <button type="button" class="fw-close" data-close="win-weather">✕</button>
+        </header>
+        <div class="fw-body">
+          <div class="weather-days" id="weather-days">
+            <p class="panel-footnote">In attesa di dati…</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="floating-window" id="win-projects" style="--x:320px; --y:-260px;">
+        <header class="fw-header">
+          <span class="fw-title">Stato progetti</span>
+          <button type="button" class="fw-close" data-close="win-projects">✕</button>
+        </header>
+        <div class="fw-body">
+          <div class="project-cards" id="project-cards">
+            <p class="panel-footnote">In attesa di dati…</p>
+          </div>
+        </div>
+      </section>
+
       <section class="floating-window" id="win-social" style="--x:-320px; --y:260px;">
         <header class="fw-header">
           <span class="fw-title">Social</span>
@@ -140,6 +164,8 @@
       <button type="button" class="dock-btn" data-toggle="win-camera" title="Camera">📷</button>
       <button type="button" class="dock-btn" data-toggle="win-brain" title="Second brain">🧠</button>
       <button type="button" class="dock-btn" data-toggle="win-tradeflow" title="TradeFlow">📈</button>
+      <button type="button" class="dock-btn" data-toggle="win-weather" title="Meteo">⛅</button>
+      <button type="button" class="dock-btn" data-toggle="win-projects" title="Stato progetti">🗂️</button>
       <button type="button" class="dock-btn" data-toggle="win-social" title="Social">📡</button>
     </div>
   </div>

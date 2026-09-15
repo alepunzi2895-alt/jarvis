@@ -12,7 +12,8 @@ chiamanti restano chiamate sottili.
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+import time
+from dataclasses import dataclass, asdict
 from pathlib import Path
 
 from core.system_executor import SystemExecutor
@@ -48,8 +49,34 @@ class ProjectStatus:
     branch: str | None = None
     dirty_files: int = 0
     last_commit: str | None = None
+    last_commit_ts: int | None = None
     notes: str | None = None
     error: str | None = None
+    health_percent: int | None = None
+
+
+def _compute_health_percent(status: ProjectStatus) -> int | None:
+    """Punteggio di "salute" 0-100 da segnali git/note REALI — non e' una
+    percentuale di completamento (nessun task tracker esiste per questi
+    progetti), e' onestamente etichettato come "salute": albero pulito e
+    commit recenti alzano il punteggio, un flag 🔴 nelle note JARVIS o un
+    lungo silenzio lo abbassano. Richiesta di Alessandro (2026-09-15): dati
+    veri a schermo, non un numero inventato senza base."""
+    if not status.configured or status.error:
+        return None
+    score = 100
+    if status.notes and "\U0001F534" in status.notes:
+        score -= 50
+    score -= min(status.dirty_files * 5, 30)
+    if status.last_commit_ts:
+        days = (time.time() - status.last_commit_ts) / 86400
+        if days > 30:
+            score -= 30
+        elif days > 14:
+            score -= 15
+        elif days > 7:
+            score -= 5
+    return max(0, min(100, score))
 
 
 def _read_notes_excerpt(notes_file: str) -> str | None:
@@ -91,15 +118,29 @@ def _check_one(cfg: ProjectConfig, executor: SystemExecutor) -> ProjectStatus:
         lines = lines[1:]
     status.dirty_files = len([line for line in lines if line.strip()])
 
-    log = executor.git('log -1 --format="%h %s (%cr)"', raw_path)
+    # "%ct" (unix timestamp) accodato con un separatore invece di una
+    # seconda chiamata git separata - serve solo per _compute_health_percent,
+    # il testo mostrato in /progetti resta "%h %s (%cr)" come sempre.
+    log = executor.git('log -1 --format="%h %s (%cr)|%ct"', raw_path)
     if log.ok and log.stdout.strip():
-        status.last_commit = log.stdout.strip()
+        text, _, ts = log.stdout.strip().rpartition("|")
+        status.last_commit = text or log.stdout.strip()
+        if ts.isdigit():
+            status.last_commit_ts = int(ts)
 
+    status.health_percent = _compute_health_percent(status)
     return status
 
 
 def check_all(executor: SystemExecutor) -> list[ProjectStatus]:
     return [_check_one(cfg, executor) for cfg in PROJECTS]
+
+
+def to_json_ready(statuses: list[ProjectStatus]) -> list[dict]:
+    """Per il pannello "Stato progetti" della dashboard (JSON su Turso,
+    stesso principio del flag "speaking"/previsioni meteo — il browser non
+    ha altro modo di leggere git in locale)."""
+    return [asdict(s) for s in statuses]
 
 
 def format_report(statuses: list[ProjectStatus], voice: bool) -> str:

@@ -294,6 +294,19 @@ function handleVoiceUiCommand(text) {
     if (wants(verb)) { openWindow("win-tradeflow"); return true; }
     if (wants(closeVerb)) { closeWindow("win-tradeflow"); return true; }
   }
+  // Meteo/progetti: si aprono anche solo chiedendo ("che tempo fa", "come
+  // siamo messi con i progetti") senza dover dire esplicitamente "apri" —
+  // e SENZA return true, perche' la domanda deve comunque proseguire verso
+  // l'intent rapido che da' la risposta vera (qui si apre solo il pannello
+  // visivo come effetto collaterale).
+  if (wants(/\bmeteo\b/) || wants(/\btempo\s+fa\b/)) {
+    if (wants(closeVerb)) { closeWindow("win-weather"); return true; }
+    openWindow("win-weather");
+  }
+  if (wants(/\bprogett[oi]\b/)) {
+    if (wants(closeVerb)) { closeWindow("win-projects"); return true; }
+    openWindow("win-projects");
+  }
   return false;
 }
 
@@ -642,6 +655,115 @@ async function refreshTradeflow() {
   } catch {
     $("#tradeflow-sync").textContent = "Errore di connessione.";
     setConn("warning");
+  }
+}
+
+// ── Meteo settimanale animato ("come il vero JARVIS di Iron Man") ──────
+// Dati scritti da bot.py::weather_forecast_loop() su Turso (il browser non
+// puo' chiamare Open-Meteo con la posizione configurata in .env — quella
+// vive solo lato Python). Icone animate per categoria WMO: il sole ruota,
+// il temporale trema, gli altri fluttuano piano — vedi CSS .weather-icon.
+const WX_ICON = {
+  0: { e: "☀️", cls: "wx-sun" }, 1: { e: "🌤️", cls: "wx-sun" },
+  2: { e: "⛅", cls: "wx-cloud" }, 3: { e: "☁️", cls: "wx-cloud" },
+  45: { e: "🌫️", cls: "wx-fog" }, 48: { e: "🌫️", cls: "wx-fog" },
+  51: { e: "🌦️", cls: "wx-rain" }, 53: { e: "🌦️", cls: "wx-rain" }, 55: { e: "🌦️", cls: "wx-rain" },
+  56: { e: "🌧️", cls: "wx-rain" }, 57: { e: "🌧️", cls: "wx-rain" },
+  61: { e: "🌧️", cls: "wx-rain" }, 63: { e: "🌧️", cls: "wx-rain" }, 65: { e: "🌧️", cls: "wx-rain" },
+  66: { e: "🌧️", cls: "wx-rain" }, 67: { e: "🌧️", cls: "wx-rain" },
+  71: { e: "🌨️", cls: "wx-snow" }, 73: { e: "🌨️", cls: "wx-snow" }, 75: { e: "🌨️", cls: "wx-snow" }, 77: { e: "🌨️", cls: "wx-snow" },
+  80: { e: "🌦️", cls: "wx-rain" }, 81: { e: "🌧️", cls: "wx-rain" }, 82: { e: "⛈️", cls: "wx-storm" },
+  85: { e: "🌨️", cls: "wx-snow" }, 86: { e: "🌨️", cls: "wx-snow" },
+  95: { e: "⛈️", cls: "wx-storm" }, 96: { e: "⛈️", cls: "wx-storm" }, 99: { e: "⛈️", cls: "wx-storm" },
+};
+const GIORNI_BREVI = ["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"];
+
+function _dayShortName(dateStr) {
+  const dow = new Date(dateStr + "T00:00:00Z").getUTCDay(); // 0=Dom..6=Sab
+  return GIORNI_BREVI[(dow + 6) % 7];
+}
+
+async function refreshWeatherForecast() {
+  try {
+    const { forecast } = await api("weather_forecast");
+    const container = $("#weather-days");
+    if (!forecast || !forecast.days || !forecast.days.length) {
+      container.innerHTML = `<p class="panel-footnote">In attesa che il bridge locale pubblichi le previsioni…</p>`;
+      return;
+    }
+    $("#weather-place").textContent = forecast.place;
+    container.innerHTML = forecast.days
+      .map((d) => {
+        const icon = WX_ICON[d.code] || { e: "🌡️", cls: "wx-cloud" };
+        return `
+          <div class="weather-day">
+            <div class="wx-day-name">${_dayShortName(d.date)}</div>
+            <div class="weather-icon ${icon.cls}">${icon.e}</div>
+            <div class="wx-temps"><span class="wx-high">${d.high ?? "—"}°</span><span class="wx-low">${d.low ?? "—"}°</span></div>
+          </div>`;
+      })
+      .join("");
+  } catch {
+    // rete assente/blip transitorio: lascia il pannello com'era
+  }
+}
+
+// ── Stato progetti (salute 0-100 da segnali git reali) ─────────────────
+// Dati scritti da bot.py::project_status_loop() su Turso — git status/log
+// gira solo in locale (SystemExecutor), il browser non puo' farlo da solo.
+// "Salute" e' onestamente una metrica derivata (albero pulito, commit
+// recenti, flag 🔴 nelle note), NON una percentuale di completamento reale
+// (nessun task tracker esiste per questi progetti) — vedi
+// core/project_status.py::_compute_health_percent per la formula esatta.
+function _healthColor(pct) {
+  if (pct == null) return "var(--text-muted)";
+  if (pct >= 70) return "var(--good)";
+  if (pct >= 40) return "var(--warning)";
+  return "var(--critical)";
+}
+
+function _lastCommitShort(text) {
+  if (!text) return "—";
+  const m = text.match(/\(([^)]+)\)\s*$/); // "%h %s (%cr)" -> solo il "%cr" finale
+  return m ? m[1] : text;
+}
+
+async function refreshProjectStatus() {
+  try {
+    const { projects } = await api("project_status_data");
+    const container = $("#project-cards");
+    if (!projects || !projects.length) {
+      container.innerHTML = `<p class="panel-footnote">In attesa che il bridge locale pubblichi lo stato progetti…</p>`;
+      return;
+    }
+    container.innerHTML = projects
+      .map((p) => {
+        if (!p.configured) {
+          return `<div class="project-card disabled">
+            <div class="project-card-title">${p.label}</div>
+            <p class="panel-footnote">Workspace non configurato.</p>
+          </div>`;
+        }
+        if (p.error) {
+          return `<div class="project-card">
+            <div class="project-card-title">${p.label}</div>
+            <p class="panel-footnote">Errore git: ${p.error.slice(0, 80)}</p>
+          </div>`;
+        }
+        const pct = p.health_percent ?? 0;
+        const color = _healthColor(p.health_percent);
+        return `
+          <div class="project-card">
+            <div class="project-card-title">${p.label} <span class="project-branch">${p.branch || ""}</span></div>
+            <div class="health-bar"><div class="health-fill" style="width:${pct}%;background:${color}"></div></div>
+            <div class="project-card-row"><span>Salute</span><strong style="color:${color}">${pct}%</strong></div>
+            <div class="project-card-row"><span>Modifiche in sospeso</span><strong>${p.dirty_files}</strong></div>
+            <div class="project-card-row"><span>Ultimo commit</span><strong>${_lastCommitShort(p.last_commit)}</strong></div>
+          </div>`;
+      })
+      .join("");
+  } catch {
+    // rete assente/blip transitorio: lascia il pannello com'era
   }
 }
 
@@ -1025,6 +1147,10 @@ async function boot() {
   await loadHistory();
   refreshTradeflow();
   setInterval(refreshTradeflow, 5000);
+  refreshWeatherForecast();
+  setInterval(refreshWeatherForecast, 5 * 60 * 1000); // il bridge locale pubblica ogni 30min, basta controllare ogni 5
+  refreshProjectStatus();
+  setInterval(refreshProjectStatus, 2 * 60 * 1000); // il bridge locale pubblica ogni 10min
   pollSpeakingStatus();
   setInterval(pollSpeakingStatus, ORB_SPEAKING_POLL_MS);
 }

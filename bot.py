@@ -7,6 +7,7 @@ Gira in parallelo al poller della web dashboard (stesso processo, stesso cervell
 
 import os
 import sys
+import json
 import html
 import asyncio
 import datetime as dt
@@ -39,7 +40,7 @@ from core.claude_bridge import (
     save_state,
     run_claude,
 )
-from core import web_bridge, intents, project_status, screen_context, databricks, telegram
+from core import web_bridge, intents, project_status, screen_context, databricks, telegram, weather, turso
 from core.executor_singleton import executor, vault
 from core.voice import camera, tts
 
@@ -422,8 +423,74 @@ async def daily_digest_loop() -> None:
             print(f"digest mattutino fallito (ignorato): {e}")
 
 
+def _push_weather_forecast(data: dict) -> None:
+    # Stesso principio del flag "speaking" di core/voice/tts.py: la
+    # dashboard (browser) non ha altro modo di conoscere le previsioni,
+    # tabella condivisa runtime_flags su Turso.
+    turso.execute(
+        "CREATE TABLE IF NOT EXISTS runtime_flags ("
+        "key TEXT PRIMARY KEY, value TEXT, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP)"
+    )
+    turso.execute(
+        "INSERT INTO runtime_flags (key, value, updated_at) VALUES ('weather_forecast', ?, CURRENT_TIMESTAMP) "
+        "ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=CURRENT_TIMESTAMP",
+        [json.dumps(data)],
+    )
+
+
+async def weather_forecast_loop() -> None:
+    """Aggiorna le previsioni settimanali su Turso per il pannello meteo
+    animato della dashboard (richiesta esplicita di Alessandro, 2026-09-15:
+    "come il vero JARVIS di Iron Man"). Il meteo non cambia abbastanza in
+    fretta da giustificare piu' di un refresh ogni 30 minuti."""
+    if not turso.ENABLED:
+        return
+    while True:
+        try:
+            data = await asyncio.to_thread(weather.get_weekly_forecast)
+            if data:
+                await asyncio.to_thread(_push_weather_forecast, data)
+        except Exception as e:  # noqa: BLE001 — un blip di rete non deve mai fermare il loop
+            print(f"push previsioni meteo fallito (ignorato): {e}")
+        await asyncio.sleep(1800)
+
+
+def _push_project_status(data: list) -> None:
+    turso.execute(
+        "CREATE TABLE IF NOT EXISTS runtime_flags ("
+        "key TEXT PRIMARY KEY, value TEXT, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP)"
+    )
+    turso.execute(
+        "INSERT INTO runtime_flags (key, value, updated_at) VALUES ('project_status', ?, CURRENT_TIMESTAMP) "
+        "ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=CURRENT_TIMESTAMP",
+        [json.dumps(data)],
+    )
+
+
+async def project_status_loop() -> None:
+    """Aggiorna lo stato progetti (git + salute) su Turso per il pannello
+    "Stato progetti" della dashboard — richiesta esplicita di Alessandro
+    (2026-09-15): statistiche vere a schermo, non solo su richiesta
+    testuale/vocale. Git status/log e' economico, refresh ogni 10 minuti."""
+    if not turso.ENABLED:
+        return
+    while True:
+        try:
+            statuses = await asyncio.to_thread(project_status.check_all, executor)
+            data = project_status.to_json_ready(statuses)
+            await asyncio.to_thread(_push_project_status, data)
+        except Exception as e:  # noqa: BLE001
+            print(f"push stato progetti fallito (ignorato): {e}")
+        await asyncio.sleep(600)
+
+
 async def main() -> None:
-    tasks = [asyncio.create_task(telegram_loop()), asyncio.create_task(daily_digest_loop())]
+    tasks = [
+        asyncio.create_task(telegram_loop()),
+        asyncio.create_task(daily_digest_loop()),
+        asyncio.create_task(weather_forecast_loop()),
+        asyncio.create_task(project_status_loop()),
+    ]
     if web_bridge.ENABLED:
         tasks.append(asyncio.create_task(web_bridge.poll_web_queue()))
     else:

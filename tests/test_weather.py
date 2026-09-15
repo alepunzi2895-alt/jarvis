@@ -81,6 +81,47 @@ def test_get_weather_line_returns_none_on_network_error(monkeypatch):
         assert weather.get_weather_line() is None
 
 
+def test_get_weekly_forecast_returns_days(monkeypatch):
+    monkeypatch.setenv("JARVIS_WEATHER_LAT", "38.9")
+    monkeypatch.setenv("JARVIS_WEATHER_LON", "1.43")
+    monkeypatch.setenv("JARVIS_WEATHER_CITY", "Ibiza")
+
+    resp = _fake_response(
+        {
+            "daily": {
+                "time": ["2026-09-15", "2026-09-16"],
+                "weather_code": [0, 61],
+                "temperature_2m_max": [29.4, 24.6],
+                "temperature_2m_min": [21.5, 20.1],
+            }
+        }
+    )
+    with patch("core.weather.requests.get", return_value=resp):
+        data = weather.get_weekly_forecast()
+
+    assert data["place"] == "Ibiza"
+    assert len(data["days"]) == 2
+    assert data["days"][0] == {
+        "date": "2026-09-15", "code": 0, "description": "cielo sereno", "high": 29, "low": 22,
+    }
+    assert data["days"][1]["description"] == "pioggia leggera"
+
+
+def test_get_weekly_forecast_returns_none_on_network_error(monkeypatch):
+    monkeypatch.setenv("JARVIS_WEATHER_LAT", "38.9")
+    monkeypatch.setenv("JARVIS_WEATHER_LON", "1.43")
+    with patch("core.weather.requests.get", side_effect=requests.exceptions.ConnectionError("no network")):
+        assert weather.get_weekly_forecast() is None
+
+
+def test_get_weekly_forecast_returns_none_when_no_location_resolvable(monkeypatch):
+    monkeypatch.delenv("JARVIS_WEATHER_LAT", raising=False)
+    monkeypatch.delenv("JARVIS_WEATHER_LON", raising=False)
+    monkeypatch.delenv("JARVIS_WEATHER_CITY", raising=False)
+    with patch("core.weather.requests.get", return_value=_fake_response({"status": "fail"})):
+        assert weather.get_weekly_forecast() is None
+
+
 def test_get_weather_line_returns_none_when_no_location_resolvable(monkeypatch):
     monkeypatch.delenv("JARVIS_WEATHER_LAT", raising=False)
     monkeypatch.delenv("JARVIS_WEATHER_LON", raising=False)
