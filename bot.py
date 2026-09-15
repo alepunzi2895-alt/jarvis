@@ -22,8 +22,15 @@ from dotenv import load_dotenv
 # preso da nessun try/except qui, quindi l'intero processo (bot Telegram +
 # poller web, stesso processo) crasha in silenzio. Stesso identico bug gia'
 # risolto una volta in core/voice/daemon.py, mai applicato qui.
-sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+#
+# line_buffering=True: un file (non un terminale) usa di default un buffer a
+# blocchi — i print() restano invisibili in logs/bot.log finche' il buffer
+# non si riempie o il processo termina. Scoperto dal vivo (2026-09-15,
+# debug del microfono dashboard): il log era a 0 byte dopo 15+ minuti di
+# processo attivo e diversi errori reali gia' capitati - inutile per
+# diagnosticare qualunque problema in tempo reale finche' non crasha.
+sys.stdout.reconfigure(encoding="utf-8", errors="replace", line_buffering=True)
+sys.stderr.reconfigure(encoding="utf-8", errors="replace", line_buffering=True)
 
 from core.claude_bridge import (
     WORKSPACES,

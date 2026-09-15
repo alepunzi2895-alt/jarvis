@@ -84,6 +84,8 @@ async def _transcribe_audio(audio_b64: str) -> str:
     ad ogni segmento; il WAV toglie anche l'ambiguita' di formato lato server)."""
 
     def work() -> str:
+        import wave
+
         from core.voice import stt  # import qui: faster-whisper solo se serve davvero
 
         raw = base64.b64decode(audio_b64)
@@ -92,7 +94,19 @@ async def _transcribe_audio(audio_b64: str) -> str:
         path = Path(tmp_path)
         try:
             path.write_bytes(raw)
-            return stt.transcribe_file(str(path))
+            try:
+                with wave.open(str(path), "rb") as w:
+                    duration_ms = (w.getnframes() / w.getframerate()) * 1000
+            except Exception as e:  # noqa: BLE001 — solo diagnostica, non deve bloccare la trascrizione vera
+                duration_ms = None
+                print(f"[web audio] WAV non leggibile con wave.open: {e}")
+            text = stt.transcribe_file(str(path))
+            # Diagnostica temporanea (2026-09-15): il mic dashboard ha appena
+            # avuto un giro di fix per trascrizioni vuote — utile vedere
+            # dimensione/durata reali finche' non e' confermato risolto dal vivo.
+            dur = f"{duration_ms:.0f}ms" if duration_ms is not None else "?"
+            print(f"[web audio] {len(raw)} bytes, {dur} -> trascritto: {text!r}")
+            return text
         finally:
             path.unlink(missing_ok=True)
 
