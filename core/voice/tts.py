@@ -225,14 +225,40 @@ def clean_for_speech(text: str) -> str:
     return text.strip()
 
 
-async def _speak_sentence_stream(engine: TTSEngine, text: str) -> None:
+# --------------------------------------------------------------------------- barge-in (Telegram/dashboard)
+#
+# Fino al 2026-09-15 questo canale non poteva mai essere interrotto ("nessun
+# canale qui ha un hotkey" — vero per Telegram, ma la dashboard ha da oggi un
+# mic a mani libere che PUO' captare una nuova parola d'attivazione mentre
+# JARVIS sta ancora parlando, esattamente come il daemon vocale nativo
+# (core/voice/daemon.py::_speak_with_interrupt). _current_stop_event rende
+# quell'evento raggiungibile dall'esterno (web_bridge.py) invece di restare
+# locale alla singola chiamata come prima.
+_current_stop_event: threading.Event | None = None
+_stop_event_lock = threading.Lock()
+
+
+def stop_current_speech() -> None:
+    """Interrompe subito la voce in corso su questo canale, se ce n'e' una —
+    no-op innocuo se JARVIS non sta parlando. sd.stop() ferma l'audio gia'
+    in uscita dagli altoparlanti; l'Event impedisce che le frasi successive
+    (gia' in coda/sintesi) vengano comunque suonate dopo."""
+    with _stop_event_lock:
+        event = _current_stop_event
+    if event is not None:
+        event.set()
+    if _shared_engine is not None:
+        _shared_engine.stop()
+
+
+async def _speak_sentence_stream(engine: TTSEngine, text: str, stop_event: threading.Event) -> None:
     async def _sentences():
         for part in _SENTENCE_SPLIT_RE.split(text):
             part = part.strip()
             if part:
                 yield part
 
-    await engine.speak_stream(_sentences(), threading.Event())  # mai interrotto: nessun canale qui ha un hotkey
+    await engine.speak_stream(_sentences(), stop_event)
 
 
 def _speak_sync(text: str) -> None:
@@ -243,16 +269,23 @@ def _speak_sync(text: str) -> None:
     gia' sfruttato dal canale vocale nativo per la voce in streaming da
     Claude, qui applicato a un testo gia' completo (Telegram/dashboard non
     generano la risposta a pezzi come l'API diretta della voce)."""
-    global _shared_engine
+    global _shared_engine, _current_stop_event
     text = clean_for_speech(text)
     if not text:
         return
     if _shared_engine is None:
         _shared_engine = get_engine()
+    stop_event = threading.Event()
+    with _stop_event_lock:
+        _current_stop_event = stop_event
     try:
-        asyncio.run(_speak_sentence_stream(_shared_engine, text))
+        asyncio.run(_speak_sentence_stream(_shared_engine, text, stop_event))
     except Exception as e:  # noqa: BLE001 — la voce locale non deve mai far fallire la risposta testuale
         print(f"(voce locale fallita, ignorata: {e})")
+    finally:
+        with _stop_event_lock:
+            if _current_stop_event is stop_event:
+                _current_stop_event = None
 
 
 def speak_if_enabled(text: str) -> None:

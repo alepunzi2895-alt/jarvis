@@ -218,6 +218,13 @@ async def poll_web_queue() -> None:
                     await _push_result(task["id"], "ignored", "", None, 0.0)
                     continue
                 task["prompt"] = command
+                # Barge-in: se JARVIS stava ancora parlando quando e' arrivata
+                # questa nuova parola d'attivazione, la interrompe subito —
+                # stesso comportamento gia' presente nel daemon vocale nativo
+                # (core/voice/daemon.py::_speak_with_interrupt), qui esteso
+                # al mic a mani libere della dashboard. No-op se non stava
+                # parlando (tts.stop_current_speech() e' innocuo in quel caso).
+                tts.stop_current_speech()
 
             print(f"> [web] {task['prompt'][:80]}")
             image_b64 = task.get("image_b64")

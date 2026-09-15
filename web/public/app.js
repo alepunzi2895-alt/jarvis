@@ -324,6 +324,15 @@ const MIC_SILENCE_HANG_MS = 1200; // stessa soglia di core/voice/stt.py::SILENCE
 const MIC_MAX_RECORD_MS = 15000;
 const MIC_PREROLL_MS = 400; // audio tenuto PRIMA del rilevamento voce, cosi' l'inizio non si taglia mai
 const MIC_MIN_SEGMENT_MS = 300; // sotto questa durata e' rumore/click, scartato
+// Soglia usata SOLO mentre JARVIS sta parlando (barge-in): molto piu' alta
+// della normale MIC_SILENCE_RMS apposta — l'audio di JARVIS stesso esce
+// dagli altoparlanti del PC e rientra nel mic (stesso problema di eco gia'
+// risolto silenziando del tutto durante il parlato), quindi durante il
+// parlato si registra SOLO se qualcuno interrompe parlando chiaramente piu'
+// forte/vicino di quel rientro — non su qualunque suono. Sotto questa soglia
+// resta muto come prima (nessuna regressione sul problema di eco).
+const MIC_INTERRUPT_RMS = 0.22;
+const MIC_INTERRUPT_ONSET_SUSTAIN_MS = 300; // piu' lungo del normale: un picco isolato dell'eco non deve bastare
 
 function _pcmRms(data) {
   let sum = 0;
@@ -455,46 +464,44 @@ function setupVoice() {
     silentSink.connect(audioCtx.destination);
 
     processor.onaudioprocess = (e) => {
-      // JARVIS sta parlando dagli altoparlanti del PC (processo Python
-      // separato, non nel browser) — il mic tace del tutto per non
-      // risentirsi da solo. Scarta anche un segmento gia' in corso: e'
-      // quasi certo che contenga (in parte) la risposta appena data.
-      if (botSpeaking) {
-        prerollChunks = [];
-        prerollMs = 0;
-        onsetCandidateMs = 0;
-        if (recording) {
-          recording = false;
-          segmentChunks = [];
-          segmentMs = 0;
-          silenceMs = 0;
-          hitMaxDuration = false;
-        }
-        return;
-      }
-
       const data = e.inputBuffer.getChannelData(0).slice(); // copia: il buffer sorgente viene riusato dal browser
       const chunkMs = _chunkMs(data);
-      const speaking = _pcmRms(data) > MIC_SILENCE_RMS;
+      const rms = _pcmRms(data);
+
+      // JARVIS sta parlando dagli altoparlanti del PC (processo Python
+      // separato, non nel browser) — il mic normalmente tace del tutto per
+      // non risentirsi da solo, MA con una soglia molto piu' alta (e un
+      // debounce piu' lungo) resta possibile interromperlo dicendo "hey
+      // jarvis" chiaramente sopra l'eco del proprio parlato (barge-in,
+      // 2026-09-15). Niente pre-buffer in questa modalita': prima della
+      // soglia c'e' solo l'eco di JARVIS, non ha senso includerlo.
+      const silenceThreshold = botSpeaking ? MIC_INTERRUPT_RMS : MIC_SILENCE_RMS;
+      const onsetSustainNeeded = botSpeaking ? MIC_INTERRUPT_ONSET_SUSTAIN_MS : MIC_ONSET_SUSTAIN_MS;
+      const speaking = rms > silenceThreshold;
 
       if (!recording) {
-        prerollChunks.push(data);
-        prerollMs += chunkMs;
-        while (prerollChunks.length > 1 && prerollMs - _chunkMs(prerollChunks[0]) >= MIC_PREROLL_MS) {
-          prerollMs -= _chunkMs(prerollChunks.shift());
+        if (!botSpeaking) {
+          prerollChunks.push(data);
+          prerollMs += chunkMs;
+          while (prerollChunks.length > 1 && prerollMs - _chunkMs(prerollChunks[0]) >= MIC_PREROLL_MS) {
+            prerollMs -= _chunkMs(prerollChunks.shift());
+          }
+        } else if (prerollChunks.length) {
+          // Non usato in questa modalita': tenerlo svuotato evita che audio
+          // "vecchio" (da prima che JARVIS iniziasse a parlare) venga
+          // riesumato come pre-buffer quando torna in ascolto normale.
+          prerollChunks = [];
+          prerollMs = 0;
         }
-        // Debounce: un singolo blip sopra soglia (click, colpo di tosse breve)
-        // non deve far scattare una registrazione intera — deve restare
-        // sopra soglia con continuita' per MIC_ONSET_SUSTAIN_MS.
-        if (speaking) {
-          onsetCandidateMs += chunkMs;
-        } else {
-          onsetCandidateMs = 0;
-        }
-        if (onsetCandidateMs >= MIC_ONSET_SUSTAIN_MS) {
+        // Debounce: un singolo blip sopra soglia (click, colpo di tosse breve,
+        // spike isolato dell'eco) non deve far scattare una registrazione
+        // intera — deve restare sopra soglia con continuita' per il tratto
+        // minimo richiesto in questa modalita'.
+        onsetCandidateMs = speaking ? onsetCandidateMs + chunkMs : 0;
+        if (onsetCandidateMs >= onsetSustainNeeded) {
           recording = true;
-          segmentChunks = prerollChunks; // include il pre-buffer: l'inizio non si taglia mai
-          segmentMs = prerollMs;
+          segmentChunks = botSpeaking ? [data] : prerollChunks; // pre-buffer solo a mic normale
+          segmentMs = botSpeaking ? chunkMs : prerollMs;
           silenceMs = 0;
           onsetCandidateMs = 0;
           prerollChunks = [];

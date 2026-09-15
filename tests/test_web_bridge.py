@@ -106,3 +106,44 @@ def test_empty_transcription_is_ignored_not_shown_as_error(monkeypatch):
     status, result, _session_id, _cost, _task_id = result_updates[0]
     assert status == "ignored"
     assert result == ""
+
+
+def test_voice_command_triggers_barge_in_stop(monkeypatch):
+    """Un comando vocale valido (wake word + testo) deve interrompere subito
+    la voce eventualmente ancora in corso — barge-in richiesto esplicitamente
+    da Alessandro (2026-09-15): "quando dico hey jarvis mentre sta parlando
+    vorrei si interrompesse". stop_current_speech() e' innocuo se JARVIS non
+    stava parlando, quindi va chiamato incondizionatamente per ogni comando
+    vocale riconosciuto, non solo quando si sa gia' che stava parlando."""
+    calls = {"select": 0}
+    updates: list[tuple[str, list]] = []
+    stop_calls = []
+
+    def fake_execute(query, params=None):
+        if query.startswith("SELECT"):
+            calls["select"] += 1
+            if calls["select"] > 1:
+                raise _StopLoop()
+            return [{
+                "id": "t1", "channel": "web", "workspace": "jarvis",
+                "prompt": "", "image_b64": None, "audio_b64": "AAAA",
+            }]
+        updates.append((query, params))
+        return []
+
+    async def fake_transcribe(_audio_b64: str) -> str:
+        return "jarvis che ore sono"
+
+    monkeypatch.setattr(web_bridge.turso, "execute", fake_execute)
+    monkeypatch.setattr(web_bridge, "_transcribe_audio", fake_transcribe)
+    monkeypatch.setattr(web_bridge.asyncio, "sleep", lambda _s: asyncio.sleep(0))
+    monkeypatch.setattr(web_bridge.tts, "stop_current_speech", lambda: stop_calls.append(True))
+    monkeypatch.setattr(web_bridge.intents, "parse_intent", lambda _text: {"type": "time"})
+    monkeypatch.setattr(web_bridge.intents, "execute_intent", lambda *a, **k: "Sono le 18:00, Signore.")
+    monkeypatch.setattr(web_bridge.tts, "speak_if_enabled", lambda _text: None)
+    monkeypatch.setattr(web_bridge, "_notify_telegram", lambda *a, **k: None)
+
+    with pytest.raises(_StopLoop):
+        asyncio.run(web_bridge.poll_web_queue())
+
+    assert stop_calls == [True]

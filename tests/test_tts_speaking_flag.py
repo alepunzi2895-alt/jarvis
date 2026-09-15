@@ -99,7 +99,11 @@ def test_speak_sync_swallows_errors_from_streaming_engine(monkeypatch):
     tts._speak_sync("Ciao")  # non deve sollevare
 
 
-def test_speak_sentence_stream_passes_never_set_stop_event():
+def test_speak_sentence_stream_forwards_given_stop_event():
+    """Dal 2026-09-15 lo stop_event non e' piu' creato al volo qui dentro
+    (era sempre "mai settato" perche' nessuno ci teneva un riferimento) —
+    ora arriva da fuori (_speak_sync) cosi' web_bridge.py puo' interromperlo
+    davvero (barge-in dal mic della dashboard mentre JARVIS parla)."""
     seen = {}
 
     class _CaptureEngine:
@@ -108,6 +112,55 @@ def test_speak_sentence_stream_passes_never_set_stop_event():
             async for _ in sentences:
                 pass
 
-    asyncio.run(tts._speak_sentence_stream(_CaptureEngine(), "Una frase."))
-    assert isinstance(seen["stop_event"], threading.Event)
-    assert not seen["stop_event"].is_set()
+    given_event = threading.Event()
+    asyncio.run(tts._speak_sentence_stream(_CaptureEngine(), "Una frase.", given_event))
+    assert seen["stop_event"] is given_event
+
+
+def test_stop_current_speech_noop_when_nothing_speaking(monkeypatch):
+    monkeypatch.setattr(tts, "_current_stop_event", None)
+    monkeypatch.setattr(tts, "_shared_engine", None)
+    tts.stop_current_speech()  # non deve sollevare
+
+
+def test_stop_current_speech_sets_event_and_stops_engine(monkeypatch):
+    event = threading.Event()
+    monkeypatch.setattr(tts, "_current_stop_event", event)
+
+    class _FakeEngine:
+        def __init__(self):
+            self.stopped = False
+
+        def stop(self):
+            self.stopped = True
+
+    engine = _FakeEngine()
+    monkeypatch.setattr(tts, "_shared_engine", engine)
+
+    tts.stop_current_speech()
+
+    assert event.is_set()
+    assert engine.stopped is True
+
+
+def test_speak_sync_exposes_and_clears_current_stop_event(monkeypatch):
+    """Verifica il ciclo di vita reale usato da web_bridge.py: durante
+    _speak_sync() _current_stop_event punta all'evento di quella chiamata
+    (cosi' stop_current_speech() puo' fermarla), e torna a None quando
+    finisce (cosi' un stop_current_speech() dopo non fa nulla di strano)."""
+    seen_event_during_call = {}
+
+    class _CaptureEngine:
+        async def speak_stream(self, sentences, stop_event):
+            seen_event_during_call["event"] = stop_event
+            assert tts._current_stop_event is stop_event
+            async for _ in sentences:
+                pass
+
+    monkeypatch.setattr(tts, "_shared_engine", _CaptureEngine())
+    monkeypatch.setattr(tts, "_current_stop_event", None)
+
+    tts._speak_sync("Ciao Signore.")
+
+    assert seen_event_during_call["event"] is not None
+    assert tts._current_stop_event is None
