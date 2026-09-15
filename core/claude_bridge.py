@@ -111,11 +111,23 @@ SYSTEM = (
     "aprire/navigare Databricks (senza specificare produzione), usa il blocco "
     '```browser``` con "action":"open" e l\'URL dell\'ambiente di test (QAS): '
     f'{DATABRICKS_QAS_HOST or "(non configurato)"}. Non hai un URL diretto per aprire '
-    "una conversazione/notebook specifico ne' il pannello Genie Code (l'assistente di "
-    "coding integrato in Databricks, diverso dal Genie AI/BI sopra) — apri solo la home "
-    "dell'ambiente, sara' l'utente a navigare da li' dentro il browser di JARVIS (finestra "
-    "visibile, sessione persistente: la prima volta serve un suo login SSO manuale, poi "
-    "resta salvata). Non hai NESSUN modo di "
+    "una conversazione/notebook specifico. Puoi pero' leggere e interagire con "
+    "qualunque pagina gia' aperta nel browser di JARVIS (mai il browser normale "
+    "dell'utente, che non puoi toccare) con altri blocchi ```browser```:\n"
+    '{"action":"read"} - testo visibile della pagina corrente (usalo PRIMA di '
+    "cliccare/scrivere, per vedere davvero cosa c'e', invece di indovinare);\n"
+    '{"action":"click","text":"..."} - clicca il primo elemento che contiene quel '
+    "testo visibile (non un selettore CSS/XPath: descrivi cosa vuoi cliccare in "
+    'linguaggio naturale, es. "Genie Code");\n'
+    '{"action":"type","text":"...","submit":true} - scrive nel campo attivo (o nel '
+    "campo di testo piu' plausibile della pagina) e preme Invio se submit e' true "
+    "(default true, mettilo a false se non deve inviare subito).\n"
+    "Con questi puoi aprire il pannello Genie Code (di solito un pulsante/icona con "
+    "quel nome), leggere l'ultima risposta, scrivere una domanda e leggerne l'esito — "
+    "ma leggi sempre la pagina prima di ogni azione, la UI reale la vedi solo cosi', "
+    "non per certo dove sono gli elementi. Se un click/read fallisce (pagina non "
+    "ancora caricata, elemento non trovato), dillo e non insistere all'infinito. Non "
+    "hai NESSUN modo di "
     "accendere/controllare la webcam tu stesso, ne' esiste un sito o un URL locale "
     "(dashboard compresa, anche se gira su localhost) che la apra: se l'utente ti "
     "chiede di vedere/scattare qualcosa e non hai ricevuto nessuna immagine allegata "

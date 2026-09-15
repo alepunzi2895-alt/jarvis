@@ -37,7 +37,12 @@ def test_bring_matching_to_foreground_bg_gives_up_when_nothing_matches():
     with patch("threading.Thread", side_effect=_capture_thread):
         win_focus.bring_matching_to_foreground_bg("marcatore-che-non-esiste-di-sicuro-xyz", timeout=0.3)
 
-    thread_ref["t"].join(timeout=5)
+    # join generoso: la scansione di TUTTI i processi (psutil.process_iter con
+    # cmdline) puo' richiedere piu' del "timeout" richiesto su una macchina
+    # carica (il controllo scadenza avviene solo TRA una scansione e la
+    # successiva, non durante) - osservato dal vivo il 2026-09-15 con molti
+    # processi chrome/Playwright aperti dai test di core/browser.py.
+    thread_ref["t"].join(timeout=20)
     assert not thread_ref["t"].is_alive()
 
 

@@ -48,6 +48,26 @@ RESULT_SELECTORS = {
     "youtube": "ytd-video-renderer a#video-title",
 }
 
+# "voglio poter leggere e capire cosa c'e' sulla pagina... e anche
+# interagire, es aprire genie code e scrivere un input" (2026-09-15):
+# read/click/type, sempre e solo sull'ultima pagina della NOSTRA sessione
+# Playwright (context.pages[-1], stesso pattern gia' usato da screenshot())
+# — mai sul browser normale dell'utente, che Playwright non puo' toccare.
+# "click per testo visibile" invece di un selettore CSS/XPath arbitrario:
+# stesso principio di vocabolario limitato del resto del modulo — Claude
+# descrive COSA vuole cliccare in linguaggio naturale ("Genie Code"), non
+# inventa una query DOM che potrebbe colpire l'elemento sbagliato.
+_READ_MAX_CHARS = 6000
+_INPUT_SELECTOR = "textarea, input[type='text'], input:not([type]), [contenteditable='true']"
+
+
+def _clean_page_text(text: str) -> str:
+    lines = [line.rstrip() for line in text.splitlines()]
+    cleaned = re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
+    if len(cleaned) > _READ_MAX_CHARS:
+        cleaned = cleaned[:_READ_MAX_CHARS].rstrip() + "…"
+    return cleaned
+
 # "il comando apri databricks in test non mi apre questo link" (2026-09-15):
 # la navigazione in se' funzionava (verificato dal vivo: pagina raggiunta,
 # titolo corretto), ma bot.py gira come task pianificato Windows senza
@@ -132,6 +152,62 @@ class BrowserAgent:
         except Exception:
             return f'Cercato "{query}" su {engine}, ma non ho trovato un risultato da aprire da solo.'
 
+    async def read(self) -> str:
+        """Testo visibile dell'ultima pagina aperta nella sessione — cosi'
+        Claude puo' "vedere" cosa c'e' (es. l'ultima risposta di Genie Code)
+        senza dover interpretare uno screenshot per ogni domanda."""
+        context = await self._ensure_context()
+        if not context.pages:
+            return "Nessuna pagina aperta nel browser di JARVIS."
+        page = context.pages[-1]
+        try:
+            text = await page.inner_text("body")
+        except Exception as e:  # noqa: BLE001
+            return f"Impossibile leggere la pagina: {e}"
+        return _clean_page_text(text) or "(pagina vuota o senza testo visibile)"
+
+    async def click(self, label: str) -> str:
+        """Clicca il primo elemento visibile che contiene il testo dato
+        (non un selettore CSS/XPath — vedi nota sul vocabolario limitato)."""
+        context = await self._ensure_context()
+        if not context.pages:
+            return "Nessuna pagina aperta da cui cliccare."
+        page = context.pages[-1]
+        try:
+            await page.get_by_text(label, exact=False).first.click(timeout=5000)
+            _bring_browser_to_foreground()
+            return f'Cliccato "{label}".'
+        except Exception as e:  # noqa: BLE001
+            return f'Non ho trovato/cliccato "{label}": {e}'
+
+    async def type_text(self, text: str, submit: bool = True) -> str:
+        """Scrive nel campo gia' attivo (se ce n'e' uno) o altrimenti nel
+        campo di testo/contenteditable piu' plausibile (l'ultimo visibile
+        sulla pagina — su una UI a chat e' quasi sempre quello in basso),
+        poi preme Invio se submit=True. page.keyboard.type() simula
+        pressioni vere invece di impostare il valore via JS: funziona sia su
+        input/textarea classici sia su editor contenteditable/rich-text
+        (comuni nelle SPA moderne, Genie Code incluso presumibilmente)."""
+        context = await self._ensure_context()
+        if not context.pages:
+            return "Nessuna pagina aperta su cui scrivere."
+        page = context.pages[-1]
+        try:
+            active = await page.evaluate(
+                "() => { const el = document.activeElement; "
+                "if (!el) return ''; "
+                "return el.tagName + ':' + (el.isContentEditable ? 'editable' : (el.type || '')); }"
+            )
+            already_focused = active.startswith(("TEXTAREA", "INPUT")) or active.endswith("editable")
+            if not already_focused:
+                await page.locator(_INPUT_SELECTOR).last.click(timeout=5000)
+            await page.keyboard.type(text, delay=15)
+            if submit:
+                await page.keyboard.press("Enter")
+            return f'Scritto "{text}"{" e inviato" if submit else ""}.'
+        except Exception as e:  # noqa: BLE001
+            return f"Non sono riuscito a scrivere nella pagina: {e}"
+
     async def screenshot(self) -> bytes:
         context = await self._ensure_context()
         try:
@@ -188,6 +264,12 @@ async def extract_and_execute(text: str) -> str:
                         action.get("open_first_result", True),
                     )
                 )
+            elif kind == "read":
+                outcomes.append(await agent.read())
+            elif kind == "click" and action.get("text"):
+                outcomes.append(await agent.click(action["text"]))
+            elif kind == "type" and action.get("text"):
+                outcomes.append(await agent.type_text(action["text"], action.get("submit", True)))
         except Exception as e:  # noqa: BLE001
             outcomes.append(f"Errore browser: {e}")
 
