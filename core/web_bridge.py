@@ -231,11 +231,30 @@ async def poll_web_queue() -> None:
 
             intent = intents.parse_intent(task["prompt"]) if not image_b64 else None
             if intent:
+                # La risposta viene SEMPRE anche parlata qui sotto
+                # (tts.speak_if_enabled), quindi va sempre formattata in
+                # "voice" (frasi semplici, italiano pulito) — non il testo
+                # tecnico/verboso pensato per essere solo letto (elenchi
+                # puntati, messaggi di commit grezzi spesso in inglese, note
+                # JARVIS). Segnalato dal vivo (2026-09-15): "perche' parla
+                # francese e inglese? dovrebbe parlare solo italiano... in
+                # linguaggio piu' semplice" — la voce multilingue di edge-tts
+                # cambia accento sulle parole che riconosce come non
+                # italiane, presenti nel testo verboso ma non in quello
+                # "voice" (core/project_status.py::format_report,
+                # core/outlook.py::format_summary). "power" resta l'unica
+                # eccezione: con voice=True rifiuta del tutto spegnimento/
+                # riavvio/logout (core/intents.py, sicurezza voluta per un
+                # comando che un mic in ascolto continuo potrebbe innescare
+                # da solo) — romperebbe il flusso di conferma /confirm gia'
+                # funzionante per un comando scritto/testuale sulla stessa
+                # dashboard.
+                voice_flag = intent["type"] != "power"
                 # asyncio.to_thread: "stato progetti" arriva fino a ~6 subprocess
                 # git in sequenza — non deve bloccare il polling della coda.
                 response = await asyncio.to_thread(
                     intents.execute_intent,
-                    intent, executor, False, task.get("workspace") or "jarvis", task["prompt"],
+                    intent, executor, voice_flag, task.get("workspace") or "jarvis", task["prompt"],
                 )
                 tts.speak_if_enabled(response)
                 _notify_telegram(task["prompt"], response)

@@ -281,10 +281,21 @@ async def handle(text: str) -> None:
     # spegni/riavvia) — riconosciuti subito, senza passare da Claude
     intent = intents.parse_intent(text)
     if intent:
+        # speak_locally() la legge SEMPRE ad alta voce (anche una nota vocale
+        # Telegram trascritta arriva qui come testo normale) — va sempre
+        # formattata in "voice" (frasi semplici, italiano pulito), non nel
+        # testo tecnico/verboso pensato solo per essere letto (elenchi
+        # puntati, messaggi di commit grezzi spesso in inglese). Stesso fix
+        # di core/web_bridge.py, stesso motivo (2026-09-15): "perche' parla
+        # francese e inglese? ... in linguaggio piu' semplice". "power"
+        # resta l'unica eccezione: con voice=True rifiuta del tutto
+        # spegnimento/riavvio/logout, romperebbe /confirm per un comando
+        # scritto su Telegram.
+        voice_flag = intent["type"] != "power"
         # asyncio.to_thread: "stato progetti" arriva fino a ~6 subprocess git in
         # sequenza (~0.2-0.5s l'uno) — troppo per il path pensato per costo/
         # latenza zero, non deve pero' bloccare il polling Telegram nel frattempo.
-        response = await asyncio.to_thread(intents.execute_intent, intent, executor, False, state["ws"], text)
+        response = await asyncio.to_thread(intents.execute_intent, intent, executor, voice_flag, state["ws"], text)
         speak_locally(response)
         return send(response)
 
