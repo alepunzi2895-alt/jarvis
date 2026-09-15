@@ -6,12 +6,24 @@ Gira in parallelo al poller della web dashboard (stesso processo, stesso cervell
 """
 
 import os
+import sys
 import html
 import asyncio
 import datetime as dt
 
 import requests
 from dotenv import load_dotenv
+
+# Su Windows, stdout/stderr reindirizzati su file (come fa il wrapper .vbs
+# dell'autostart) usano di default la codepage della console (es. cp1252),
+# che non sa codificare em-dash, virgolette tipografiche o certi caratteri
+# "esotici" (es. spazi tipografici in una mail HTML letta via core/outlook.py).
+# Senza questo, un print() su quel testo lancia UnicodeEncodeError — non
+# preso da nessun try/except qui, quindi l'intero processo (bot Telegram +
+# poller web, stesso processo) crasha in silenzio. Stesso identico bug gia'
+# risolto una volta in core/voice/daemon.py, mai applicato qui.
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 from core.claude_bridge import (
     WORKSPACES,
