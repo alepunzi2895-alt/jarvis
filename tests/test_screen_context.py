@@ -20,6 +20,10 @@ def test_target_for_generic_screen():
     assert screen_context.target_for("spiegami cosa sto sviluppando su databricks") == "screen"
 
 
+def test_target_for_genie_falls_back_to_screen():
+    assert screen_context.target_for("leggimi l'ultima risposta di Genie Code") == "screen"
+
+
 def test_target_for_teams_takes_priority_over_generic_screen():
     # "teams" e "schermo" nella stessa frase: Teams e' piu' specifico
     assert screen_context.target_for("guarda lo schermo di teams") == "teams"
