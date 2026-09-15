@@ -117,6 +117,55 @@ def _fetch() -> str | None:
     return f"{line} ({place})"
 
 
+def get_weekly_forecast() -> dict | None:
+    """Previsioni 7 giorni per il pannello meteo animato della dashboard
+    (richiesta esplicita di Alessandro, 2026-09-15: "come il vero JARVIS di
+    Iron Man"). Stessa risoluzione di posizione di get_weather_line(),
+    nessuna cache propria qui — chi la chiama (bot.py, loop periodico)
+    decide la frequenza di refresh e la persistenza (Turso)."""
+    try:
+        location = _resolve_location()
+        if not location:
+            return None
+        lat, lon, place = location
+
+        r = requests.get(
+            "https://api.open-meteo.com/v1/forecast",
+            params={
+                "latitude": lat,
+                "longitude": lon,
+                "daily": "weather_code,temperature_2m_max,temperature_2m_min",
+                "forecast_days": 7,
+                "timezone": "auto",
+            },
+            timeout=_TIMEOUT,
+        )
+        r.raise_for_status()
+        daily = r.json().get("daily") or {}
+        dates = daily.get("time") or []
+        codes = daily.get("weather_code") or []
+        highs = daily.get("temperature_2m_max") or []
+        lows = daily.get("temperature_2m_min") or []
+
+        days = []
+        for i, date in enumerate(dates):
+            code = int(codes[i]) if i < len(codes) and codes[i] is not None else None
+            days.append(
+                {
+                    "date": date,
+                    "code": code,
+                    "description": _describe(code) if code is not None else "",
+                    "high": round(highs[i]) if i < len(highs) and highs[i] is not None else None,
+                    "low": round(lows[i]) if i < len(lows) and lows[i] is not None else None,
+                }
+            )
+        if not days:
+            return None
+        return {"place": place, "days": days}
+    except (requests.RequestException, ValueError, KeyError, IndexError):
+        return None
+
+
 def get_weather_line() -> str | None:
     """Meteo attuale come riga breve, pronta da iniettare nel system prompt.
     Best-effort: None se posizione/rete non disponibili, mai un'eccezione —

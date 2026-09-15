@@ -800,6 +800,126 @@ header::after {
 .panel.disabled { opacity: 0.5; }
 .panel.disabled .panel-title { color: var(--text-muted); }
 
+/* ── Meteo settimanale animato ────────────────────────────────────────── */
+
+.weather-days {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(64px, 1fr));
+  gap: 8px;
+}
+
+.weather-day {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 4px;
+  border-radius: 8px;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+}
+
+.wx-day-name {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.weather-icon {
+  font-size: 26px;
+  line-height: 1;
+  display: inline-block;
+  animation: wx-float 3.5s ease-in-out infinite;
+}
+
+.weather-icon.wx-sun { animation: wx-spin-slow 9s linear infinite; }
+.weather-icon.wx-storm { animation: wx-shake 0.6s ease-in-out infinite; }
+.weather-icon.wx-rain { animation: wx-float 1.6s ease-in-out infinite; }
+.weather-icon.wx-snow { animation: wx-float 4.5s ease-in-out infinite; }
+
+@keyframes wx-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
+}
+
+@keyframes wx-spin-slow {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes wx-shake {
+  0%, 100% { transform: translateX(0) rotate(0deg); }
+  25% { transform: translateX(-2px) rotate(-3deg); }
+  75% { transform: translateX(2px) rotate(3deg); }
+}
+
+.wx-temps {
+  display: flex;
+  gap: 6px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.wx-high { color: var(--text-primary); font-weight: 600; }
+.wx-low { color: var(--text-muted); }
+
+/* ── Stato progetti ───────────────────────────────────────────────────── */
+
+.project-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.project-card {
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+}
+
+.project-card.disabled { opacity: 0.5; }
+
+.project-card-title {
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.project-branch {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--text-muted);
+}
+
+.health-bar {
+  height: 5px;
+  border-radius: 999px;
+  background: var(--gridline);
+  overflow: hidden;
+  margin-bottom: 6px;
+}
+
+.health-fill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.4s ease;
+}
+
+.project-card-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.project-card-row strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
 /* ── Second brain graph ────────────────────────────────────────────── */
 
 #brain-canvas {

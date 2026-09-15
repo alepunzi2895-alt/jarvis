@@ -196,6 +196,33 @@ async function runtimeStatus(db, req) {
   return { ok: true, speaking: r.rows.length > 0 };
 }
 
+async function weatherForecast(db, req) {
+  // Previsioni settimanali scritte da bot.py::weather_forecast_loop() ogni
+  // 30 minuti - stessa tabella/pattern del flag "speaking".
+  requireBrowserAuth(req);
+  const r = await db.execute({ sql: "SELECT value FROM runtime_flags WHERE key='weather_forecast'", args: [] });
+  if (!r.rows.length) return { ok: true, forecast: null };
+  try {
+    return { ok: true, forecast: JSON.parse(r.rows[0].value) };
+  } catch {
+    return { ok: true, forecast: null };
+  }
+}
+
+async function projectStatusData(db, req) {
+  // Stato progetti scritto da bot.py::project_status_loop() ogni 10 minuti
+  // (git status/log + "salute" 0-100 - vedi core/project_status.py) -
+  // stesso pattern/tabella del flag "speaking" e delle previsioni meteo.
+  requireBrowserAuth(req);
+  const r = await db.execute({ sql: "SELECT value FROM runtime_flags WHERE key='project_status'", args: [] });
+  if (!r.rows.length) return { ok: true, projects: null };
+  try {
+    return { ok: true, projects: JSON.parse(r.rows[0].value) };
+  } catch {
+    return { ok: true, projects: null };
+  }
+}
+
 async function brainGraph(db, req) {
   requireBrowserAuth(req);
   const nodes = await db.execute(
@@ -223,6 +250,8 @@ const ACTIONS = {
   task_get: (db, req, res, body) => taskGet(db, body),
   task_result_push: (db, req, res, body) => taskResultPush(db, body),
   runtime_status: (db, req, res, body) => runtimeStatus(db, req),
+  weather_forecast: (db, req, res, body) => weatherForecast(db, req),
+  project_status_data: (db, req, res, body) => projectStatusData(db, req),
   brain_graph: (db, req, res, body) => brainGraph(db, req),
   brain_node_delete: (db, req, res, body) => brainNodeDelete(db, req, body),
 };
