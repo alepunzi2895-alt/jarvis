@@ -35,8 +35,12 @@ from core.voice.wake_word import WakeWordListener
 # Senza questo, un print() su quel testo lancia UnicodeEncodeError — preso
 # dal try/except del loop, quindi l'intero ciclo falliva in silenzio senza
 # rispondere affatto, con zero indizi per l'utente.
-sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+# line_buffering=True: senza, un file (non un terminale) usa un buffer a
+# blocchi — i print() restano invisibili in logs/voice.log finche' il
+# buffer non si riempie o il processo termina (stesso fix applicato a
+# bot.py il 2026-09-15, stesso identico problema).
+sys.stdout.reconfigure(encoding="utf-8", errors="replace", line_buffering=True)
+sys.stderr.reconfigure(encoding="utf-8", errors="replace", line_buffering=True)
 
 HOTKEY = os.getenv("JARVIS_HOTKEY", "ctrl+alt+j")
 
