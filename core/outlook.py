@@ -14,9 +14,17 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+# Le varianti reali con cui Alessandro chiede la posta a voce sono molte piu' di
+# quelle che coprivamo all'inizio: "mi leggi l'ultima mail", "puoi leggermi la
+# mail", "mi controlli la posta?" cadevano tutte fuori (verbo coniugato +
+# pronome/articolo in mezzo) e finivano a Claude come chiacchiera. Ora: radice
+# del verbo + fino a ~20 caratteri di riempimento + il sostantivo.
 OUTLOOK_INTENT_RE = re.compile(
-    r"\bcontrolla\w*\s+la\s+posta\b|\b(ho|ci\s+sono)\s+(nuove\s+)?mail\b"
-    r"|\bleggi\w*\s+le?\s+mail\b|\bposta\s+in\s+arrivo\b|\bnuove\s+mail\b",
+    r"\b(?:controll|guard|verific|legg|apr)\w*\b[^.?!]{0,20}?"
+    r"\b(?:posta|mail|email|e-mail|inbox)\b"
+    r"|\bposta\s+in\s+arrivo\b"
+    r"|\b(?:ho|ci\s+sono)\s+(?:nuove\s+|delle\s+)?(?:mail|email)\b"
+    r"|\bnuove\s+(?:mail|email)\b",
     re.IGNORECASE,
 )
 
