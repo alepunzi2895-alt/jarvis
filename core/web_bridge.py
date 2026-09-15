@@ -16,7 +16,7 @@ from pathlib import Path
 from core import turso, intents, screen_context
 from core.claude_bridge import run_claude
 from core.executor_singleton import executor
-from core.voice import camera
+from core.voice import camera, tts
 
 POLL_SEC = float(os.getenv("JARVIS_WEB_POLL_SEC", "3"))
 
@@ -126,6 +126,7 @@ async def poll_web_queue() -> None:
                     intents.execute_intent,
                     intent, executor, False, task.get("workspace") or "jarvis", task["prompt"],
                 )
+                tts.speak_if_enabled(response)
                 await _push_result(task["id"], "done", response, None, 0.0)
                 continue
 
@@ -147,6 +148,7 @@ async def poll_web_queue() -> None:
                 image_b64=image_b64,
                 channel=task.get("channel") or "text",
             )
+            tts.speak_if_enabled(result)
             await _push_result(task["id"], "done", result, sid, cost)
         except Exception as e:  # noqa: BLE001
             try:
