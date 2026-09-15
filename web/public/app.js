@@ -442,6 +442,24 @@ function setupVoice() {
     silentSink.connect(audioCtx.destination);
 
     processor.onaudioprocess = (e) => {
+      // JARVIS sta parlando dagli altoparlanti del PC (processo Python
+      // separato, non nel browser) — il mic tace del tutto per non
+      // risentirsi da solo. Scarta anche un segmento gia' in corso: e'
+      // quasi certo che contenga (in parte) la risposta appena data.
+      if (botSpeaking) {
+        prerollChunks = [];
+        prerollMs = 0;
+        onsetCandidateMs = 0;
+        if (recording) {
+          recording = false;
+          segmentChunks = [];
+          segmentMs = 0;
+          silenceMs = 0;
+          hitMaxDuration = false;
+        }
+        return;
+      }
+
       const data = e.inputBuffer.getChannelData(0).slice(); // copia: il buffer sorgente viene riusato dal browser
       const chunkMs = _chunkMs(data);
       const speaking = _pcmRms(data) > MIC_SILENCE_RMS;
@@ -963,21 +981,33 @@ function setupCamera() {
   });
 }
 
-// ── Stato "sta parlando" (bolla centrale) ───────────────────────────────
+// ── Stato "sta parlando" (bolla centrale + muting del mic) ──────────────
 // L'audio esce dagli altoparlanti del PC via un processo Python separato
 // (core/voice/tts.py), non nel browser — l'unico modo per far reagire la
-// bolla e' chiedere periodicamente a Turso se JARVIS sta parlando in
-// questo momento, qualunque canale (Telegram/voce/dashboard) l'abbia
-// innescato.
+// bolla (e per il mic di sapere di doversi zittire, vedi sotto) e'
+// chiedere periodicamente a Turso se JARVIS sta parlando in questo
+// momento, qualunque canale (Telegram/voce/dashboard) l'abbia innescato.
 const ORB_SPEAKING_POLL_MS = 700;
+
+// Trovato dal vivo (2026-09-15): con l'ascolto sempre attivo di stamattina
+// E le risposte lette ad alta voce dagli altoparlanti del PC, il
+// microfono si risentiva DA SOLO — ritrascriveva le proprie risposte
+// come se fossero un nuovo comando (visto nei log: le cifre di un codice
+// errore lette ad alta voce, ricatturate e ritrascritte). L'echo
+// cancellation del browser non lo previene: cancella solo l'audio che IL
+// BROWSER STESSO sta riproducendo (WebRTC/<audio>), non un processo di
+// sistema separato che scrive sugli altoparlanti. `botSpeaking` (letto da
+// setupVoice()) fa tacere completamente il mic mentre JARVIS parla.
+let botSpeaking = false;
 
 async function pollSpeakingStatus() {
   const orb = $("#jarvis-orb");
   try {
     const { speaking } = await api("runtime_status");
-    orb.classList.toggle("orb-speaking", !!speaking);
+    botSpeaking = !!speaking;
+    orb.classList.toggle("orb-speaking", botSpeaking);
   } catch {
-    // rete assente/blip transitorio: non toccare lo stato attuale della bolla
+    // rete assente/blip transitorio: non toccare lo stato attuale della bolla/mic
   }
 }
 

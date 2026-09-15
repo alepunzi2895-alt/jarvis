@@ -1,4 +1,27 @@
+import threading
+
 from core import outlook
+
+
+def test_run_in_fresh_thread_returns_value():
+    assert outlook._run_in_fresh_thread(lambda a, b: a + b, 2, 3) == 5
+
+
+def test_run_in_fresh_thread_reraises_exceptions():
+    def _boom():
+        raise RuntimeError("kaboom")
+
+    try:
+        outlook._run_in_fresh_thread(_boom)
+        assert False, "doveva sollevare"
+    except RuntimeError as e:
+        assert "kaboom" in str(e)
+
+
+def test_run_in_fresh_thread_uses_a_different_thread():
+    caller_thread = threading.get_ident()
+    worker_thread = outlook._run_in_fresh_thread(threading.get_ident)
+    assert worker_thread != caller_thread
 
 
 def test_outlook_intent_regex_matches_common_phrases():

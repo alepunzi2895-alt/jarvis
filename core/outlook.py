@@ -12,6 +12,7 @@ filosofia di core/browser.py per Teams: leggere si', agire mai da soli.
 from __future__ import annotations
 
 import re
+import threading
 from dataclasses import dataclass
 
 # Le varianti reali con cui Alessandro chiede la posta a voce sono molte piu' di
@@ -66,6 +67,33 @@ class EmailSummary:
 # e' andata a buon fine — non un problema di configurazione, un blip.
 _MAX_ATTEMPTS = 3
 _RETRY_DELAY_SEC = 1.5
+
+
+def _run_in_fresh_thread(fn, *args):
+    """Esegue fn(*args) in un thread OS nuovo di zecca, mai riusato — i
+    chiamanti sincroni (core/intents.py) girano gia' su un thread preso dal
+    pool CONDIVISO di asyncio.to_thread (bot.py/web_bridge.py), che ricicla
+    gli stessi thread OS per chiamate diverse nel tempo. CoInitialize/
+    CoUninitialize sono per-thread: un thread riciclato che ha gia' ospitato
+    un'altra chiamata COM in passato puo' lasciare l'apartment STA in uno
+    stato sporco — causa sospetta (non confermata, ma verosimile) di un
+    fallimento 0x80080005 mai riprodotto isolando la stessa identica
+    chiamata in un processo/thread tutto suo. Un thread dedicato per ogni
+    chiamata elimina il sospetto alla radice, a costo trascurabile."""
+    result: dict = {}
+
+    def _target():
+        try:
+            result["value"] = fn(*args)
+        except Exception as e:  # noqa: BLE001 — ripropagato tale e quale al chiamante
+            result["error"] = e
+
+    t = threading.Thread(target=_target)
+    t.start()
+    t.join()
+    if "error" in result:
+        raise result["error"]
+    return result["value"]
 
 
 def _fetch_recent_sync(count: int, unread_only: bool) -> list[EmailSummary]:
@@ -161,23 +189,25 @@ def _count_unread_sync() -> int:
 async def count_unread_emails() -> int:
     import asyncio
 
-    return await asyncio.to_thread(_count_unread_sync)
+    return await asyncio.to_thread(_run_in_fresh_thread, _count_unread_sync)
 
 
 def count_unread_emails_sync() -> int:
-    return _count_unread_sync()
+    return _run_in_fresh_thread(_count_unread_sync)
 
 
 async def list_recent_emails(count: int = 8, unread_only: bool = False) -> list[EmailSummary]:
     import asyncio
 
-    return await asyncio.to_thread(_fetch_recent_sync, count, unread_only)
+    return await asyncio.to_thread(_run_in_fresh_thread, _fetch_recent_sync, count, unread_only)
 
 
 def list_recent_emails_sync(count: int = 8, unread_only: bool = False) -> list[EmailSummary]:
     """Per chiamanti gia' sincroni (es. core/intents.py) che gestiscono loro
-    stessi il threading (asyncio.to_thread lato bot.py/web_bridge.py)."""
-    return _fetch_recent_sync(count, unread_only)
+    stessi il threading (asyncio.to_thread lato bot.py/web_bridge.py) — vedi
+    _run_in_fresh_thread per il perche' non basta gia' essere su UN thread
+    qualunque, deve essere uno dedicato e mai riusato."""
+    return _run_in_fresh_thread(_fetch_recent_sync, count, unread_only)
 
 
 def format_unread_count(n: int, voice: bool) -> str:
