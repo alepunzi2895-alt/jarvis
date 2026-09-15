@@ -423,6 +423,26 @@ run_claude). Branch `fix/dashboard-tts-response`, mergiato e pushato su
 main, 117/117 test verdi. **Non verificato dal vivo**: richiede riavvio
 del bridge locale + un comando vocale reale dalla dashboard.
 
+**Stesso giorno, dopo**: chiesto di eliminare il click per ogni comando
+sulla dashboard — scelto l'ascolto a mani libere vero (non un hotkey) pur
+sapendo del precedente negativo del 2026-07-14 (ascolto continuo del
+vecchio riconoscimento cloud senza filtro → ~230 task spuri, ~1.33$ di
+chiamate Claude reali). Riapplicata la stessa soluzione di allora ma
+lato server invece che nel browser, perché la trascrizione ora avviene
+in `core/web_bridge.py` (faster-whisper), non più via Web Speech API
+client-side: `_strip_wake_word()` richiede "Jarvis" nella frase prima di
+eseguire intent/task Claude, altrimenti la riga torna con status
+"ignored" e la dashboard la rimuove senza mostrarla. `web/public/app.js`
+`setupVoice()` riscritto da push-to-talk a "arma e resta armato" (loop
+di segmenti auto-avviati/fermati dallo stesso rilevamento voce/silenzio
+di prima). 123/123 test verdi (6 nuovi in `tests/test_web_bridge.py`),
+mergiato e pushato su main. **Limite noto non verificato dal vivo**:
+nessun pre-buffer prima della soglia di rilevamento — la prima sillaba
+di "Jarvis" potrebbe risultare tagliata; da controllare con un test
+reale, non affrontato oggi per tenere il diff minimo. **Non verificato
+dal vivo**: richiede riavvio del bridge locale + prova reale col
+microfono.
+
 **Nota per sessioni future**: il commit/push di stasera e' stato bloccato
 una volta dal classificatore di sicurezza di Claude Code per un messaggio
 di commit troppo dettagliato sul contesto di rischio — messaggi di commit
