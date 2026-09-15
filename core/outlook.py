@@ -24,9 +24,19 @@ OUTLOOK_INTENT_RE = re.compile(
     r"\b(?:posta|mail|email|e-mail|inbox)\b"
     r"|\bposta\s+in\s+arrivo\b"
     r"|\b(?:ho|ci\s+sono)\s+(?:nuove\s+|delle\s+)?(?:mail|email)\b"
-    r"|\bnuove\s+(?:mail|email)\b",
+    r"|\bnuove\s+(?:mail|email)\b"
+    # "quante mail (ho)?", "mail non lette" — nessuno dei pattern sopra li
+    # copriva (nessuna radice verbale, "quante"/aggettivo invece di verbo).
+    r"|\bquant[eo]\s+(?:mail|email)\b"
+    r"|\b(?:mail|email)\w*[^.?!]{0,15}?\bnon\s+lett[ei]\b",
     re.IGNORECASE,
 )
+
+# Sottoinsieme di OUTLOOK_INTENT_RE che chiede specificamente il CONTEGGIO
+# delle non lette (non la lista/il contenuto) — risposta diversa e piu'
+# efficiente (core/outlook.py::count_unread_emails*, mai un limite di 8
+# come list_recent_emails che tronca la lista).
+UNREAD_COUNT_RE = re.compile(r"\bquant[eo]\b|\bnon\s+lett[ei]\b", re.IGNORECASE)
 
 _SNIPPET_CHARS = 200
 # olFolderInbox = 6 (costante Outlook, non serve importare win32com.client.constants
@@ -113,6 +123,51 @@ def _fetch_recent_sync(count: int, unread_only: bool) -> list[EmailSummary]:
         pythoncom.CoUninitialize()
 
 
+def _count_unread_sync() -> int:
+    """Come _fetch_recent_sync ma per il solo conteggio — usa
+    MAPIFolder.UnReadItemCount (un attributo gia' calcolato da Outlook, non
+    un giro su tutti gli item) invece di list_recent_emails_sync(unread_only=
+    True), che tronca a `count` risultati e darebbe un numero SBAGLIATO (per
+    difetto) se le non lette fossero piu' del limite."""
+    try:
+        import time
+        import pythoncom
+        import win32com.client
+    except ImportError as e:
+        raise OutlookError(f"pywin32 non installato: {e}") from e
+
+    pythoncom.CoInitialize()
+    try:
+        last_error: Exception | None = None
+        for attempt in range(_MAX_ATTEMPTS):
+            try:
+                outlook = win32com.client.Dispatch("Outlook.Application")
+                namespace = outlook.GetNamespace("MAPI")
+                inbox = namespace.GetDefaultFolder(_OL_FOLDER_INBOX)
+                return int(inbox.UnReadItemCount)
+            except Exception as e:  # noqa: BLE001 — stesso pattern di _fetch_recent_sync
+                last_error = e
+                if attempt < _MAX_ATTEMPTS - 1:
+                    time.sleep(_RETRY_DELAY_SEC)
+
+        raise OutlookError(
+            "Non riesco a leggere Outlook — verifica che sia installato e configurato "
+            f"su questa macchina (dettaglio: {last_error})."
+        ) from last_error
+    finally:
+        pythoncom.CoUninitialize()
+
+
+async def count_unread_emails() -> int:
+    import asyncio
+
+    return await asyncio.to_thread(_count_unread_sync)
+
+
+def count_unread_emails_sync() -> int:
+    return _count_unread_sync()
+
+
 async def list_recent_emails(count: int = 8, unread_only: bool = False) -> list[EmailSummary]:
     import asyncio
 
@@ -123,6 +178,14 @@ def list_recent_emails_sync(count: int = 8, unread_only: bool = False) -> list[E
     """Per chiamanti gia' sincroni (es. core/intents.py) che gestiscono loro
     stessi il threading (asyncio.to_thread lato bot.py/web_bridge.py)."""
     return _fetch_recent_sync(count, unread_only)
+
+
+def format_unread_count(n: int, voice: bool) -> str:
+    if n == 0:
+        return "Nessuna mail non letta, Signore." if voice else "Nessuna mail non letta."
+    if n == 1:
+        return "Hai una mail non letta, Signore." if voice else "1 mail non letta."
+    return f"Hai {n} mail non lette, Signore." if voice else f"{n} mail non lette."
 
 
 def format_summary(emails: list[EmailSummary], voice: bool) -> str:

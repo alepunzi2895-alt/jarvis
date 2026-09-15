@@ -95,10 +95,12 @@ def parse_intent(text: str) -> dict | None:
     if _PROJECT_STATUS_RE.search(t):
         return {"type": "project_status"}
 
-    from core.outlook import OUTLOOK_INTENT_RE  # import qui: evita di caricare pywin32 se l'intent non serve mai
+    from core.outlook import OUTLOOK_INTENT_RE, UNREAD_COUNT_RE  # import qui: evita pywin32 se l'intent non serve mai
 
     if OUTLOOK_INTENT_RE.search(t):
-        return {"type": "outlook"}
+        # "quante mail (ho)?"/"mail non lette": conteggio, non lista — risposta
+        # diversa e piu' efficiente (vedi core/outlook.py::count_unread_emails*).
+        return {"type": "outlook", "unread_count": bool(UNREAD_COUNT_RE.search(t))}
 
     low = t.lower()
     for app in _APP_NAMES:
@@ -194,6 +196,8 @@ def _execute(intent: dict, executor: SystemExecutor, voice: bool) -> str:
         from core import outlook  # import qui: evita di caricare pywin32 se l'intent non serve mai
 
         try:
+            if intent.get("unread_count"):
+                return outlook.format_unread_count(outlook.count_unread_emails_sync(), voice=voice)
             emails = outlook.list_recent_emails_sync()
         except outlook.OutlookError as e:
             return str(e)

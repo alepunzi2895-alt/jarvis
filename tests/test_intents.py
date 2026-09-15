@@ -116,3 +116,39 @@ def test_execute_intent_skips_logging_when_turso_disabled():
     with patch("core.brain.log_interaction") as log:
         intents.execute_intent({"type": "open_app", "name": "chrome"}, executor, voice=False)
     log.assert_not_called()
+
+
+def test_parse_intent_outlook_plain_read():
+    assert intents.parse_intent("leggi l'ultima mail") == {"type": "outlook", "unread_count": False}
+
+
+def test_parse_intent_outlook_unread_count():
+    assert intents.parse_intent("quante mail ho non lette?") == {"type": "outlook", "unread_count": True}
+
+
+def test_execute_intent_outlook_unread_count_calls_count_not_list():
+    executor = MagicMock()
+    with (
+        patch("core.outlook.count_unread_emails_sync", return_value=3) as count_fn,
+        patch("core.outlook.list_recent_emails_sync") as list_fn,
+        patch("core.outlook.format_unread_count", return_value="Hai 3 mail non lette.") as fmt,
+    ):
+        result = intents.execute_intent({"type": "outlook", "unread_count": True}, executor, voice=False)
+    count_fn.assert_called_once()
+    list_fn.assert_not_called()
+    fmt.assert_called_once_with(3, voice=False)
+    assert result == "Hai 3 mail non lette."
+
+
+def test_execute_intent_outlook_plain_read_calls_list_not_count():
+    executor = MagicMock()
+    with (
+        patch("core.outlook.list_recent_emails_sync", return_value=["finto"]) as list_fn,
+        patch("core.outlook.count_unread_emails_sync") as count_fn,
+        patch("core.outlook.format_summary", return_value="Posta in arrivo...") as fmt,
+    ):
+        result = intents.execute_intent({"type": "outlook", "unread_count": False}, executor, voice=False)
+    list_fn.assert_called_once()
+    count_fn.assert_not_called()
+    fmt.assert_called_once_with(["finto"], voice=False)
+    assert result == "Posta in arrivo..."
