@@ -21,6 +21,16 @@ DB_TOKEN = os.getenv("TURSO_JARVIS_AUTH_TOKEN", "")
 
 ENABLED = bool(DB_URL and DB_TOKEN)
 
+# Il second brain (core/brain.py) chiama Turso in modo sincrono PRIMA di ogni
+# claude -p (per iniettare il contesto) — un timeout da 20s, durante uno dei
+# blip di rete transitori gia' noti su questa macchina (vedi
+# [[network-quirks-this-pc]]), si sommava per intero al tempo di risposta
+# percepito prima ancora che il degrado "nessun contesto" di
+# brain.fetch_context() potesse scattare. Molto piu' basso: e' comunque un
+# arricchimento, mai un requisito, quindi fallire in fretta e degradare
+# conta piu' che aspettare fino in fondo.
+TIMEOUT_SEC = float(os.getenv("JARVIS_TURSO_TIMEOUT_SEC", "6"))
+
 
 def _wrap_arg(value):
     if value is None:
@@ -42,7 +52,7 @@ def _pipeline(statements: list[dict]) -> list[dict]:
         headers={"Authorization": f"Bearer {DB_TOKEN}", "Content-Type": "application/json"},
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=20) as resp:
+    with urllib.request.urlopen(req, timeout=TIMEOUT_SEC) as resp:
         data = json.loads(resp.read())
     for r in data.get("results", []):
         if r.get("type") == "error":

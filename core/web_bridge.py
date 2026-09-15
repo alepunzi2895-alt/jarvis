@@ -14,7 +14,7 @@ import base64
 import tempfile
 from pathlib import Path
 
-from core import turso, intents, screen_context
+from core import turso, intents, screen_context, telegram
 from core.claude_bridge import run_claude
 from core.executor_singleton import executor
 from core.voice import camera, tts
@@ -105,6 +105,19 @@ async def _update_prompt(task_id: str, prompt: str) -> None:
     await asyncio.to_thread(work)
 
 
+def _notify_telegram(prompt: str, response: str) -> None:
+    """Specchia su Telegram anche l'esito della dashboard — richiesta
+    esplicita di Alessandro, stesso schema gia' usato per la voce
+    (core/voice/daemon.py::_notify_telegram). Fire-and-forget in un thread
+    dell'executor, non deve mai rallentare il poller."""
+
+    def work() -> None:
+        text = f'\U0001F4BB "{prompt}"\n\n{response}'
+        telegram.send_to_owner(text)
+
+    asyncio.get_running_loop().run_in_executor(None, work)
+
+
 async def _push_result(task_id: str, status: str, result: str, session_id: str | None, cost_usd: float) -> None:
     def work():
         turso.execute(
@@ -157,6 +170,7 @@ async def poll_web_queue() -> None:
                     intent, executor, False, task.get("workspace") or "jarvis", task["prompt"],
                 )
                 tts.speak_if_enabled(response)
+                _notify_telegram(task["prompt"], response)
                 await _push_result(task["id"], "done", response, None, 0.0)
                 continue
 
@@ -179,6 +193,7 @@ async def poll_web_queue() -> None:
                 channel=task.get("channel") or "text",
             )
             tts.speak_if_enabled(result)
+            _notify_telegram(task["prompt"], result)
             await _push_result(task["id"], "done", result, sid, cost)
         except Exception as e:  # noqa: BLE001
             try:
