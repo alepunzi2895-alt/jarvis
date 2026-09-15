@@ -21,9 +21,58 @@ import numpy as np
 import sounddevice as sd
 import edge_tts
 
+from core import turso
 from core.voice import resolve_output_device
 
 VOICE = os.getenv("JARVIS_TTS_VOICE", "it-IT-GiuseppeMultilingualNeural")
+
+# --------------------------------------------------------------------------- stato "sto parlando" (dashboard)
+#
+# La dashboard web (browser) non ha modo di sapere quando JARVIS sta parlando
+# davvero: l'audio esce dagli altoparlanti del PC via un processo Python
+# separato, non nel browser. Un flag condiviso su Turso (stesso DB del
+# second brain/coda task) e' il modo piu' semplice per farlo sapere alla
+# dashboard, che lo legge in polling — richiesta esplicita di Alessandro:
+# la bolla centrale deve muoversi/cambiare colore quando JARVIS parla,
+# qualunque sia il canale che ha innescato la voce (Telegram, dashboard,
+# daemon nativo: passano tutti da qui).
+
+_speaking_flag_bootstrapped = False
+
+
+def _bootstrap_speaking_flag() -> None:
+    global _speaking_flag_bootstrapped
+    if _speaking_flag_bootstrapped:
+        return
+    try:
+        turso.execute(
+            "CREATE TABLE IF NOT EXISTS runtime_flags ("
+            "key TEXT PRIMARY KEY, value TEXT, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP)"
+        )
+    except Exception:  # noqa: BLE001 — la dashboard non vedra' l'indicatore, la voce deve uscire comunque
+        pass
+    _speaking_flag_bootstrapped = True
+
+
+def _set_speaking(flag: bool) -> None:
+    if not turso.ENABLED:
+        return
+    _bootstrap_speaking_flag()
+    try:
+        turso.execute(
+            "INSERT INTO runtime_flags (key, value, updated_at) VALUES ('speaking', ?, CURRENT_TIMESTAMP) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=CURRENT_TIMESTAMP",
+            ["1" if flag else "0"],
+        )
+    except Exception:  # noqa: BLE001 — best-effort, un blip di rete non deve mai bloccare il parlato
+        pass
+
+
+def _set_speaking_bg(flag: bool) -> None:
+    """Fire-and-forget in un thread separato: la scrittura Turso non deve mai
+    ritardare l'inizio/la fine del parlato reale (sincrona o dentro un loop
+    asyncio, speak()/speak_stream() la chiamano entrambe allo stesso modo)."""
+    threading.Thread(target=_set_speaking, args=(flag,), daemon=True).start()
 
 
 class TTSEngine:
@@ -46,11 +95,13 @@ class EdgeTTSEngine(TTSEngine):
         if not text:
             return
         path = self._synthesize(text)
+        _set_speaking_bg(True)
         try:
             data, samplerate = self._decode(path)
             sd.play(data, samplerate, device=resolve_output_device())
             sd.wait()
         finally:
+            _set_speaking_bg(False)
             try:
                 path.unlink(missing_ok=True)
             except OSError:
@@ -87,6 +138,7 @@ class EdgeTTSEngine(TTSEngine):
                 await queue.put(None)
 
         producer_task = asyncio.create_task(producer())
+        _set_speaking_bg(True)
         try:
             while True:
                 item = await queue.get()
@@ -96,6 +148,7 @@ class EdgeTTSEngine(TTSEngine):
                     data, samplerate = item
                     await asyncio.to_thread(self._play_blocking, data, samplerate, stop_event)
         finally:
+            _set_speaking_bg(False)
             if not producer_task.done():
                 producer_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):

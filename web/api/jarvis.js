@@ -89,6 +89,13 @@ async function initSchema(db) {
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(source_id, target_id, relation)
   )`);
+  // Flag runtime condivisi (es. "speaking") — schema identico a quello creato
+  // lato Python in core/voice/tts.py, stesso principio del second brain sopra.
+  await db.execute(`CREATE TABLE IF NOT EXISTS runtime_flags (
+    key TEXT PRIMARY KEY,
+    value TEXT,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )`);
   return { ok: true };
 }
 
@@ -161,6 +168,19 @@ async function taskResultPush(db, body) {
   return { ok: true };
 }
 
+async function runtimeStatus(db, req) {
+  // Legge il flag "speaking" scritto da core/voice/tts.py — cosi' la bolla
+  // centrale della dashboard puo' reagire quando JARVIS parla davvero,
+  // qualunque canale (Telegram/voce/dashboard) abbia innescato la voce.
+  requireBrowserAuth(req);
+  await db.execute(`CREATE TABLE IF NOT EXISTS runtime_flags (
+    key TEXT PRIMARY KEY, value TEXT, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )`).catch(() => {});
+  const r = await db.execute({ sql: "SELECT value FROM runtime_flags WHERE key='speaking'", args: [] });
+  const speaking = r.rows.length > 0 && r.rows[0].value === "1";
+  return { ok: true, speaking };
+}
+
 async function brainGraph(db, req) {
   requireBrowserAuth(req);
   const nodes = await db.execute(
@@ -187,6 +207,7 @@ const ACTIONS = {
   tasks_recent: (db, req, res, body) => tasksRecent(db, req, body),
   task_get: (db, req, res, body) => taskGet(db, body),
   task_result_push: (db, req, res, body) => taskResultPush(db, body),
+  runtime_status: (db, req, res, body) => runtimeStatus(db, req),
   brain_graph: (db, req, res, body) => brainGraph(db, req),
   brain_node_delete: (db, req, res, body) => brainNodeDelete(db, req, body),
 };
