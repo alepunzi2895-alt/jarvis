@@ -38,3 +38,21 @@ def test_wake_word_phonetic_variant_giarvis_matches():
 
 def test_wake_word_unrelated_word_ending_in_arvis_does_not_match():
     assert _strip_wake_word("questo scarvis non esiste apri chrome") is None
+
+
+def test_known_hallucination_phrase_is_ignored():
+    assert _strip_wake_word("Il maggiordomo AI di Iron Man.") is None
+    assert _strip_wake_word("Sottotitoli e revisione a cura di QTSS.") is None
+    assert _strip_wake_word("Buon appetito!") is None
+
+
+def test_wake_word_far_from_start_is_ignored():
+    long_ramble = (
+        "e male che va scendiamo ci ho contatto un po' la scendiamo cosi "
+        "la pilliamo e poi arrivo jarvis apri chrome"
+    )
+    assert _strip_wake_word(long_ramble) is None
+
+
+def test_wake_word_still_matches_with_short_lead_in():
+    assert _strip_wake_word("ok, adesso jarvis apri chrome") == "apri chrome"

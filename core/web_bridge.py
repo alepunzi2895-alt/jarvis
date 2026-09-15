@@ -41,12 +41,41 @@ ENABLED = turso.ENABLED
 _WAKE_WORD_RE = re.compile(r"\b(?:j|gi|y|sci|sh)?arvis\b", re.IGNORECASE)
 _NOISE_WORDS = {"oh", "ah", "eh", "ehi", "ehm", "uhm", "mh", "boh"}
 
+# Frasi di allucinazione note di whisper su audio quasi silenzioso/rumore
+# (osservate ripetutamente nei log reali del 2026-09-15, riprodotte anche
+# isolatamente dando in pasto al modello rumore gaussiano puro) — incluso
+# l'eco letterale dell'initial_prompt usato in core/voice/stt.py. Scartate
+# a prescindere dalla wake word: sono garbage, non comandi, anche se per
+# puro caso contenessero "arvis". vad_filter in stt.py e' il fix principale
+# (elimina l'allucinazione alla fonte), questo resta una seconda rete di
+# sicurezza indipendente dal motore di trascrizione.
+_HALLUCINATION_PHRASES = {
+    "il maggiordomo ai di iron man",
+    "sottotitoli e revisione a cura di qtss",
+    "buon appetito",
+    "grazie",
+    "sì sì",
+    "si si",
+}
+
+# La wake word deve comparire vicino all'inizio dell'enunciato ("Jarvis,
+# ..."/"Ok Jarvis..."), non in un punto qualunque di una frase lunga —
+# altrimenti un'allucinazione/rumore di sottofondo che nomina "arvis" a
+# meta' frase (es. dentro un discorso captato per sbaglio) verrebbe presa
+# per un comando reale. 24 caratteri copre comodamente "ehi jarvis"/
+# "ok jarvis"/"ciao jarvis" piu' un margine.
+_WAKE_WORD_MAX_START = 24
+
 
 def _strip_wake_word(text: str) -> str | None:
-    """None se manca la parola d'attivazione (o resta solo rumore dopo di
-    essa) — altrimenti il comando vero e proprio, ripulito."""
+    """None se manca la parola d'attivazione vicino all'inizio (o resta
+    solo rumore/allucinazione nota) — altrimenti il comando vero e proprio,
+    ripulito."""
+    normalized = text.strip().lower().strip(" ,.!?\t\n")
+    if normalized in _HALLUCINATION_PHRASES:
+        return None
     match = _WAKE_WORD_RE.search(text)
-    if not match:
+    if not match or match.start() > _WAKE_WORD_MAX_START:
         return None
     command = text[match.end():].strip(" ,.\t\n")
     if len(command) < 4 or command.lower() in _NOISE_WORDS:

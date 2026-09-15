@@ -88,8 +88,26 @@ def record_until_silence() -> np.ndarray:
 _WAKE_WORD_PROMPT = "Jarvis, il maggiordomo AI di Iron Man."
 
 
+# Verificato dal vivo (2026-09-15) che i log erano pieni di allucinazioni
+# di whisper su rumore/silenzio quasi totale — tra cui l'eco letterale
+# dell'_WAKE_WORD_PROMPT stesso ("Il maggiordomo AI di Iron Man.") e frasi
+# tipiche di allucinazione su silenzio ("Sottotitoli e revisione a cura di
+# QTSS", "Buon appetito!"). Riprodotto isolatamente: rumore gaussiano puro
+# dato in pasto al modello produce "Buon appetito!" con no_speech_prob=0.90.
+# vad_filter=True (silero VAD integrato in faster-whisper) scarta i segmenti
+# non vocali PRIMA della decodifica, quindi elimina l'allucinazione alla
+# fonte invece di provare a filtrarla dopo per contenuto testuale — stesso
+# identico rumore di test con vad_filter=True: trascrizione vuota. Un vero
+# comando sintetizzato via TTS resta trascritto correttamente con il filtro
+# attivo, quindi non introduce falsi negativi sui comandi reali.
+_VAD_PARAMS = {"min_silence_duration_ms": 500}
+
+
 def transcribe(audio: np.ndarray, language: str = "it") -> str:
-    segments, _ = _get_model().transcribe(audio, language=language, initial_prompt=_WAKE_WORD_PROMPT)
+    segments, _ = _get_model().transcribe(
+        audio, language=language, initial_prompt=_WAKE_WORD_PROMPT,
+        vad_filter=True, vad_parameters=_VAD_PARAMS,
+    )
     return " ".join(s.text for s in segments).strip()
 
 
@@ -101,5 +119,8 @@ def transcribe_file(path: str, language: str = "it") -> str:
     questa rete, vedi memory/log 2026-09-14). faster-whisper decodifica il
     file da solo (via PyAV, gia' una dipendenza) — nessun bisogno di
     convertire prima in PCM."""
-    segments, _ = _get_model().transcribe(path, language=language, initial_prompt=_WAKE_WORD_PROMPT)
+    segments, _ = _get_model().transcribe(
+        path, language=language, initial_prompt=_WAKE_WORD_PROMPT,
+        vad_filter=True, vad_parameters=_VAD_PARAMS,
+    )
     return " ".join(s.text for s in segments).strip()
