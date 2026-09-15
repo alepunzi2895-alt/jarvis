@@ -232,21 +232,33 @@ async function loadHistory() {
   }
 }
 
-// ── Voce dal microfono (registrazione locale + trascrizione sul PC) ──
+// ── Voce dal microfono (ascolto a mani libere, registrazione locale) ──
 // La Web Speech API del browser (riconoscimento cloud di Google) si è
 // rivelata irraggiungibile su questa rete — verificato dal vivo il
 // 2026-09-14: nessun onstart/onerror, il motore non parte mai, solo
-// onend immediato. Invece di inseguire quel problema di rete, il
-// microfono ora registra soltanto (MediaRecorder, funzionante) e manda
-// l'audio al bridge locale, che lo trascrive con lo stesso motore
-// (faster-whisper) già usato dal daemon vocale nativo — sola andata,
-// nessuna dipendenza da servizi esterni.
+// onend immediato. Il microfono registra soltanto (MediaRecorder,
+// funzionante) e manda l'audio al bridge locale, che lo trascrive con lo
+// stesso motore (faster-whisper) già usato dal daemon vocale nativo —
+// sola andata, nessuna dipendenza da servizi esterni.
 //
-// Niente più parola d'attivazione "Jarvis": il click stesso è già
-// l'attivazione (a differenza dell'ascolto continuo di prima, qui non si
-// rischia di trascrivere rumore ambientale). Si ferma da solo dopo una
-// pausa di silenzio (stessa soglia/logica di core/voice/stt.py,
-// SILENCE_HANG_MS) o dopo un tetto massimo, oppure con un secondo click.
+// Un click arma il microfono e resta acceso finché non lo spegni tu (un
+// secondo click) — non serve più cliccare per ogni singolo comando. Dentro
+// l'ascolto, ogni "segmento" parte da solo quando rileva voce e si ferma
+// da solo dopo una pausa di silenzio (stessa soglia/logica di
+// core/voice/stt.py, SILENCE_HANG_MS) o dopo un tetto massimo.
+//
+// Richiede la parola d'attivazione "Jarvis" nella frase (filtrata lato
+// server, core/web_bridge.py::_strip_wake_word): senza, un ascolto sempre
+// acceso capterebbe qualunque rumore ambientale (TV, conversazioni) come
+// task reale — stesso problema già capitato una volta con l'ascolto
+// continuo del vecchio riconoscimento cloud del browser (2026-07-14: ~230
+// task spuri, ~1.33$ di chiamate Claude vere prima che esistesse un filtro
+// equivalente). I segmenti senza "Jarvis" tornano dal bridge con
+// status "ignored" e spariscono dalla console senza lasciare traccia.
+//
+// Limite noto: il segmento inizia a registrare solo DOPO che il volume
+// supera la soglia (nessun pre-buffer) — la primissima sillaba di "Jarvis"
+// può risultare tagliata. Non verificato dal vivo quanto pesi in pratica.
 
 // Intercetta i comandi che aprono/chiudono le finestre PRIMA di sottoporli
 // a Claude — istantaneo, nessuna chiamata task per queste azioni di UI.
@@ -287,29 +299,38 @@ function setupVoice() {
     return;
   }
 
-  const OFF_TITLE = "Clicca e parla — si ferma da solo al silenzio";
-  const ON_TITLE = "Sto ascoltando — clicca per fermare";
+  const OFF_TITLE = 'Clicca per ascolto a mani libere (di\' "Jarvis" + comando)';
+  const ON_TITLE = 'Ascolto a mani libere attivo — di\' "Jarvis" + comando — clicca per fermare';
   micBtn.title = OFF_TITLE;
 
-  let recording = false;
-  let recorder = null;
-  let monitorInterval = null;
+  let armed = false;
+  let stream = null;
   let audioCtx = null;
+  let monitorInterval = null;
+  let recorder = null;
+  let recording = false;
 
-  function stopMonitoring() {
-    if (monitorInterval) {
-      clearInterval(monitorInterval);
-      monitorInterval = null;
-    }
-    if (audioCtx) {
-      audioCtx.close().catch(() => {});
-      audioCtx = null;
-    }
+  function stopSegment() {
+    if (recorder && recorder.state !== "inactive") recorder.stop();
   }
 
-  async function start() {
-    if (recording) return;
-    let stream;
+  function startSegment() {
+    recording = true;
+    const chunks = [];
+    recorder = new MediaRecorder(stream);
+    recorder.ondataavailable = (e) => {
+      if (e.data.size > 0) chunks.push(e.data);
+    };
+    recorder.onstop = () => {
+      recording = false;
+      const blob = new Blob(chunks, { type: recorder.mimeType || "audio/webm" });
+      if (blob.size > 500) handleRecordedAudio(blob); // scarta segmenti vuoti/troppo brevi
+    };
+    recorder.start();
+  }
+
+  async function arm() {
+    if (armed) return;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     } catch {
@@ -317,28 +338,13 @@ function setupVoice() {
       return;
     }
 
-    recording = true;
+    armed = true;
     micBtn.classList.add("listening");
     micBtn.title = ON_TITLE;
 
-    const chunks = [];
-    recorder = new MediaRecorder(stream);
-    recorder.ondataavailable = (e) => {
-      if (e.data.size > 0) chunks.push(e.data);
-    };
-    recorder.onstop = () => {
-      stopMonitoring();
-      stream.getTracks().forEach((t) => t.stop());
-      micBtn.classList.remove("listening");
-      micBtn.title = OFF_TITLE;
-      recording = false;
-      const blob = new Blob(chunks, { type: recorder.mimeType || "audio/webm" });
-      if (blob.size > 500) handleRecordedAudio(blob); // scarta registrazioni vuote/troppo brevi
-    };
-    recorder.start();
-
-    // Rilevamento silenzio lato browser (AnalyserNode) - ferma la
-    // registrazione da solo, stessa soglia/logica del daemon nativo.
+    // Rilevamento voce/silenzio lato browser (AnalyserNode), sempre attivo
+    // finché armato — decide da solo quando iniziare e fermare ogni
+    // segmento, stessa soglia/logica del daemon nativo.
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     const source = audioCtx.createMediaStreamSource(stream);
     const analyser = audioCtx.createAnalyser();
@@ -347,8 +353,7 @@ function setupVoice() {
     const data = new Uint8Array(analyser.fftSize);
 
     let silenceStartedAt = null;
-    let spokeAtLeastOnce = false;
-    const startedAt = Date.now();
+    let segmentStartedAt = null;
 
     monitorInterval = setInterval(() => {
       analyser.getByteTimeDomainData(data);
@@ -358,25 +363,44 @@ function setupVoice() {
         sumSquares += v * v;
       }
       const rms = Math.sqrt(sumSquares / data.length);
+      const speaking = rms > MIC_SILENCE_RMS;
 
-      if (rms > MIC_SILENCE_RMS) {
-        spokeAtLeastOnce = true;
-        silenceStartedAt = null;
-      } else if (spokeAtLeastOnce) {
-        if (silenceStartedAt === null) silenceStartedAt = Date.now();
-        if (Date.now() - silenceStartedAt > MIC_SILENCE_HANG_MS) stop();
+      if (!recording) {
+        if (speaking) {
+          segmentStartedAt = Date.now();
+          silenceStartedAt = null;
+          startSegment();
+        }
+        return;
       }
-      if (Date.now() - startedAt > MIC_MAX_RECORD_MS) stop();
+
+      if (speaking) {
+        silenceStartedAt = null;
+      } else {
+        if (silenceStartedAt === null) silenceStartedAt = Date.now();
+        if (Date.now() - silenceStartedAt > MIC_SILENCE_HANG_MS) stopSegment();
+      }
+      if (Date.now() - segmentStartedAt > MIC_MAX_RECORD_MS) stopSegment();
     }, 100);
   }
 
-  function stop() {
-    if (recorder && recorder.state !== "inactive") recorder.stop();
+  function disarm() {
+    if (!armed) return;
+    armed = false;
+    clearInterval(monitorInterval);
+    monitorInterval = null;
+    stopSegment();
+    stream.getTracks().forEach((t) => t.stop());
+    audioCtx.close().catch(() => {});
+    stream = null;
+    audioCtx = null;
+    micBtn.classList.remove("listening");
+    micBtn.title = OFF_TITLE;
   }
 
   micBtn.addEventListener("click", () => {
-    if (recording) stop();
-    else start();
+    if (armed) disarm();
+    else arm();
   });
 }
 
@@ -406,7 +430,9 @@ async function submitTaskAudio(audioB64) {
 // finestra lo gestisce subito qui (stesso schema di handleVoiceUiCommand,
 // prima riservato al riconoscimento vocale del browser) invece di aspettare
 // che Claude gli risponda con del testo per un'azione che Claude non puo'
-// comunque eseguire lui stesso.
+// comunque eseguire lui stesso. status="ignored" (dal filtro parola
+// d'attivazione lato server) rimuove l'entry senza mostrarla: e' rumore
+// ambientale captato dall'ascolto a mani libere, non un comando vero.
 async function pollTranscribedTask(taskId, el) {
   let transcribed = false;
   for (let i = 0; i < 200; i++) {
@@ -419,6 +445,10 @@ async function pollTranscribedTask(taskId, el) {
       return;
     }
 
+    if (task.status === "ignored") {
+      el.remove();
+      return;
+    }
     if (!transcribed && task.prompt) {
       transcribed = true;
       el.querySelector(".prompt").textContent = task.prompt;

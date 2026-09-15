@@ -8,6 +8,7 @@ Nessuna porta aperta in ingresso: solo richieste outbound, come per Telegram.
 """
 
 import os
+import re
 import asyncio
 import base64
 import tempfile
@@ -21,6 +22,30 @@ from core.voice import camera, tts
 POLL_SEC = float(os.getenv("JARVIS_WEB_POLL_SEC", "3"))
 
 ENABLED = turso.ENABLED
+
+# Il mic della dashboard ora ascolta a mani libere in continuo (mai un
+# click per singolo comando) — senza questo filtro trascriverebbe e
+# sottoporrebbe come task reale qualunque rumore ambientale captato dal
+# rilevatore di silenzio lato browser (TV, conversazioni). Stesso problema e
+# stessa soluzione gia' visti una volta con l'ascolto continuo del vecchio
+# riconoscimento cloud del browser (2026-07-14: ~230 task spuri, ~1.33$ di
+# chiamate Claude vere prima che esistesse un filtro equivalente) — qui il
+# filtro vive lato server perche' la trascrizione stessa (faster-whisper)
+# avviene qui, non piu' nel browser.
+_WAKE_WORD_RE = re.compile(r"\bjarvis\b", re.IGNORECASE)
+_NOISE_WORDS = {"oh", "ah", "eh", "ehi", "ehm", "uhm", "mh", "boh"}
+
+
+def _strip_wake_word(text: str) -> str | None:
+    """None se manca la parola d'attivazione (o resta solo rumore dopo di
+    essa) — altrimenti il comando vero e proprio, ripulito."""
+    match = _WAKE_WORD_RE.search(text)
+    if not match:
+        return None
+    command = text[match.end():].strip(" ,.\t\n")
+    if len(command) < 4 or command.lower() in _NOISE_WORDS:
+        return None
+    return command
 
 
 async def _claim_next_task() -> dict | None:
@@ -112,8 +137,13 @@ async def poll_web_queue() -> None:
                 if not text:
                     await _push_result(task["id"], "error", "Non ho capito niente dall'audio, Signore. Riprova.", None, 0.0)
                     continue
-                task["prompt"] = text
-                await _update_prompt(task["id"], text)
+                await _update_prompt(task["id"], text)  # mostra sempre cosa ha sentito, anche se poi lo ignora
+
+                command = _strip_wake_word(text)
+                if command is None:
+                    await _push_result(task["id"], "ignored", "", None, 0.0)
+                    continue
+                task["prompt"] = command
 
             print(f"> [web] {task['prompt'][:80]}")
             image_b64 = task.get("image_b64")
