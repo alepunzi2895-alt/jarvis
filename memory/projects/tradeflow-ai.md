@@ -15,40 +15,40 @@ Export JSON da MT5. Log self-learning in `07_self_learning_log.md`.
 - Jarvis NON esegue ordini reali. Mai.
 - Solo: analisi, backtest, report giornaliero, sanity check del codice.
 
-## Stato (controllato 2026-07-16, sola analisi — JARVIS non tocca quel repo)
+## Stato (aggiornato 2026-09-15, sola lettura — JARVIS non tocca quel repo)
 
-**🔴 Bot fermo dal 2026-07-10.** Bug reale in `scripts/mt5-bot.py`
-(`_strategy_order_tickets`): alla chiusura di una posizione, `strategy_closed`
-viene derivato dal commento MT5 troncato dal broker (es. `S18_RANGE_` invece
-di `S18_RANGE_REVERSAL`) e usato per fare il `pop()` dell'entry in memoria —
-la chiave troncata non combacia mai con quella piena, il pop fallisce in
-silenzio, l'entry resta agganciata per sempre. Risultato: `count_open_positions()`
-resta bloccato a 2 anche con **0 posizioni reali** (confermato in diretta via
-`/api/db mt5_get`: `positions: []` ma `bot_status.open_positions: 2`) →
-deadlock su tutti i blocchi segnale (H1/M15/M30/H4) → **zero nuovi ordini su
-tutte le strategie da 6 giorni**. Fix identificato e documentato in
-`directives/06_known_issues.md` ma **non ancora deployato**; serve comunque un
-riavvio del bot sulla VPS per svuotare lo stato in-memory anche dopo il deploy
-del fix.
+**Il bug del 2026-07-16 qui sotto risulta risolto nel codice**, in due
+tempi: fix di `_strategy_order_tickets` (deadlock `count_open_positions`)
+deployato il **2026-09-02** con riconciliazione attiva a due-strike nel
+sync loop, poi un secondo bug del circuit breaker (si armava e restava
+latchato — tre difetti additivi in `risk_guardian.py`/`mt5-bot.py`/
+`risk_manager.py`) risolto il **2026-09-09**. Entrambi i fix in
+`directives/06_known_issues.md` **richiedono un riavvio del bot sulla
+VPS** per svuotare lo stato in-memory — **non verificato da qui se quel
+riavvio sia stato fatto davvero** (JARVIS non ha accesso alla VPS, solo al
+repo locale): da chiedere direttamente ad Alessandro.
 
-**🟡 Cron giornaliero fermo da una settimana.** `daily_maintenance.log` si
-ferma al 2026-07-09 11:42 (ultimo `daily_report_2026-07-09.txt`); nessun log/
-report più recente nonostante oggi sia il 2026-07-16 — da controllare se lo
-scheduled task sulla VPS è ancora attivo. (`daily_update.py`, script più
-vecchio, ha il suo log fermo al 2026-05-15: sembra superseduto da
-`daily_maintenance.py`, probabilmente non un problema a sé.)
+Sviluppo locale molto attivo da allora fino a ieri (2026-09-14): nuove
+card dashboard "stile MFKK", fix indicatori (Alligator SMMA invece di EMA,
+Ultimate RSI), un test che ha confermato che il confidence score S32/S33/
+S34 NON predice l'esito delle entry (ipotesi scartata, non un bug).
 
-**Backlog aperto, già tracciato in `directives/06_known_issues.md`** (bassa
-priorità, non toccato): `memCache` senza cleanup in `api/webhook.js`,
-`TV_WEBHOOK_SECRET` non attivato, `onclick` binding silenziosi in
-`public/app.js`, timeout esplicito mancante in `api/db.js`.
+**🟡 Cron giornaliero ancora fermo — probabilmente da prima di luglio,
+mai ripreso.** `daily_maintenance.log` ha voci reali solo fino al
+2026-07-09, poi un salto diretto a poche righe di backtest manuale del
+2026-09-01 (nessuna esecuzione automatica di schedule in mezzo);
+`daily_report_2026-07-09.txt` resta l'**unico** report mai generato — lo
+stesso problema segnalato il 2026-07-16, mai risolto in 2 mesi. Sembra
+scollegato dal lavoro di sviluppo (che è manuale/locale, non passa dal
+cron) — probabilmente lo scheduled task sulla VPS non gira più o non è
+mai stato ripristinato.
 
-Nessun'altra anomalia nella storia recente dei commit (`git log`): fix e
-retirement di strategie deboli (S05), rivalidazione SL adattivo S16,
-aggiornamento model ID Anthropic deprecato — attività normale, ben
-documentata nel proprio `07_self_learning_log.md`.
+**Backlog aperto, ancora tracciato in `directives/06_known_issues.md`**
+(bassa priorità, non toccato): `memCache` senza cleanup in
+`api/webhook.js`, `TV_WEBHOOK_SECRET` non attivato, `onclick` binding
+silenziosi in `public/app.js`, timeout esplicito mancante in `api/db.js`.
 
-**Prossimo passo**: Alessandro (o una sessione Claude Code dedicata dentro
-`tradeflow-ai`, non JARVIS — regola ferrea sopra) deve deployare il fix di
-`_strategy_order_tickets` e riavviare il bot sulla VPS, poi verificare se il
-cron giornaliero è ancora schedulato.
+**Prossimo passo**: chiedere ad Alessandro (a) se ha già riavviato il bot
+sulla VPS dopo i fix del 09-02/09-09, (b) se il cron giornaliero
+(`daily_maintenance.py`) sia ancora schedulato da qualche parte o vada
+ricreato da zero.
