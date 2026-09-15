@@ -36,8 +36,37 @@ def test_volume_and_lock_and_screenshot():
 
 def test_generic_questions_are_not_intercepted():
     assert intents.parse_intent("quanto fa 12 per 8") is None
-    assert intents.parse_intent("che tempo fa oggi") is None
     assert intents.parse_intent("apri la webcam") is None  # gestito da core.voice.camera, non qui
+
+
+def test_parse_intent_time_and_weather():
+    # Aggiunti il 2026-09-15 per portare la voce sotto i 4-5s: Claude
+    # rispondeva gia' bene (data/ora/meteo sono nel SYSTEM prompt) ma con
+    # un giro API intero (~3s misurati) per una domanda banale.
+    assert intents.parse_intent("che ora è") == {"type": "time"}
+    assert intents.parse_intent("che ore sono") == {"type": "time"}
+    assert intents.parse_intent("che giorno è oggi") == {"type": "time"}
+    assert intents.parse_intent("che tempo fa oggi") == {"type": "weather"}
+
+
+def test_execute_intent_time_returns_formatted_datetime():
+    executor = MagicMock()
+    result = intents.execute_intent({"type": "time"}, executor, voice=False)
+    assert "Sono le" in result
+
+
+def test_execute_intent_weather_uses_weather_module(monkeypatch):
+    executor = MagicMock()
+    monkeypatch.setattr("core.weather.get_weather_line", lambda: "22°C, cielo sereno")
+    result = intents.execute_intent({"type": "weather"}, executor, voice=True)
+    assert "22°C" in result and "Signore" in result
+
+
+def test_execute_intent_weather_degrades_gracefully_when_unavailable(monkeypatch):
+    executor = MagicMock()
+    monkeypatch.setattr("core.weather.get_weather_line", lambda: None)
+    result = intents.execute_intent({"type": "weather"}, executor, voice=False)
+    assert "non riesco" in result.lower()
 
 
 def test_long_compound_requests_are_left_to_claude():

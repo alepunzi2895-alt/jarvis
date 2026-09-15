@@ -60,6 +60,24 @@ _PROJECT_STATUS_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Domande banali che Claude rispondeva gia' correttamente (il SYSTEM prompt
+# inietta data/ora/meteo) ma passando comunque da un giro API intero (~3s
+# misurati dal vivo il 2026-09-15, contro pressoche' zero qui) — richiesta
+# esplicita di Alessandro di portare la voce sotto i 4-5s totali: queste
+# sono le domande piu' comuni che NON hanno bisogno di Claude per essere
+# risposte bene.
+_TIME_RE = re.compile(
+    r"\bche\s+or[ae]\s+(?:è|e'|sono|fa)\b|\bche\s+giorno\s+(?:è|e')\b|\bche\s+data\s+(?:è|e')\b",
+    re.IGNORECASE,
+)
+_WEATHER_RE = re.compile(r"\bche\s+tempo\s+fa\b", re.IGNORECASE)
+
+# Nomi giorni in italiano hardcoded invece di strftime("%A"): dipende dal
+# locale di sistema, che su questa macchina Windows non e' garantito essere
+# italiano (stesso principio gia' seguito altrove nel repo per evitare
+# dipendenze dall'ambiente).
+_GIORNI_IT = ["lunedì", "martedì", "mercoledì", "giovedì", "venerdì", "sabato", "domenica"]
+
 
 def parse_intent(text: str) -> dict | None:
     """Ritorna un descrittore d'azione se il testo e' un comando di sistema
@@ -94,6 +112,11 @@ def parse_intent(text: str) -> dict | None:
 
     if _PROJECT_STATUS_RE.search(t):
         return {"type": "project_status"}
+
+    if _TIME_RE.search(t):
+        return {"type": "time"}
+    if _WEATHER_RE.search(t):
+        return {"type": "weather"}
 
     from core.outlook import OUTLOOK_INTENT_RE, UNREAD_COUNT_RE  # import qui: evita pywin32 se l'intent non serve mai
 
@@ -191,6 +214,21 @@ def _execute(intent: dict, executor: SystemExecutor, voice: bool) -> str:
         from core import project_status  # import qui: evita l'overhead se l'intent non serve mai
 
         return project_status.format_report(project_status.check_all(executor), voice=voice)
+
+    if kind == "time":
+        from datetime import datetime
+
+        now = datetime.now()
+        giorno = _GIORNI_IT[now.weekday()]
+        return f"Sono le {now.strftime('%H:%M')} di {giorno} {now.strftime('%d/%m/%Y')}{sir}."
+
+    if kind == "weather":
+        from core import weather  # import qui: evita l'overhead di rete/requests se l'intent non serve mai
+
+        line = weather.get_weather_line()
+        if not line:
+            return f"Non riesco a controllare il meteo in questo momento{sir}."
+        return f"{line}{sir}."
 
     if kind == "outlook":
         from core import outlook  # import qui: evita di caricare pywin32 se l'intent non serve mai
