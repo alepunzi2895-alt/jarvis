@@ -47,10 +47,22 @@ class EmailSummary:
     snippet: str
 
 
+# "Server execution failed" (HRESULT 0x80080005) e simili sono errori COM
+# transitori ben noti con Outlook desktop — capitano quando Outlook e'
+# momentaneamente occupato (sync in corso, un dialogo in primo piano, ecc.)
+# e quasi sempre spariscono da soli dopo una breve attesa. Verificato dal
+# vivo il 2026-09-15: una chiamata falliva con questo identico errore,
+# la successiva (pochi minuti dopo, nessuna modifica di configurazione)
+# e' andata a buon fine — non un problema di configurazione, un blip.
+_MAX_ATTEMPTS = 3
+_RETRY_DELAY_SEC = 1.5
+
+
 def _fetch_recent_sync(count: int, unread_only: bool) -> list[EmailSummary]:
     """Gira SEMPRE su un thread separato (CoInitialize e' per-thread) — mai
     chiamata direttamente dal thread principale di bot.py/daemon.py."""
     try:
+        import time
         import pythoncom
         import win32com.client
     except ImportError as e:
@@ -58,38 +70,45 @@ def _fetch_recent_sync(count: int, unread_only: bool) -> list[EmailSummary]:
 
     pythoncom.CoInitialize()
     try:
-        outlook = win32com.client.Dispatch("Outlook.Application")
-        namespace = outlook.GetNamespace("MAPI")
-        inbox = namespace.GetDefaultFolder(_OL_FOLDER_INBOX)
-        items = inbox.Items
-        items.Sort("[ReceivedTime]", True)  # True = decrescente, le piu' recenti prima
-
-        results: list[EmailSummary] = []
-        for item in items:
+        last_error: Exception | None = None
+        for attempt in range(_MAX_ATTEMPTS):
             try:
-                is_unread = bool(getattr(item, "UnRead", False))
-                if unread_only and not is_unread:
-                    continue
-                body = (getattr(item, "Body", "") or "").strip().replace("\r\n", " ")
-                results.append(
-                    EmailSummary(
-                        sender=getattr(item, "SenderName", "sconosciuto") or "sconosciuto",
-                        subject=getattr(item, "Subject", "") or "(nessun oggetto)",
-                        received=str(getattr(item, "ReceivedTime", "")),
-                        unread=is_unread,
-                        snippet=body[:_SNIPPET_CHARS] + ("…" if len(body) > _SNIPPET_CHARS else ""),
-                    )
-                )
-            except Exception:
-                continue  # una singola mail malformata non deve far fallire tutto l'elenco
-            if len(results) >= count:
-                break
-        return results
-    except Exception as e:  # noqa: BLE001 — COM puo' fallire in tanti modi diversi (Outlook chiuso, profilo assente, ecc.)
+                outlook = win32com.client.Dispatch("Outlook.Application")
+                namespace = outlook.GetNamespace("MAPI")
+                inbox = namespace.GetDefaultFolder(_OL_FOLDER_INBOX)
+                items = inbox.Items
+                items.Sort("[ReceivedTime]", True)  # True = decrescente, le piu' recenti prima
+
+                results: list[EmailSummary] = []
+                for item in items:
+                    try:
+                        is_unread = bool(getattr(item, "UnRead", False))
+                        if unread_only and not is_unread:
+                            continue
+                        body = (getattr(item, "Body", "") or "").strip().replace("\r\n", " ")
+                        results.append(
+                            EmailSummary(
+                                sender=getattr(item, "SenderName", "sconosciuto") or "sconosciuto",
+                                subject=getattr(item, "Subject", "") or "(nessun oggetto)",
+                                received=str(getattr(item, "ReceivedTime", "")),
+                                unread=is_unread,
+                                snippet=body[:_SNIPPET_CHARS] + ("…" if len(body) > _SNIPPET_CHARS else ""),
+                            )
+                        )
+                    except Exception:
+                        continue  # una singola mail malformata non deve far fallire tutto l'elenco
+                    if len(results) >= count:
+                        break
+                return results
+            except Exception as e:  # noqa: BLE001 — COM puo' fallire in tanti modi diversi, molti transitori
+                last_error = e
+                if attempt < _MAX_ATTEMPTS - 1:
+                    time.sleep(_RETRY_DELAY_SEC)
+
         raise OutlookError(
             "Non riesco a leggere Outlook — verifica che sia installato e configurato "
-            f"su questa macchina (dettaglio: {e})."
-        ) from e
+            f"su questa macchina (dettaglio: {last_error})."
+        ) from last_error
     finally:
         pythoncom.CoUninitialize()
 
