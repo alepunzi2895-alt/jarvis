@@ -447,3 +447,57 @@ microfono.
 una volta dal classificatore di sicurezza di Claude Code per un messaggio
 di commit troppo dettagliato sul contesto di rischio — messaggi di commit
 piu' brevi e fattuali risolvono, non serve toccare i permessi.
+
+## JARVIS v5 — testo/Telegram/dashboard sull'API diretta (2026-09-15, branch feature/text-channel-direct-api, mergiato in main)
+
+Segnalata lentezza delle risposte testo/dashboard. Spiegato il floor
+noto (~11-12s, avvio del processo `claude -p`) e il trade-off di passare
+all'API diretta (perdita di Read/Write/Bash nativi). Risposta di
+Alessandro: "per me va bene passiamo all'api se è più veloce e se serve
+implementiamo tutte le cose che servono". Pianificato in Plan Mode data
+la portata (motore centrale).
+
+**Cambio**: `core/claude_bridge.py::run_claude()` e' ora un dispatcher.
+Default: `_run_claude_api()`, nuovo motore che chiama l'API Anthropic
+diretta (Sonnet 5, `JARVIS_TEXT_MODEL`) con un loop agentic manuale
+(non Tool Runner beta) e 4 tool reali — `read_file`/`write_file`/
+`list_dir`/`run_command` — appoggiati a `core/system_executor.py`
+(whitelist + conferma `/confirm` gia' esistenti, non bash/text-editor
+grezzi di Anthropic). Whitelist git ampliata per l'occasione: `checkout`/
+`switch`/`merge` auto-eseguiti, **`git push` resta SEMPRE dietro
+conferma esplicita** (unica barriera di codice, non solo di prompt, per
+la regola "mai push diretto su main" di CLAUDE.md). Il workspace
+**"trading" resta su `claude -p`** (serve il server MCP TradingView, non
+raggiungibile dall'API diretta) — unica eccezione. Ripiego manuale
+`JARVIS_TEXT_ENGINE=cli` in `.env` per tornare al comportamento
+precedente senza toccare codice.
+
+La pipeline di post-processing (blocchi ```brain```/```browser```/
+```system```/```genie```/```dbsql```) era gia' condivisa e identica tra
+CLI e canale vocale API (`core/claude_api.py`) — pura estrazione di
+testo, non tool reali — quindi non ha richiesto modifiche, solo
+fattorizzata in `_run_post_processing()` riusata da entrambi i motori
+testo. History persistita in `state.json` sotto una chiave nuova
+(`api_sessions`, testo pulito — mai i turni intermedi di tool_use/
+tool_result — troncata alle ultime 8 coppie utente/assistente), separata
+dal vecchio `sessions` (session_id opaco, resta per il motore CLI).
+
+151/151 test verdi (25 nuovi: `tests/test_claude_bridge.py`,
+ampliamento `tests/test_system_executor.py`). **Verificato dal vivo con
+chiamate reali** (non solo mock/test): `read_file` reale su
+`memory/profile.md` -> risposta corretta ($0.026); "che ore sono e che
+tempo fa" -> risposta in ~1-2s di latenza reale della chiamata API
+(contro l'11-12s+ del processo CLI). Piano completo salvato in
+`C:\Users\f45038c\.claude\plans\splendid-herding-sutherland.md`.
+
+**Non ancora verificato dal vivo**: un task reale da Telegram/dashboard
+(richiede il solito riavvio del bridge locale), un flusso git completo
+guidato da Claude (branch → modifica → commit → merge in locale →
+verifica che un eventuale push chieda comunque conferma), il
+comportamento con un errore API vero (rate limit/auth — oggi si affida
+al catch-all generico gia' esistente in bot.py/web_bridge.py).
+
+**Gap noto, accettato**: nessun bridging MCP (TradingView) per il nuovo
+motore — chi chiede dati TradingView da testo/dashboard FUORI dal
+workspace "trading" non li ha (gia' cosi' anche prima, non una
+regressione introdotta oggi).
