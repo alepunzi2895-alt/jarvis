@@ -86,7 +86,20 @@ function setupWindows() {
     bringToFront(win);
   });
   document.querySelectorAll(".dock-btn").forEach((btn) => {
-    btn.addEventListener("click", () => toggleWindow(btn.dataset.toggle));
+    btn.addEventListener("click", () => {
+      const id = btn.dataset.toggle;
+      const wasOpen = document.getElementById(id)?.classList.contains("open");
+      toggleWindow(id);
+      // "quando vedo le percentuali dei progetti... mi facesse un'analisi
+      // vocale" (2026-09-15): apre il pannello E sottopone la stessa
+      // domanda che risponderebbe a voce/testo - passa dall'intent rapido
+      // gia' esistente (core/intents.py::_PROJECT_STATUS_RE), che
+      // web_bridge.py fa gia' parlare in automatico per ogni task da
+      // dashboard. Solo sull'APERTURA manuale (non alla chiusura, e non
+      // quando l'apertura e' gia' un effetto collaterale di una domanda
+      // vocale completa - vedi handleVoiceUiCommand, che non passa da qui).
+      if (id === "win-projects" && !wasOpen) submitTask("come vanno i progetti?");
+    });
   });
   document.querySelectorAll(".fw-close").forEach((btn) => {
     btn.addEventListener("click", () => closeWindow(btn.dataset.close));
@@ -770,16 +783,32 @@ async function refreshProjectStatus() {
         }
         const pct = p.health_percent ?? 0;
         const color = _healthColor(p.health_percent);
+        // width:0% in partenza + data-target: la barra parte vuota e si
+        // "carica" fino al valore vero (vedi sotto, dopo l'innerHTML) invece
+        // di comparire gia' piena — richiesta esplicita di Alessandro
+        // (2026-09-15): "quando vedo le percentuali dei progetti vorrei si
+        // riempissero". Un'innerHTML fresca non anima MAI una transizione
+        // CSS su se stessa (non c'e' un valore "prima" da cui partire).
         return `
           <div class="project-card">
             <div class="project-card-title">${p.label} <span class="project-branch">${p.branch || ""}</span></div>
-            <div class="health-bar"><div class="health-fill" style="width:${pct}%;background:${color}"></div></div>
+            <div class="health-bar"><div class="health-fill" data-target="${pct}" style="width:0%;background:${color};color:${color}"></div></div>
             <div class="project-card-row"><span>Salute</span><strong style="color:${color}">${pct}%</strong></div>
             <div class="project-card-row"><span>Modifiche in sospeso</span><strong>${p.dirty_files}</strong></div>
             <div class="project-card-row"><span>Ultimo commit</span><strong>${_lastCommitShort(p.last_commit)}</strong></div>
           </div>`;
       })
       .join("");
+    // Doppio rAF: il primo frame dipinge width:0%, solo al secondo il
+    // browser ha gia' "committato" quel valore iniziale - cambiarla subito
+    // nello stesso frame del innerHTML non farebbe animare nulla.
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        container.querySelectorAll(".health-fill[data-target]").forEach((el) => {
+          el.style.width = `${el.dataset.target}%`;
+        });
+      });
+    });
   } catch {
     // rete assente/blip transitorio: lascia il pannello com'era
   }
@@ -1243,28 +1272,61 @@ async function pollSpeakingStatus() {
 
 // ── Boot ─────────────────────────────────────────────────────────────
 
+// Ogni passo e' isolato nel proprio try/catch: boot() non e' mai atteso da
+// chi lo chiama (vedi sotto, "boot()" senza await dentro un try/catch che
+// quindi non lo protegge affatto), quindi un'eccezione in UN SOLO pezzo
+// (es. la bolla animata su un browser/GPU che si comporta in modo
+// imprevisto) fermava silenziosamente TUTTO cio' che veniva dopo nella
+// funzione — mic, dock, meteo, progetti inclusi. Bug reale osservato dal
+// vivo (2026-09-15) subito dopo l'introduzione della bolla animata.
+function _bootStep(label, fn) {
+  try {
+    fn();
+  } catch (e) {
+    console.error(`boot: "${label}" fallito (ignorato, il resto della dashboard deve continuare)`, e);
+  }
+}
+
 async function boot() {
   $("#login-screen").style.display = "none";
   $("#app").classList.add("visible");
-  renderPills();
-  window.JarvisOrb = window.createJarvisOrb($("#orb-canvas"));
-  window.JarvisOrb.start();
-  setupVoice();
-  setupWindows();
-  setupCamera();
-  tickClock();
-  setInterval(tickClock, 1000);
-  await loadHistory();
-  refreshTradeflow();
-  setInterval(refreshTradeflow, 5000);
-  refreshWeatherForecast();
-  setInterval(refreshWeatherForecast, 5 * 60 * 1000); // il bridge locale pubblica ogni 30min, basta controllare ogni 5
-  refreshProjectStatus();
-  setInterval(refreshProjectStatus, 2 * 60 * 1000); // il bridge locale pubblica ogni 10min
-  refreshRemoteStatus();
-  setInterval(refreshRemoteStatus, 3 * 60 * 1000); // il bridge locale pubblica ogni 15min
-  pollSpeakingStatus();
-  setInterval(pollSpeakingStatus, ORB_SPEAKING_POLL_MS);
+  _bootStep("pills", renderPills);
+  _bootStep("orb", () => {
+    window.JarvisOrb = window.createJarvisOrb($("#orb-canvas"));
+    window.JarvisOrb.start();
+  });
+  _bootStep("voice", setupVoice);
+  _bootStep("windows", setupWindows);
+  _bootStep("camera", setupCamera);
+  _bootStep("clock", () => {
+    tickClock();
+    setInterval(tickClock, 1000);
+  });
+  try {
+    await loadHistory();
+  } catch (e) {
+    console.error('boot: "history" fallito (ignorato)', e);
+  }
+  _bootStep("tradeflow", () => {
+    refreshTradeflow();
+    setInterval(refreshTradeflow, 5000);
+  });
+  _bootStep("weather", () => {
+    refreshWeatherForecast();
+    setInterval(refreshWeatherForecast, 5 * 60 * 1000); // il bridge locale pubblica ogni 30min, basta controllare ogni 5
+  });
+  _bootStep("project-status", () => {
+    refreshProjectStatus();
+    setInterval(refreshProjectStatus, 2 * 60 * 1000); // il bridge locale pubblica ogni 10min
+  });
+  _bootStep("remote-status", () => {
+    refreshRemoteStatus();
+    setInterval(refreshRemoteStatus, 3 * 60 * 1000); // il bridge locale pubblica ogni 15min
+  });
+  _bootStep("speaking-poll", () => {
+    pollSpeakingStatus();
+    setInterval(pollSpeakingStatus, ORB_SPEAKING_POLL_MS);
+  });
 }
 
 // Se il cookie di sessione è già valido, salta il login
