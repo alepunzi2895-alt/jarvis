@@ -223,6 +223,20 @@ async function projectStatusData(db, req) {
   }
 }
 
+async function remoteStatusData(db, req) {
+  // GitHub/Vercel reali scritti da bot.py::remote_status_loop() ogni 15
+  // minuti (core/remote_status.py) - stesso pattern/tabella del flag
+  // "speaking", delle previsioni meteo e dello stato progetti locale.
+  requireBrowserAuth(req);
+  const r = await db.execute({ sql: "SELECT value FROM runtime_flags WHERE key='remote_status'", args: [] });
+  if (!r.rows.length) return { ok: true, remote: null };
+  try {
+    return { ok: true, remote: JSON.parse(r.rows[0].value) };
+  } catch {
+    return { ok: true, remote: null };
+  }
+}
+
 async function brainGraph(db, req) {
   requireBrowserAuth(req);
   const nodes = await db.execute(
@@ -252,6 +266,7 @@ const ACTIONS = {
   runtime_status: (db, req, res, body) => runtimeStatus(db, req),
   weather_forecast: (db, req, res, body) => weatherForecast(db, req),
   project_status_data: (db, req, res, body) => projectStatusData(db, req),
+  remote_status_data: (db, req, res, body) => remoteStatusData(db, req),
   brain_graph: (db, req, res, body) => brainGraph(db, req),
   brain_node_delete: (db, req, res, body) => brainNodeDelete(db, req, body),
 };

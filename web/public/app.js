@@ -785,6 +785,74 @@ async function refreshProjectStatus() {
   }
 }
 
+// ── GitHub / Vercel reali (core/remote_status.py) ───────────────────
+// A differenza delle card sopra (solo i 3 workspace con path locale
+// configurato), qui arrivano TUTTI i repository posseduti su GitHub —
+// richiesta esplicita di Alessandro (2026-09-15): "andrebbe integrato il
+// mio GitHub e il mio vercel per vedere tutti i progetti e gli status".
+// Testo che arriva da fuori (descrizione repo, messaggio di commit): a
+// differenza delle altre card qui sopra (dati locali/propri), puo' essere
+// stato scritto da chiunque abbia scritto su quel repo — escaping esplicito
+// invece di fidarsi come per il resto del pannello.
+function _escHtml(s) {
+  if (s == null) return "";
+  return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+const VERCEL_STATE_COLOR = {
+  READY: "var(--good)",
+  BUILDING: "var(--warning)",
+  QUEUED: "var(--warning)",
+  ERROR: "var(--critical)",
+  CANCELED: "var(--text-muted)",
+};
+
+function _timeAgo(iso) {
+  if (!iso) return "—";
+  const ms = typeof iso === "number" ? iso : Date.parse(iso);
+  if (!Number.isFinite(ms)) return "—";
+  const days = Math.floor((Date.now() - ms) / 86400000);
+  if (days <= 0) return "oggi";
+  if (days === 1) return "ieri";
+  if (days < 30) return `${days}g fa`;
+  const months = Math.floor(days / 30);
+  return months === 1 ? "1 mese fa" : `${months} mesi fa`;
+}
+
+async function refreshRemoteStatus() {
+  try {
+    const { remote } = await api("remote_status_data");
+    const container = $("#remote-cards");
+    if (!container) return;
+    const entries = remote?.entries;
+    if (!entries || !entries.length) {
+      container.innerHTML = `<p class="panel-footnote">In attesa che il bridge locale pubblichi GitHub/Vercel…</p>`;
+      return;
+    }
+    container.innerHTML = entries
+      .map(({ github, vercel }) => {
+        const name = _escHtml(github?.name || vercel?.name || "?");
+        const url = github?.url || vercel?.url || "#";
+        const privateTag = github?.private ? `<span class="project-branch">privato</span>` : "";
+        const commitLine = github?.last_commit
+          ? `${_escHtml(github.last_commit.message)} · ${_timeAgo(github.last_commit.date)}`
+          : "—";
+        const vercelRow = vercel
+          ? `<div class="project-card-row"><span>Vercel</span><strong style="color:${VERCEL_STATE_COLOR[vercel.state] || "var(--text-muted)"}">${_escHtml(vercel.state || "?")}</strong></div>`
+          : "";
+        return `
+          <div class="project-card">
+            <div class="project-card-title"><a href="${url}" target="_blank" rel="noopener">${name}</a> ${privateTag}</div>
+            <div class="project-card-row"><span>Ultimo commit</span><strong>${commitLine}</strong></div>
+            ${vercelRow}
+          </div>`;
+      })
+      .join("");
+  } catch {
+    // rete assente/blip transitorio: lascia il pannello com'era
+  }
+}
+
 // ── Second brain — grafo animato (canvas, nessuna libreria) ──────────
 // Colori per workspace: stesso ordine/palette categorica della skill dataviz
 // (slot 1-6 del tema dark), cosi' l'ordine resta fisso indipendentemente
@@ -1193,6 +1261,8 @@ async function boot() {
   setInterval(refreshWeatherForecast, 5 * 60 * 1000); // il bridge locale pubblica ogni 30min, basta controllare ogni 5
   refreshProjectStatus();
   setInterval(refreshProjectStatus, 2 * 60 * 1000); // il bridge locale pubblica ogni 10min
+  refreshRemoteStatus();
+  setInterval(refreshRemoteStatus, 3 * 60 * 1000); // il bridge locale pubblica ogni 15min
   pollSpeakingStatus();
   setInterval(pollSpeakingStatus, ORB_SPEAKING_POLL_MS);
 }

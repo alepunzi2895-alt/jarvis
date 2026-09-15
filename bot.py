@@ -40,7 +40,7 @@ from core.claude_bridge import (
     save_state,
     run_claude,
 )
-from core import web_bridge, intents, project_status, screen_context, databricks, telegram, weather, turso
+from core import web_bridge, intents, project_status, remote_status, screen_context, databricks, telegram, weather, turso
 from core.executor_singleton import executor, vault
 from core.voice import camera, tts
 
@@ -484,12 +484,42 @@ async def project_status_loop() -> None:
         await asyncio.sleep(600)
 
 
+def _push_remote_status(data: dict) -> None:
+    turso.execute(
+        "CREATE TABLE IF NOT EXISTS runtime_flags ("
+        "key TEXT PRIMARY KEY, value TEXT, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP)"
+    )
+    turso.execute(
+        "INSERT INTO runtime_flags (key, value, updated_at) VALUES ('remote_status', ?, CURRENT_TIMESTAMP) "
+        "ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=CURRENT_TIMESTAMP",
+        [json.dumps(data)],
+    )
+
+
+async def remote_status_loop() -> None:
+    """Aggiorna su Turso lo stato REALE di GitHub/Vercel (non solo i 3
+    workspace con path locale di core/project_status.py) — richiesta
+    esplicita di Alessandro (2026-09-15): "andrebbe integrato il mio GitHub
+    e il mio vercel per vedere tutti i progetti e gli status". Nessuna fretta
+    (i deploy non cambiano stato ogni minuto): refresh ogni 15 minuti."""
+    if not turso.ENABLED:
+        return
+    while True:
+        try:
+            data = await asyncio.to_thread(remote_status.build_remote_status)
+            await asyncio.to_thread(_push_remote_status, data)
+        except Exception as e:  # noqa: BLE001 — un blip di rete/API non deve mai fermare il loop
+            print(f"push stato GitHub/Vercel fallito (ignorato): {e}")
+        await asyncio.sleep(900)
+
+
 async def main() -> None:
     tasks = [
         asyncio.create_task(telegram_loop()),
         asyncio.create_task(daily_digest_loop()),
         asyncio.create_task(weather_forecast_loop()),
         asyncio.create_task(project_status_loop()),
+        asyncio.create_task(remote_status_loop()),
     ]
     if web_bridge.ENABLED:
         tasks.append(asyncio.create_task(web_bridge.poll_web_queue()))
