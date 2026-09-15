@@ -34,6 +34,21 @@ body {
     repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.025) 0px, transparent 1px 48px),
     repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.025) 0px, transparent 1px 48px);
   background-attachment: fixed;
+  position: relative;
+}
+
+/* Scanline sottilissima, solo texture — mai sopra testo/pannelli in primo piano. */
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background-image: repeating-linear-gradient(
+    0deg, rgba(255, 255, 255, 0.03) 0px, rgba(255, 255, 255, 0.03) 1px, transparent 1px, transparent 3px
+  );
+  mix-blend-mode: overlay;
+  opacity: 0.5;
+  pointer-events: none;
+  z-index: 2;
 }
 
 button {
@@ -128,6 +143,7 @@ button {
 #app.visible { display: flex; }
 
 header {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 20px;
@@ -136,6 +152,22 @@ header {
   background: rgba(26, 26, 25, 0.6);
   backdrop-filter: blur(6px);
   z-index: 100;
+}
+
+header::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent 5%, var(--accent) 50%, transparent 95%);
+  animation: header-scan 6s ease-in-out infinite;
+}
+
+@keyframes header-scan {
+  0%, 100% { opacity: 0.25; }
+  50% { opacity: 0.65; }
 }
 
 .brand {
@@ -238,6 +270,43 @@ header {
   flex: 1;
   min-height: 0;
   overflow: hidden;
+}
+
+/* ── Radar backdrop (ispirato a HUD stile Iron Man/Stark Industries) ───
+   Due anelli enormi e quasi trasparenti dietro tutto (dischi con tacche +
+   uno spicchio che ruota come uno scan radar), z-index sotto la bolla e
+   le finestre — solo atmosfera, mai al centro dell'attenzione. */
+
+.hud-stage::before,
+.hud-stage::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.hud-stage::before {
+  width: min(760px, 115vw);
+  height: min(760px, 115vw);
+  margin: calc(min(760px, 115vw) / -2) 0 0 calc(min(760px, 115vw) / -2);
+  border: 1px solid var(--border);
+  background-image: repeating-conic-gradient(var(--accent) 0deg 0.5deg, transparent 0.5deg 6deg);
+  -webkit-mask-image: radial-gradient(circle, transparent 0 96%, black 97% 98%, transparent 99%);
+          mask-image: radial-gradient(circle, transparent 0 96%, black 97% 98%, transparent 99%);
+  opacity: 0.16;
+  animation: orb-spin-rev 260s linear infinite;
+}
+
+.hud-stage::after {
+  width: min(560px, 92vw);
+  height: min(560px, 92vw);
+  margin: calc(min(560px, 92vw) / -2) 0 0 calc(min(560px, 92vw) / -2);
+  background-image: conic-gradient(var(--accent-dim) 0deg, transparent 34deg, transparent 360deg);
+  opacity: 0.7;
+  animation: orb-spin 16s linear infinite;
 }
 
 .hud-dots span {
@@ -357,6 +426,40 @@ header {
   animation: orb-pulse-glow 4s ease-in-out infinite;
 }
 
+/* Quando JARVIS parla davvero (qualunque canale — vedi
+   core/voice/tts.py + app.js::pollSpeakingStatus): la bolla si muove piu'
+   in fretta e passa dal respiro blu a un pulsare verde piu' energico,
+   invece del solito hue-rotate lento continuo. */
+.jarvis-orb.orb-speaking {
+  animation: orb-drift-speaking 1.6s ease-in-out infinite, orb-hue-speaking 5s linear infinite;
+}
+
+.orb-speaking .orb-core {
+  border-color: var(--good);
+  animation: orb-pulse-glow-speaking 0.85s ease-in-out infinite;
+}
+
+.orb-speaking .orb-ring--arc {
+  filter: drop-shadow(0 0 16px var(--good));
+}
+
+@keyframes orb-drift-speaking {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  25%      { transform: translate(12px, -10px) scale(1.06); }
+  50%      { transform: translate(-10px, 11px) scale(0.94); }
+  75%      { transform: translate(11px, 10px) scale(1.05); }
+}
+
+@keyframes orb-hue-speaking {
+  0%   { filter: hue-rotate(0deg); }
+  100% { filter: hue-rotate(360deg); }
+}
+
+@keyframes orb-pulse-glow-speaking {
+  0%, 100% { box-shadow: 0 0 30px 6px rgba(12, 163, 12, 0.35), inset 0 0 40px rgba(12, 163, 12, 0.3); }
+  50%      { box-shadow: 0 0 52px 12px rgba(12, 163, 12, 0.55), inset 0 0 64px rgba(12, 163, 12, 0.5); }
+}
+
 .orb-word {
   font-weight: 700;
   letter-spacing: 0.25em;
@@ -384,6 +487,7 @@ header {
   background-color: var(--surface-1);
   border: 1px solid var(--border);
   border-radius: 10px;
+  clip-path: polygon(0 0, calc(100% - 16px) 0, 100% 16px, 100% 100%, 0 100%);
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
   opacity: 0;
   pointer-events: none;
@@ -406,6 +510,7 @@ header {
 }
 
 .fw-header {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -415,6 +520,17 @@ header {
   touch-action: none;
   user-select: none;
   flex-shrink: 0;
+}
+
+.fw-header::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  opacity: 0.55;
 }
 
 .fw-header:active { cursor: grabbing; }

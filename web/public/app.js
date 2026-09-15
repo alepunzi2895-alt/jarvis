@@ -299,9 +299,9 @@ function setupVoice() {
     return;
   }
 
-  const OFF_TITLE = 'Clicca per ascolto a mani libere (di\' "Jarvis" + comando)';
-  const ON_TITLE = 'Ascolto a mani libere attivo — di\' "Jarvis" + comando — clicca per fermare';
-  micBtn.title = OFF_TITLE;
+  const OFF_TITLE = 'Ascolto in pausa — clicca per riattivare (di\' "Jarvis" + comando)';
+  const ON_TITLE = 'Ascolto a mani libere attivo — di\' "Jarvis" + comando — clicca per silenziare';
+  micBtn.title = ON_TITLE;
 
   let armed = false;
   let stream = null;
@@ -402,6 +402,15 @@ function setupVoice() {
     if (armed) disarm();
     else arm();
   });
+
+  // Ascolto sempre attivo di default — niente click richiesto per iniziare
+  // a parlare/mandare messaggi (richiesta esplicita di Alessandro): il
+  // filtro "Jarvis" lato server (core/web_bridge.py::_strip_wake_word) e'
+  // gia' quello che protegge da rumore ambientale, il click resta solo
+  // come interruttore manuale per chi vuole silenziare il mic (es. per
+  // privacy). La prima volta il browser mostra comunque il permesso
+  // nativo del microfono — dopo, riparte da solo ad ogni apertura pagina.
+  arm();
 }
 
 async function handleRecordedAudio(blob) {
@@ -848,6 +857,24 @@ function setupCamera() {
   });
 }
 
+// ── Stato "sta parlando" (bolla centrale) ───────────────────────────────
+// L'audio esce dagli altoparlanti del PC via un processo Python separato
+// (core/voice/tts.py), non nel browser — l'unico modo per far reagire la
+// bolla e' chiedere periodicamente a Turso se JARVIS sta parlando in
+// questo momento, qualunque canale (Telegram/voce/dashboard) l'abbia
+// innescato.
+const ORB_SPEAKING_POLL_MS = 700;
+
+async function pollSpeakingStatus() {
+  const orb = $("#jarvis-orb");
+  try {
+    const { speaking } = await api("runtime_status");
+    orb.classList.toggle("orb-speaking", !!speaking);
+  } catch {
+    // rete assente/blip transitorio: non toccare lo stato attuale della bolla
+  }
+}
+
 // ── Boot ─────────────────────────────────────────────────────────────
 
 async function boot() {
@@ -862,6 +889,8 @@ async function boot() {
   await loadHistory();
   refreshTradeflow();
   setInterval(refreshTradeflow, 5000);
+  pollSpeakingStatus();
+  setInterval(pollSpeakingStatus, ORB_SPEAKING_POLL_MS);
 }
 
 // Se il cookie di sessione è già valido, salta il login
