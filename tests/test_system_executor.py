@@ -65,6 +65,18 @@ def test_git_push_requires_confirmation_even_though_git_allowed(executor, allowe
     run.assert_not_called()
 
 
+@pytest.mark.parametrize("cmd", ["git checkout -b feature/x", "git switch main", "git merge feature/x"])
+def test_git_local_branch_ops_execute_without_confirmation(executor, allowed_dir, cmd):
+    # Ampliato per il motore agentic via API diretta (core/claude_bridge.py):
+    # senza, ogni branch/merge in locale avrebbe chiesto conferma manuale.
+    # git push resta escluso apposta (vedi test sopra) - invariato.
+    with patch("core.system_executor.subprocess.run", return_value=_fake_proc()) as run:
+        result = executor.run(cmd, cwd=allowed_dir)
+    assert result.ok is True
+    assert result.needs_confirmation is False
+    run.assert_called_once()
+
+
 def test_path_traversal_outside_whitelist_needs_confirmation(executor, allowed_dir):
     with patch("core.system_executor.subprocess.run") as run:
         result = executor.run(r"Get-Content ..\..\secret.txt", cwd=allowed_dir)
