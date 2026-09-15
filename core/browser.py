@@ -22,6 +22,8 @@ from urllib.parse import urlparse
 
 from playwright.async_api import async_playwright, BrowserContext, Playwright
 
+from core.win_focus import bring_matching_to_foreground_bg
+
 BROWSER_BLOCK_RE = re.compile(r"```browser\s*\n(.*?)\n```", re.DOTALL)
 
 PROFILE_DIR = Path(os.getenv("JARVIS_HOME", str(Path(__file__).parent.parent))) / ".browser_profile"
@@ -45,6 +47,24 @@ RESULT_SELECTORS = {
     "google": "#search a h3",
     "youtube": "ytd-video-renderer a#video-title",
 }
+
+# "il comando apri databricks in test non mi apre questo link" (2026-09-15):
+# la navigazione in se' funzionava (verificato dal vivo: pagina raggiunta,
+# titolo corretto), ma bot.py gira come task pianificato Windows senza
+# focus proprio — la finestra Chromium di Playwright (headless=False,
+# quindi VISIBILE) puo' aprirsi dietro le altre senza che l'utente se ne
+# accorga, esattamente come gia' risolto per core/system_executor.py::
+# open_app. Qui il PID non e' direttamente esposto da Playwright per un
+# contesto persistente (context.browser non ha .process nell'API async) —
+# trovato invece per sottostringa nella cmdline, unica per il nostro
+# profilo anche con altre finestre Chrome dell'utente gia' aperte
+# (verificato dal vivo: EnumWindows + AttachThreadInput funziona anche
+# quando ci sono due processi chrome.exe visibili contemporaneamente).
+_PROFILE_MARKER = PROFILE_DIR.name  # ".browser_profile" - distintivo, non l'intero path (separatori piu' fragili)
+
+
+def _bring_browser_to_foreground() -> None:
+    bring_matching_to_foreground_bg(_PROFILE_MARKER)
 
 
 class BrowserAgent:
@@ -90,6 +110,7 @@ class BrowserAgent:
             )
         page = await self._new_page()
         await page.goto(url, wait_until="domcontentloaded")
+        _bring_browser_to_foreground()
         return f"Aperto {url}."
 
     async def search(self, engine: str, query: str, open_first_result: bool = True) -> str:
@@ -98,6 +119,7 @@ class BrowserAgent:
         page = await self._new_page()
         url = SEARCH_URLS[engine].format(query=query.replace(" ", "+"))
         await page.goto(url, wait_until="domcontentloaded")
+        _bring_browser_to_foreground()
 
         if not open_first_result:
             return f'Cercato "{query}" su {engine}.'
