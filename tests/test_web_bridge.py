@@ -1,3 +1,8 @@
+import asyncio
+
+import pytest
+
+from core import web_bridge
 from core.web_bridge import _strip_wake_word
 
 
@@ -56,3 +61,48 @@ def test_wake_word_far_from_start_is_ignored():
 
 def test_wake_word_still_matches_with_short_lead_in():
     assert _strip_wake_word("ok, adesso jarvis apri chrome") == "apri chrome"
+
+
+class _StopLoop(Exception):
+    """Interrompe poll_web_queue() dopo un ciclo, per testarlo senza
+    farlo girare per sempre (e' un while True)."""
+
+
+def test_empty_transcription_is_ignored_not_shown_as_error(monkeypatch):
+    """Da quando stt.py filtra il rumore con vad_filter (2026-09-15), una
+    trascrizione vuota e' quasi sempre silenzio/rumore correttamente
+    scartato, non un vero tentativo di comando fallito. Prima di questo
+    fix veniva pushato come status="error" con un messaggio parlato/
+    visibile ("Non ho capito niente..., Riprova.") ad ogni falso trigger
+    del mic a mani libere — regressione osservata dal vivo il 2026-09-15
+    subito dopo l'introduzione di vad_filter."""
+    updates: list[tuple[str, list]] = []
+    calls = {"select": 0}
+
+    def fake_execute(query, params=None):
+        if query.startswith("SELECT"):
+            calls["select"] += 1
+            if calls["select"] > 1:
+                raise _StopLoop()
+            return [{
+                "id": "t1", "channel": "web", "workspace": "jarvis",
+                "prompt": "", "image_b64": None, "audio_b64": "AAAA",
+            }]
+        updates.append((query, params))
+        return []
+
+    async def fake_transcribe(_audio_b64: str) -> str:
+        return ""
+
+    monkeypatch.setattr(web_bridge.turso, "execute", fake_execute)
+    monkeypatch.setattr(web_bridge, "_transcribe_audio", fake_transcribe)
+    monkeypatch.setattr(web_bridge.asyncio, "sleep", lambda _s: asyncio.sleep(0))
+
+    with pytest.raises(_StopLoop):
+        asyncio.run(web_bridge.poll_web_queue())
+
+    result_updates = [p for q, p in updates if "status=?" in q]
+    assert len(result_updates) == 1
+    status, result, _session_id, _cost, _task_id = result_updates[0]
+    assert status == "ignored"
+    assert result == ""

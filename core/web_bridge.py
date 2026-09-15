@@ -200,7 +200,16 @@ async def poll_web_queue() -> None:
             if audio_b64:
                 text = await _transcribe_audio(audio_b64)
                 if not text:
-                    await _push_result(task["id"], "error", "Non ho capito niente dall'audio, Signore. Riprova.", None, 0.0)
+                    # Da quando stt.py usa vad_filter=True (2026-09-15), un
+                    # segmento vuoto e' quasi sempre rumore/silenzio corret-
+                    # tamente scartato dal VAD PRIMA della trascrizione, non
+                    # un vero tentativo di comando fallito — trattarlo come
+                    # "error" visibile (con tanto di messaggio parlato)
+                    # mostrava un "Non ho capito niente, Signore. Riprova."
+                    # ad ogni rumore ambientale captato dall'ascolto a mani
+                    # libere. "ignored" (silenzioso, stesso trattamento della
+                    # mancanza di wake word) e' coerente col resto del filtro.
+                    await _push_result(task["id"], "ignored", "", None, 0.0)
                     continue
                 await _update_prompt(task["id"], text)  # mostra sempre cosa ha sentito, anche se poi lo ignora
 
