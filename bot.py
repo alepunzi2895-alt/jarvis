@@ -326,6 +326,36 @@ async def _keepalive() -> None:
 # --------------------------------------------------------------------------- loop
 
 
+async def _transcribe_telegram_voice(file_id: str) -> str:
+    """Scarica e trascrive una nota vocale Telegram (OGG/Opus) con lo stesso
+    motore whisper gia' usato dal daemon vocale/dashboard (faster-whisper
+    via PyAV, decodifica qualunque formato da solo). Nessun filtro parola
+    d'attivazione qui a differenza del mic sempre acceso della dashboard:
+    mandare una nota vocale e' gia' un'azione esplicita e deliberata,
+    stesso principio di scrivere un messaggio di testo normale."""
+
+    def work() -> str:
+        import tempfile
+        from pathlib import Path
+
+        from core.voice import stt  # import qui: faster-whisper solo se serve davvero
+
+        file_info = requests.get(f"{API}/getFile", params={"file_id": file_id}, timeout=15).json()
+        file_path = file_info["result"]["file_path"]
+        audio = requests.get(f"https://api.telegram.org/file/bot{TOKEN}/{file_path}", timeout=30).content
+
+        fd, tmp_path = tempfile.mkstemp(suffix=".ogg")
+        os.close(fd)
+        path = Path(tmp_path)
+        try:
+            path.write_bytes(audio)
+            return stt.transcribe_file(str(path))
+        finally:
+            path.unlink(missing_ok=True)
+
+    return await asyncio.to_thread(work)
+
+
 async def telegram_loop() -> None:
     send("JARVIS online. /help")
     offset = 0
@@ -351,10 +381,18 @@ async def telegram_loop() -> None:
             if msg["from"]["id"] != OWNER_ID:
                 continue
             text = msg.get("text")
-            if not text:
+            voice = msg.get("voice")
+            if not text and not voice:
                 continue
-            print(f"> {text[:80]}")
             try:
+                if voice:
+                    text = await _transcribe_telegram_voice(voice["file_id"])
+                    if not text:
+                        send("Non ho capito niente dalla nota vocale, Signore. Riprova.")
+                        continue
+                    print(f"> [voce] {text[:80]}")
+                else:
+                    print(f"> {text[:80]}")
                 await handle(text)
             except Exception as e:  # noqa: BLE001
                 send(f"Errore: {html.escape(str(e))[:1000]}")
