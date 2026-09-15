@@ -28,7 +28,16 @@ import psutil
 
 from core.obsidian import ObsidianVault
 
-GIT_ALLOWED_SUBCOMMANDS = {"status", "log", "diff", "branch", "pull", "add", "commit"}
+# "checkout"/"switch"/"merge" aggiunti per il motore agentic via API diretta
+# (core/claude_bridge.py): senza, creare un branch e mergiarlo in locale
+# richiedeva conferma manuale ad ogni singolo passo. "push" resta FUORI
+# apposta — deve restare sempre dietro conferma esplicita (/confirm),
+# CLAUDE.md vieta il push diretto senza dirlo prima, e questa e' l'unica
+# barriera a livello di codice (non solo di prompt) per quella regola.
+GIT_ALLOWED_SUBCOMMANDS = {
+    "status", "log", "diff", "branch", "pull", "add", "commit",
+    "checkout", "switch", "merge",
+}
 POWERSHELL_READONLY_CMDLETS = {
     "get-childitem", "get-content", "get-process", "get-command", "get-item",
     "dir", "type", "where",

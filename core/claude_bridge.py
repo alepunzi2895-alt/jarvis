@@ -1,5 +1,19 @@
 """
 JARVIS — core condiviso tra i canali (Telegram, Web): stato, workspace, esecuzione Claude Code.
+
+Due motori per il testo (voce ha il suo, core/claude_api.py::run_voice*):
+- `_run_claude_api()` (default): API Anthropic diretta con tool reali
+  (read_file/write_file/list_dir/run_command, appoggiati sulla whitelist
+  gia' esistente di core/system_executor.py::SystemExecutor) — niente
+  processo CLI da avviare, il floor di ~11-12s misurato con `claude -p`
+  sparisce. Scelta esplicita di Alessandro (2026-09-15): accettato di
+  ricostruire l'accesso a file/git perso passando dall'API pura, in
+  cambio della latenza.
+- `_run_claude_cli()` (invariato, `claude -p` reale): resta l'unico motore
+  per il workspace "trading", che carica il server MCP TradingView —
+  l'API diretta non ha un ponte locale pronto per quello stdio MCP.
+  Anche un ripiego manuale (`JARVIS_TEXT_ENGINE=cli` in .env) se il motore
+  API dovesse rivelarsi un problema nei primi giorni d'uso.
 """
 
 import os
@@ -11,6 +25,7 @@ import threading
 from datetime import datetime
 from pathlib import Path
 
+import anthropic
 from dotenv import load_dotenv
 
 from core import turso, brain, browser, databricks, persona, system_actions, weather
@@ -22,12 +37,29 @@ load_dotenv()
 CLAUDE_BIN = os.getenv("CLAUDE_BIN", "claude")
 JARVIS_HOME = Path(os.getenv("JARVIS_HOME", Path(__file__).parent.parent)).resolve()
 MAX_TURNS = os.getenv("JARVIS_MAX_TURNS", "40")
-MODEL = os.getenv("JARVIS_MODEL", "")  # es. "opus" oppure vuoto = default
+MODEL = os.getenv("JARVIS_MODEL", "")  # es. "opus" oppure vuoto = default (solo motore CLI)
 # La voce vuole risposte brevi e rapide (persona: max due frasi) — un modello
 # più leggero taglia parecchi secondi di latenza percepita rispetto al
 # default. Testo/Telegram restano su JARVIS_MODEL (default = normale).
 VOICE_MODEL = os.getenv("JARVIS_VOICE_MODEL", "haiku")
 DATABRICKS_QAS_HOST = os.getenv("DATABRICKS_QAS_HOST", "")
+
+# Motore per testo/Telegram/dashboard: "api" (default, vedi docstring sopra)
+# o "cli" per tornare al comportamento precedente senza toccare codice.
+TEXT_ENGINE = os.getenv("JARVIS_TEXT_ENGINE", "api")
+API_MODEL_ALIASES = {"haiku": "claude-haiku-4-5", "sonnet": "claude-sonnet-5", "opus": "claude-opus-5"}
+API_MODEL = API_MODEL_ALIASES.get(os.getenv("JARVIS_TEXT_MODEL", "sonnet"), os.getenv("JARVIS_TEXT_MODEL", "claude-sonnet-5"))
+MAX_TOOL_TURNS = int(MAX_TURNS)
+MAX_HISTORY_TURNS = 8  # coppie utente/assistente conservate in state.json per workspace
+MAX_TOOL_RESULT_CHARS = 12000
+
+# Prezzi noti (USD per milione di token) - solo per stimare il costo nei log,
+# stessa tabella (valori) gia' in core/claude_api.py per il canale voce.
+_PRICING = {
+    "claude-haiku-4-5": (1.00, 5.00),
+    "claude-sonnet-5": (2.00, 10.00),
+    "claude-opus-5": (5.00, 25.00),
+}
 
 STATE_FILE = JARVIS_HOME / "state.json"
 TMP_DIR = JARVIS_HOME / ".tmp"
@@ -136,7 +168,15 @@ SYSTEM = (
     "una mail, scrivi solo una bozza di testo nella tua risposta normale — non "
     "hai nessun modo di inviarla tu stesso, dev'essere l'utente a copiarla e "
     "mandarla di persona. Non affermare mai di aver inviato o pubblicato "
-    "qualcosa su Teams/Outlook: non puoi farlo."
+    "qualcosa su Teams/Outlook: non puoi farlo.\n\n"
+    "Hai accesso a strumenti reali per leggere/scrivere file ed eseguire comandi "
+    "(read_file/write_file/list_dir/run_command) nel workspace corrente o in un "
+    "altro progetto autorizzato — usali quando il task lo richiede davvero "
+    "(leggere/modificare codice, controllare git, ecc.), non per domande a cui "
+    "sai gia' rispondere. Un comando fuori dalla whitelist di sicurezza (es. "
+    "`git push`) torna un token di conferma invece di eseguire: dillo chiaramente "
+    "all'utente nella risposta (\"serve conferma: /confirm <token> su Telegram\"), "
+    "non provare ad aggirarlo con un comando equivalente."
 )
 
 # --------------------------------------------------------------------------- state
@@ -148,8 +188,11 @@ CLAUDE_LOCK = asyncio.Lock()  # un solo `claude -p` alla volta, condiviso tra tu
 
 def load_state() -> dict:
     if STATE_FILE.exists():
-        return json.loads(STATE_FILE.read_text())
-    return {"ws": "jarvis", "sessions": {}}
+        loaded = json.loads(STATE_FILE.read_text())
+        loaded.setdefault("sessions", {})
+        loaded.setdefault("api_sessions", {})  # history del motore API, chiave separata apposta
+        return loaded
+    return {"ws": "jarvis", "sessions": {}, "api_sessions": {}}
 
 
 def save_state(s: dict) -> None:
@@ -158,7 +201,282 @@ def save_state(s: dict) -> None:
 
 state = load_state()
 
-# --------------------------------------------------------------------------- claude
+# --------------------------------------------------------------------------- system prompt condiviso
+
+
+async def _build_context_prefix(ws: str) -> str:
+    """Data/ora + meteo + second brain — condiviso dai due motori testo (CLI/API)
+    e concettualmente identico a core/claude_api.py::_build_system_prompt()
+    per la voce (che pero' aggiunge anche la persona, qui mai)."""
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    system_prompt = f"{SYSTEM}\n\nData e ora attuali: {now}."
+    # In parallelo, non in sequenza: sono due chiamate di rete indipendenti
+    # (Open-Meteo/ip-api.com, Turso) prima ancora di rispondere — in sequenza
+    # si sommavano per intero al tempo di risposta percepito.
+    weather_task = asyncio.create_task(asyncio.to_thread(weather.get_weather_line))
+    brain_task = asyncio.create_task(asyncio.to_thread(brain.fetch_context, ws)) if turso.ENABLED else None
+    weather_line = await weather_task
+    if weather_line:
+        system_prompt += f" Meteo attuale: {weather_line}."
+    if brain_task:
+        ctx = await brain_task
+        if ctx:
+            system_prompt = f"{system_prompt}\n\n{ctx}"
+    return system_prompt
+
+
+async def _run_post_processing(text: str, ws: str, original_prompt: str, channel: str) -> str:
+    """Pipeline condivisa dopo la risposta finale di Claude, identica per i
+    due motori testo e per la voce (core/claude_api.py replica lo stesso
+    ordine): second brain -> log interazione -> browser -> databricks
+    (genie/dbsql) -> system_actions. Pura estrazione/ripulitura di blocchi
+    ```testuali``` — nessun tool reale coinvolto qui, per questo funziona
+    identica indipendentemente da come e' stata generata la risposta."""
+    if turso.ENABLED and text:
+        text = await asyncio.to_thread(brain.extract_and_store, text, ws)
+    if turso.ENABLED:
+        # Fire-and-forget: e' un log di attivita', non deve aggiungere
+        # tempo in coda a una risposta che l'utente sta gia' aspettando.
+        threading.Thread(target=brain.log_interaction, args=(original_prompt, ws, channel), daemon=True).start()
+    if text:
+        text = await browser.extract_and_execute(text)
+    if text:
+        text = await databricks.extract_and_execute(text)
+    if text:
+        text = await system_actions.extract_and_execute(text, _system_executor)
+    return text
+
+
+# --------------------------------------------------------------------------- motore API diretta (default)
+
+TOOLS = [
+    {
+        "name": "read_file",
+        "description": (
+            "Legge il contenuto testuale di un file nel workspace corrente o in un "
+            "altro progetto autorizzato. Usalo prima di modificare un file, o quando "
+            "l'utente chiede di leggere/controllare qualcosa di preciso."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {"path": {"type": "string", "description": "Percorso assoluto, o relativo al workspace corrente"}},
+            "required": ["path"],
+        },
+    },
+    {
+        "name": "write_file",
+        "description": (
+            "Scrive/sovrascrive un file di testo con il contenuto indicato (crea le "
+            "cartelle mancanti). Il contenuto deve essere il file COMPLETO — sovrascrive "
+            "tutto quello che c'era prima, non e' un patch/diff."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string"},
+                "content": {"type": "string"},
+            },
+            "required": ["path", "content"],
+        },
+    },
+    {
+        "name": "list_dir",
+        "description": "Elenca i file/cartelle dentro un percorso.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"path": {"type": "string"}},
+            "required": ["path"],
+        },
+    },
+    {
+        "name": "run_command",
+        "description": (
+            "Esegue un comando PowerShell (es. git status/log/diff/branch/checkout/"
+            "switch/merge/add/commit, o un cmdlet di sola lettura come "
+            "Get-ChildItem/Get-Content) in una cartella di lavoro. Un comando fuori "
+            "dalla whitelist di sicurezza (incluso git push, sempre) torna un token "
+            "di conferma invece di eseguire — in quel caso dillo chiaramente "
+            "all'utente nella risposta finale, non ripetere il comando ne' provare "
+            "un'alternativa per aggirarlo."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "command": {"type": "string"},
+                "cwd": {"type": "string", "description": "Cartella di lavoro — default: il workspace corrente"},
+            },
+            "required": ["command"],
+        },
+    },
+]
+
+
+def _resolve_in_workspace(path: str, cwd: str) -> str:
+    p = Path(path)
+    return str(p) if p.is_absolute() else str(Path(cwd) / p)
+
+
+def _truncate_tool_result(text: str) -> str:
+    if len(text) <= MAX_TOOL_RESULT_CHARS:
+        return text
+    return text[:MAX_TOOL_RESULT_CHARS] + f"\n… (troncato, {len(text)} caratteri totali)"
+
+
+def _execute_tool(name: str, tool_input: dict, cwd: str) -> tuple[str, bool]:
+    """Esegue un tool_use di Claude appoggiandosi a SystemExecutor (whitelist +
+    conferma gia' esistenti, condivisi con /run di Telegram). Ritorna
+    (testo per il tool_result, is_error) — mai solleva, un errore diventa
+    sempre un tool_result con is_error=True cosi' Claude puo' reagire."""
+    try:
+        if name == "read_file":
+            r = _system_executor.read_file(_resolve_in_workspace(tool_input["path"], cwd))
+        elif name == "write_file":
+            r = _system_executor.write_file(_resolve_in_workspace(tool_input["path"], cwd), tool_input["content"])
+        elif name == "list_dir":
+            r = _system_executor.list_dir(_resolve_in_workspace(tool_input.get("path", "."), cwd))
+        elif name == "run_command":
+            run_cwd = _resolve_in_workspace(tool_input["cwd"], cwd) if tool_input.get("cwd") else cwd
+            r = _system_executor.run(tool_input["command"], run_cwd)
+        else:
+            return f"Tool sconosciuto: {name}", True
+    except Exception as e:  # noqa: BLE001 — un tool rotto non deve far crashare il loop
+        return f"Errore imprevisto eseguendo {name}: {e}", True
+
+    if r.needs_confirmation:
+        return (
+            f'Azione fuori whitelist di sicurezza — serve una conferma esplicita '
+            f'dell\'utente prima di eseguirla. Digli di rispondere "/confirm {r.token}" '
+            f'su Telegram per confermarla, o "/deny {r.token}" per annullarla.',
+            False,
+        )
+    if not r.ok:
+        return _truncate_tool_result(r.stderr or "Errore sconosciuto."), True
+    if name == "write_file":
+        return "File scritto correttamente.", False
+    return _truncate_tool_result(r.stdout or "(vuoto)"), False
+
+
+def _decode_b64_image(image_b64: str) -> bytes:
+    if image_b64.startswith("data:") and "," in image_b64:
+        image_b64 = image_b64.split(",", 1)[1]
+    return base64.b64decode(image_b64)
+
+
+async def _build_user_content(prompt: str, image_b64: str | None) -> str | list[dict]:
+    """Come core/claude_api.py::_build_messages() per la parte immagine —
+    duplicato apposta invece di importarlo da li' (evita un ciclo di import,
+    claude_api.py importa gia' SYSTEM da qui) e perche' il meccanismo e'
+    diverso: qui l'immagine va in un content block "image" vero (vision),
+    non riferita come path di file da un tool Read come faceva il motore CLI."""
+    if not image_b64:
+        return prompt
+
+    raw = _decode_b64_image(image_b64)
+    identity_line = ""
+    try:
+        import numpy as np
+        import cv2
+
+        frame = cv2.imdecode(np.frombuffer(raw, dtype=np.uint8), cv2.IMREAD_COLOR)
+        name, _confidence = face_id.recognize(frame) if frame is not None else (None, -1.0)
+        if name:
+            identity_line = (
+                f"Riconoscimento locale (webcam): la persona nella foto e' quasi "
+                f"certamente {name.capitalize()} — puoi rivolgerti a lui per nome se "
+                "ha senso nel contesto, senza bisogno di chiedere conferma.\n\n"
+            )
+    except Exception:
+        pass  # riconoscimento best-effort: se fallisce si procede senza identita'
+
+    text = (
+        f"{identity_line}L'utente ti mostra questa immagine (webcam o schermo). "
+        "Se nella foto indossa degli occhiali, commenta scherzosamente (una "
+        "battuta breve, non seriosa) che con quegli occhiali sembra napoletano — "
+        f"solo se ci sono davvero occhiali visibili, altrimenti non nominarlo.\n\n{prompt}"
+    )
+    return [
+        {
+            "type": "image",
+            "source": {"type": "base64", "media_type": "image/jpeg", "data": base64.b64encode(raw).decode("ascii")},
+        },
+        {"type": "text", "text": text},
+    ]
+
+
+_api_client: anthropic.AsyncAnthropic | None = None
+
+
+def _get_api_client() -> anthropic.AsyncAnthropic:
+    global _api_client
+    if _api_client is None:
+        _api_client = anthropic.AsyncAnthropic()
+    return _api_client
+
+
+def _trim_history(history: list[dict]) -> list[dict]:
+    """Tiene solo le ultime MAX_HISTORY_TURNS coppie utente/assistente. Sicuro
+    tagliare a coppie fisse perche' la history persistita qui e' SEMPRE testo
+    pulito (mai un tool_result/tool_use grezzo) — vedi _run_claude_api."""
+    return history[-(MAX_HISTORY_TURNS * 2):]
+
+
+async def _run_claude_api(
+    prompt: str, ws: str, cwd: str, image_b64: str | None, channel: str
+) -> tuple[str, None, float]:
+    """Motore di default per testo/Telegram/dashboard: API Anthropic diretta
+    con tool reali (vedi TOOLS/_execute_tool sopra) invece del processo CLI.
+    La history persistita in state.json e' solo testo pulito (mai i turni
+    intermedi di tool_use/tool_result) — piu' leggera da rileggere/troncare,
+    e Claude non ha comunque bisogno di rivedere il proprio ragionamento
+    passato, solo l'esito conversazionale."""
+    client = _get_api_client()
+    system_prompt = await _build_context_prefix(ws)
+    if channel == "voice":
+        system_prompt = f"{system_prompt}\n\n{persona.PERSONA}"
+
+    user_content = await _build_user_content(prompt, image_b64)
+    history = _trim_history(list(state["api_sessions"].get(ws) or []))
+    messages = [*history, {"role": "user", "content": user_content}]
+
+    in_tokens = out_tokens = 0
+    final_text = "(nessun output)"
+
+    for _ in range(MAX_TOOL_TURNS):
+        response = await client.messages.create(
+            model=API_MODEL, max_tokens=8000, system=system_prompt, tools=TOOLS, messages=messages,
+        )
+        in_tokens += response.usage.input_tokens
+        out_tokens += response.usage.output_tokens
+        messages.append({"role": "assistant", "content": [b.model_dump() for b in response.content]})
+
+        if response.stop_reason != "tool_use":
+            final_text = next((b.text for b in response.content if b.type == "text"), "(nessun output)")
+            break
+
+        tool_results = []
+        for block in response.content:
+            if block.type != "tool_use":
+                continue
+            result_text, is_error = _execute_tool(block.name, block.input, cwd)
+            tool_results.append(
+                {"type": "tool_result", "tool_use_id": block.id, "content": result_text, "is_error": is_error}
+            )
+        messages.append({"role": "user", "content": tool_results})
+    else:
+        final_text = "Troppi passaggi per completare il task, mi fermo qui — riprova con una richiesta più mirata."
+
+    final_text = await _run_post_processing(final_text, ws, prompt, channel)
+
+    new_history = [*history, {"role": "user", "content": user_content}, {"role": "assistant", "content": final_text}]
+    state["api_sessions"][ws] = _trim_history(new_history)
+    save_state(state)
+
+    in_price, out_price = _PRICING.get(API_MODEL, (0.0, 0.0))
+    cost = (in_tokens * in_price + out_tokens * out_price) / 1_000_000
+    return final_text, None, cost
+
+
+# --------------------------------------------------------------------------- motore CLI (solo workspace "trading", o ripiego)
 
 
 def _save_temp_image(image_b64: str) -> Path:
@@ -170,12 +488,13 @@ def _save_temp_image(image_b64: str) -> Path:
     return path
 
 
-async def run_claude(
-    prompt: str, ws: str | None = None, image_b64: str | None = None, channel: str = "text"
+async def _run_claude_cli(
+    prompt: str, ws: str, cwd: str, image_b64: str | None, channel: str
 ) -> tuple[str, str | None, float]:
-    """Lancia claude -p nel workspace indicato (o in quello corrente). Ritorna (testo, session_id, costo)."""
-    ws = ws or state["ws"]
-    cwd = WORKSPACES.get(ws, str(JARVIS_HOME))
+    """Lancia claude -p nel workspace indicato. Ritorna (testo, session_id, costo).
+    Invariato rispetto a prima dell'introduzione del motore API — resta l'unico
+    percorso per "trading" (MCP TradingView) e il ripiego manuale via
+    JARVIS_TEXT_ENGINE=cli."""
     sid = state["sessions"].get(ws)
     original_prompt = prompt  # per il log second-brain: prima che venga arricchito col testo webcam/identita'
 
@@ -207,20 +526,7 @@ async def run_claude(
         except (ValueError, OSError):
             pass  # immagine corrotta: procedi solo col testo
 
-    now = datetime.now().strftime("%Y-%m-%d %H:%M")
-    system_prompt = f"{SYSTEM}\n\nData e ora attuali: {now}."
-    # In parallelo, non in sequenza: sono due chiamate di rete indipendenti
-    # (Open-Meteo/ip-api.com, Turso) prima ancora di lanciare claude -p —
-    # in sequenza si sommavano per intero al tempo di risposta percepito.
-    weather_task = asyncio.create_task(asyncio.to_thread(weather.get_weather_line))
-    brain_task = asyncio.create_task(asyncio.to_thread(brain.fetch_context, ws)) if turso.ENABLED else None
-    weather_line = await weather_task
-    if weather_line:
-        system_prompt += f" Meteo attuale: {weather_line}."
-    if brain_task:
-        ctx = await brain_task
-        if ctx:
-            system_prompt = f"{system_prompt}\n\n{ctx}"
+    system_prompt = await _build_context_prefix(ws)
     if channel == "voice":
         system_prompt = f"{system_prompt}\n\n{persona.PERSONA}"
 
@@ -294,19 +600,7 @@ async def run_claude(
             state["sessions"][ws] = new_sid
             save_state(state)
 
-        if turso.ENABLED and text:
-            text = await asyncio.to_thread(brain.extract_and_store, text, ws)
-        if turso.ENABLED:
-            # Fire-and-forget: e' un log di attivita', non deve aggiungere
-            # ~1s in coda a una risposta che l'utente sta gia' aspettando.
-            threading.Thread(target=brain.log_interaction, args=(original_prompt, ws, channel), daemon=True).start()
-
-        if text:
-            text = await browser.extract_and_execute(text)
-        if text:
-            text = await databricks.extract_and_execute(text)
-        if text:
-            text = await system_actions.extract_and_execute(text, _system_executor)
+        text = await _run_post_processing(text, ws, original_prompt, channel)
 
         return (text, new_sid, cost)
     finally:
@@ -315,3 +609,19 @@ async def run_claude(
                 image_path.unlink(missing_ok=True)
             except OSError:
                 pass
+
+
+# --------------------------------------------------------------------------- dispatcher pubblico
+
+
+async def run_claude(
+    prompt: str, ws: str | None = None, image_b64: str | None = None, channel: str = "text"
+) -> tuple[str, str | None, float]:
+    """Punto d'ingresso unico usato da bot.py/web_bridge.py — invariato nella
+    firma. Sceglie il motore: API diretta di default, CLI per "trading"
+    (MCP TradingView) o se JARVIS_TEXT_ENGINE=cli (ripiego manuale)."""
+    ws = ws or state["ws"]
+    cwd = WORKSPACES.get(ws, str(JARVIS_HOME))
+    if ws == "trading" or TEXT_ENGINE == "cli":
+        return await _run_claude_cli(prompt, ws, cwd, image_b64, channel)
+    return await _run_claude_api(prompt, ws, cwd, image_b64, channel)

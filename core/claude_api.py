@@ -16,7 +16,13 @@ core/browser.py), quindi funziona identico sia da CLI sia da qui.
 
 Decisione esplicita di Alessandro (2026-07-15): SOLO il canale vocale passa
 all'API diretta — Telegram/dashboard restano su claude -p (servono gli
-strumenti file/bash per i task reali).
+strumenti file/bash per i task reali). **Aggiornamento 2026-09-15**: anche
+testo/Telegram/dashboard sono passati all'API diretta (motore di default in
+`core/claude_bridge.py::_run_claude_api()`), ma con Read/Write/Bash reali
+ricostruiti come tool appoggiati a `core/system_executor.py::SystemExecutor`
+(whitelist + conferma gia' esistenti) — non piu' "nessun accesso reale a
+strumenti" per quel canale. Questo modulo (voce) resta com'era: nessun tool
+reale, persona breve, conversazionale.
 
 Aggiornamento 2026-07-16 (richiesta esplicita: "ogni interazione e domanda
 aggiorna il grafo"): il second brain qui non e' piu' solo in lettura — questo
