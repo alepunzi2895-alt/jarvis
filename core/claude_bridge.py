@@ -200,11 +200,16 @@ async def run_claude(
 
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
     system_prompt = f"{SYSTEM}\n\nData e ora attuali: {now}."
-    weather_line = await asyncio.to_thread(weather.get_weather_line)
+    # In parallelo, non in sequenza: sono due chiamate di rete indipendenti
+    # (Open-Meteo/ip-api.com, Turso) prima ancora di lanciare claude -p —
+    # in sequenza si sommavano per intero al tempo di risposta percepito.
+    weather_task = asyncio.create_task(asyncio.to_thread(weather.get_weather_line))
+    brain_task = asyncio.create_task(asyncio.to_thread(brain.fetch_context, ws)) if turso.ENABLED else None
+    weather_line = await weather_task
     if weather_line:
         system_prompt += f" Meteo attuale: {weather_line}."
-    if turso.ENABLED:
-        ctx = await asyncio.to_thread(brain.fetch_context, ws)
+    if brain_task:
+        ctx = await brain_task
         if ctx:
             system_prompt = f"{system_prompt}\n\n{ctx}"
     if channel == "voice":

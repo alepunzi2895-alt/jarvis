@@ -106,11 +106,16 @@ def reset_history(ws: str) -> None:
 async def _build_system_prompt(ws: str) -> str:
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
     system_prompt = f"{SYSTEM}\n\nData e ora attuali: {now}."
-    weather_line = await asyncio.to_thread(weather.get_weather_line)
+    # In parallelo, non in sequenza (stesso fix di core/claude_bridge.py):
+    # sono due chiamate di rete indipendenti prima di rispondere a voce,
+    # dove ogni secondo si sente.
+    weather_task = asyncio.create_task(asyncio.to_thread(weather.get_weather_line))
+    brain_task = asyncio.create_task(asyncio.to_thread(_fetch_context, ws)) if turso.ENABLED else None
+    weather_line = await weather_task
     if weather_line:
         system_prompt += f" Meteo attuale: {weather_line}."
-    if turso.ENABLED:
-        ctx = await asyncio.to_thread(_fetch_context, ws)
+    if brain_task:
+        ctx = await brain_task
         if ctx:
             system_prompt = f"{system_prompt}\n\n{ctx}"
     return f"{system_prompt}\n\n{persona.PERSONA}"
