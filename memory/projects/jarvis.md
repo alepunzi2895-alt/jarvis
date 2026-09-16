@@ -643,6 +643,25 @@ prima "leggi le mail nel browser" reale dopo il riavvio del bridge).
 Bridge locale (bot.py/VoiceDaemon) va riavviato per caricare questo
 codice — in esecuzione dalle 13:10, precede il merge.
 
+## Fix pomeriggio parte 2 (2026-09-16): meteo "domani" + bug reale Teams/schermo
+
+- **Meteo "domani"**: stesso pattern del calendario — intent troppo
+  stretto ("che tempo fa" solo presente/oggi) e nessun dato di previsione
+  mai raggiungibile da una domanda (`get_weekly_forecast()` esisteva gia'
+  ma solo per il pannello dashboard). Fix: regex piu' permissivo +
+  `weather.format_tomorrow_line()`.
+- **Bug reale, serio**: leggere Teams/schermo (immagine allegata a Claude)
+  non ha MAI funzionato dal 2026-09-14 — `media_type` sempre hardcoded a
+  "image/jpeg" (corretto per la webcam, sbagliato per gli screenshot PNG
+  di `core/screen_context.py`), l'API Anthropic rifiutava sempre con un
+  400. Fix: sniffing sui byte magici (`claude_bridge._detect_image_media_type`).
+  Aggiunto anche `BrowserAgent.screenshot(scoped=True)` (ritaglio sulla
+  regione ARIA "main" quando c'e', per Teams) su richiesta di filtrare
+  l'interfaccia dalla risposta.
+- 316/316 test verdi. **Non verificato dal vivo**: nessuna sessione Teams
+  reale raggiungibile da qui per confermare che il crop tolga davvero il
+  rumore visto da Alessandro.
+
 **Ricerca (non implementata)**: guardato github.com/FatihMakes/Mark-LIII
 su richiesta di Alessandro per idee. Spunti concreti non ancora costruiti
 in JARVIS: memoria "on-demand" (solo core+fatti recenti nel prompt, resto

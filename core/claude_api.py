@@ -53,7 +53,7 @@ from datetime import datetime
 import anthropic
 
 from core import browser, databricks, mail_actions, persona, system_actions, turso, vscode_actions, weather
-from core.claude_bridge import SYSTEM
+from core.claude_bridge import SYSTEM, _detect_image_media_type
 from core.executor_singleton import executor as _system_executor
 from core.voice import face_id
 
@@ -187,7 +187,11 @@ async def _build_messages(prompt: str, ws: str, image_b64: str | None) -> tuple[
         content = [
             {
                 "type": "image",
-                "source": {"type": "base64", "media_type": "image/jpeg", "data": base64.b64encode(raw).decode("ascii")},
+                "source": {
+                    "type": "base64",
+                    "media_type": _detect_image_media_type(raw),
+                    "data": base64.b64encode(raw).decode("ascii"),
+                },
             },
             {
                 "type": "text",

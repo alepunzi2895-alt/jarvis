@@ -75,7 +75,10 @@ async def _capture_browser_page(url: str) -> str | None:
     try:
         await agent.open(url)
         await asyncio.sleep(_SPA_RENDER_WAIT_SECONDS)
-        png = await agent.screenshot()
+        # scoped=True (2026-09-16): ritaglia sulla regione ARIA "main" per
+        # escludere rail/nav laterali quando la pagina ne ha uno vero
+        # (Teams incluso) — vedi BrowserAgent.screenshot().
+        png = await agent.screenshot(scoped=True)
     except Exception:
         return None
     return base64.b64encode(png).decode("ascii") if png else None

@@ -109,6 +109,26 @@ def test_execute_tool_recall_memory_no_results(monkeypatch):
     assert is_error is False
 
 
+# --------------------------------------------------------------------------- _detect_image_media_type
+#
+# 2026-09-16: "media_type":"image/jpeg" era hardcoded — corretto per la
+# webcam (core/voice/camera.py usa cv2.imencode(".jpg", ...)) ma sbagliato
+# per gli screenshot di Teams/schermo (core/screen_context.py, PNG veri via
+# Playwright/GDI+) — l'API Anthropic rifiutava la richiesta con un 400
+# ("the image appears to be a image/png image") ogni volta che Alessandro
+# chiedeva di vedere Teams o lo schermo.
+
+
+def test_detect_image_media_type_png():
+    png_bytes = b"\x89PNG\r\n\x1a\n" + b"resto-finto"
+    assert claude_bridge._detect_image_media_type(png_bytes) == "image/png"
+
+
+def test_detect_image_media_type_jpeg():
+    jpeg_bytes = b"\xff\xd8\xff\xe0" + b"resto-finto"
+    assert claude_bridge._detect_image_media_type(jpeg_bytes) == "image/jpeg"
+
+
 def test_execute_tool_recall_memory_skips_query_when_turso_disabled(monkeypatch):
     monkeypatch.setattr(claude_bridge.turso, "ENABLED", False)
     search_mock = MagicMock()

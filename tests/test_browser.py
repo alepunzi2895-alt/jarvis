@@ -142,6 +142,48 @@ def test_read_emails_refuses_off_outlook_host():
     assert "outlook" in result.lower()
 
 
+def test_screenshot_scoped_uses_main_landmark_when_present():
+    page = MagicMock()
+    main_locator = MagicMock()
+    main_locator.count = AsyncMock(return_value=1)
+    main_first = MagicMock()
+    main_first.screenshot = AsyncMock(return_value=b"cropped")
+    main_locator.first = main_first
+    page.get_by_role = MagicMock(return_value=main_locator)
+    page.screenshot = AsyncMock(return_value=b"full-page")
+    agent, _ = _agent_with_fake_pages([page])
+
+    result = asyncio.run(agent.screenshot(scoped=True))
+
+    assert result == b"cropped"
+    page.screenshot.assert_not_called()
+
+
+def test_screenshot_scoped_falls_back_to_full_page_without_main_landmark():
+    page = MagicMock()
+    main_locator = MagicMock()
+    main_locator.count = AsyncMock(return_value=0)
+    page.get_by_role = MagicMock(return_value=main_locator)
+    page.screenshot = AsyncMock(return_value=b"full-page")
+    agent, _ = _agent_with_fake_pages([page])
+
+    result = asyncio.run(agent.screenshot(scoped=True))
+
+    assert result == b"full-page"
+
+
+def test_screenshot_not_scoped_skips_role_lookup_entirely():
+    page = MagicMock()
+    page.get_by_role = MagicMock()
+    page.screenshot = AsyncMock(return_value=b"full-page")
+    agent, _ = _agent_with_fake_pages([page])
+
+    result = asyncio.run(agent.screenshot())
+
+    assert result == b"full-page"
+    page.get_by_role.assert_not_called()
+
+
 def test_read_emails_no_messages_in_list():
     page = _owa_page(role_options=[])
     agent, _ = _agent_with_fake_pages([page])

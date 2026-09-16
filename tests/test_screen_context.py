@@ -1,4 +1,5 @@
 import asyncio
+from unittest.mock import AsyncMock, patch
 
 from core import screen_context
 
@@ -49,3 +50,17 @@ def test_capture_desktop_returns_none_on_screenshot_failure(monkeypatch):
 
     monkeypatch.setattr(screen_context, "_system_executor", _FakeExecutor())
     assert asyncio.run(screen_context.capture("screen")) is None
+
+
+def test_capture_teams_requests_a_scoped_screenshot():
+    # 2026-09-16: "filtra tutto il resto che non serve" — lo screenshot di
+    # Teams deve provare a ritagliare sulla regione ARIA "main", non l'intera
+    # pagina (vedi BrowserAgent.screenshot(scoped=True)).
+    agent = AsyncMock()
+    agent.open = AsyncMock()
+    agent.screenshot = AsyncMock(return_value=b"\x89PNG\r\n\x1a\nfinto")
+    with patch("core.screen_context.browser.get_agent", return_value=agent), patch("asyncio.sleep", AsyncMock()):
+        result = asyncio.run(screen_context.capture("teams"))
+
+    agent.screenshot.assert_awaited_once_with(scoped=True)
+    assert result is not None
