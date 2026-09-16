@@ -21,6 +21,18 @@ from core.voice import camera, tts
 
 POLL_SEC = float(os.getenv("JARVIS_WEB_POLL_SEC", "3"))
 
+# 2026-09-16: "apri chrome e metti Battiato su YouTube" ha impiegato il loop
+# intero (CPU ferma, nessuna nuova riga in bot.log per minuti, nessuna
+# risposta successiva processata) — poll_web_queue() e' un consumatore
+# SERIALE, quindi un singolo task senza un tetto di tempo massimo blocca
+# TUTTO cio' che arriva dopo, non solo se stesso ("ancora troppo lento a
+# intercettare le domande vocali" era in realta' un blocco totale, non
+# lentezza). Causa esatta non isolata con certezza (candidato principale:
+# un dialogo JS nella pagina aperta da Playwright, mai gestito/scartato
+# automaticamente — vedi BrowserAgent._new_page), ma un tetto qui protegge
+# comunque da QUALUNQUE causa futura dello stesso tipo, non solo questa.
+RUN_CLAUDE_TIMEOUT_SEC = int(os.getenv("JARVIS_WEB_RUN_CLAUDE_TIMEOUT_SEC", "120"))
+
 ENABLED = turso.ENABLED
 
 # Il mic della dashboard ora ascolta a mani libere in continuo (mai un
@@ -318,12 +330,22 @@ async def poll_web_queue() -> None:
                 if screen_target:
                     image_b64 = await screen_context.capture(screen_target)
 
-            result, sid, cost = await run_claude(
-                task["prompt"],
-                ws=ws,
-                image_b64=image_b64,
-                channel=task.get("channel") or "text",
-            )
+            try:
+                result, sid, cost = await asyncio.wait_for(
+                    run_claude(
+                        task["prompt"],
+                        ws=ws,
+                        image_b64=image_b64,
+                        channel=task.get("channel") or "text",
+                    ),
+                    timeout=RUN_CLAUDE_TIMEOUT_SEC,
+                )
+            except asyncio.TimeoutError:
+                result, sid, cost = (
+                    "Ho impiegato troppo tempo su questa richiesta, mi fermo qui, "
+                    "Signore — riprova con qualcosa di più mirato.",
+                    None, 0.0,
+                )
             tts.speak_if_enabled(result)
             _notify_telegram(task["prompt"], result)
             await _push_result(task["id"], "done", result, sid, cost, workspace=ws)

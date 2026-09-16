@@ -14,6 +14,7 @@ fondo alla risposta quando capisce che l'utente vuole navigare un sito
 vero; extract_and_execute() lo estrae, esegue, ripulisce il testo.
 """
 
+import asyncio
 import json
 import os
 import re
@@ -136,7 +137,23 @@ class BrowserAgent:
             self._context = await self._playwright.chromium.launch_persistent_context(
                 str(PROFILE_DIR), headless=False, viewport=None
             )
+            # Un dialogo JS (alert/confirm/prompt — es. un banner cookie che
+            # lo usa invece di un modal DOM) blocca la pagina finche'
+            # qualcosa non lo chiude, e Playwright non lo fa da solo: senza
+            # un handler ogni await successivo su quella pagina resta in
+            # attesa per sempre. Su TUTTE le pagine del contesto (anche
+            # quelle aperte da un click, non solo quelle create da noi) —
+            # candidato principale del blocco totale del poller osservato
+            # dal vivo il 2026-09-16 ("apri chrome e metti Battiato su
+            # YouTube" ha fermato l'intera coda, non solo quel comando).
+            # Vedi anche core/web_bridge.py::RUN_CLAUDE_TIMEOUT_SEC, difesa
+            # complementare per qualunque altra causa dello stesso sintomo.
+            self._context.on("page", lambda page: page.on("dialog", self._auto_dismiss_dialog))
         return self._context
+
+    @staticmethod
+    def _auto_dismiss_dialog(dialog) -> None:
+        asyncio.ensure_future(dialog.dismiss())
 
     async def _reset(self) -> None:
         """Il contesto/browser puo' essere stato chiuso dall'esterno (finestra
