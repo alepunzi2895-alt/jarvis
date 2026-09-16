@@ -320,6 +320,28 @@ class SystemExecutor:
         bring_pid_to_foreground_bg(proc.pid)
         return ExecResult(ok=True)
 
+    def open_vscode(self, path: str) -> ExecResult:
+        """Apre VS Code su una cartella specifica (`code <path>`) — a
+        differenza di open_app(), qui il path e' un argomento reale passato
+        all'eseguibile, quindi va controllato contro la whitelist come
+        qualunque altro accesso a file/cartelle. Rifiuta e basta se fuori
+        whitelist (niente token di conferma: chi chiama questa funzione
+        decide GIA' quali progetti sono autorizzati prima di arrivare qui —
+        vedi core/vscode_actions.py — quindi non serve un secondo giro di
+        /confirm che qui non avrebbe nemmeno un gestore in confirm())."""
+        if not self._in_whitelist(path):
+            return ExecResult(ok=False, stderr=f'"{path}" non e\' in una cartella autorizzata.')
+        exe = _resolve_app_path("code") or _resolve_known_user_app("vs code")
+        if not exe:
+            return ExecResult(ok=False, stderr="VS Code non trovato (ne' nel registro ne' tra le App Paths di Windows).")
+        try:
+            proc = subprocess.Popen([exe, path])
+        except OSError as e:
+            return ExecResult(ok=False, stderr=str(e))
+        self._log("open_vscode", path)
+        bring_pid_to_foreground_bg(proc.pid)
+        return ExecResult(ok=True)
+
     def open_url(self, url: str) -> ExecResult:
         webbrowser.open(url)
         self._log("open_url", url)

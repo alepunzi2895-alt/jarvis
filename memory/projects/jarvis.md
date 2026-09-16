@@ -589,3 +589,21 @@ delle 11:53. Riassunto stato/config per sessioni future:
 bozza Teams reale (serve prima il suo login nel browser JARVIS), pannello
 trading (serve prima `MYFXBOOK_EMAIL`/`PASSWORD`), un vero `WS_IVECO`.
 271/271 test verdi.
+
+## VS Code + Claude Code (2026-09-16, branch feature/vscode-claude-code, mergiato in main)
+
+Richiesta esplicita: JARVIS deve poter aprire un progetto in VS Code e
+delegare una modifica vera a una sessione REALE di Claude Code (il CLI),
+non solo ai 4 tool limitati del motore API di JARVIS. `core/
+system_executor.py::open_vscode()` + `core/vscode_actions.py` (blocco
+```vscode```, comando Telegram `/code <progetto> <prompt>`). Ambito
+volutamente ristretto ai `WORKSPACES` gia' noti/autorizzati (scelta
+esplicita sua) — niente path arbitrari. Esecuzione sempre in un thread di
+sfondo, mai bloccante: il risultato arriva su Telegram, non nella
+risposta immediata (un task di coding vero puo' richiedere minuti).
+Verificato dal vivo: VS Code aperto per davvero sul repo `jarvis`, e una
+vera sessione Claude Code CLI lanciata con un prompt vincolato ("non
+modificare nulla") — nessuna scrittura reale (verificato `git status`
+invariato), notifica Telegram formattata correttamente. 284/284 test
+verdi. **Non ancora provato con un vero task di modifica codice** — la
+prima volta va guardata con attenzione.

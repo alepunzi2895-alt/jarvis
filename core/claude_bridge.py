@@ -28,7 +28,7 @@ from pathlib import Path
 import anthropic
 from dotenv import load_dotenv
 
-from core import turso, brain, browser, databricks, mail_actions, persona, system_actions, weather
+from core import turso, brain, browser, databricks, mail_actions, persona, system_actions, vscode_actions, weather
 from core.executor_singleton import executor as _system_executor
 from core.voice import face_id
 
@@ -230,6 +230,23 @@ SYSTEM = (
     "inviato da solo — lascialo li' pronto, dì all'utente di controllarlo e "
     "inviarlo lui. Non affermare mai di aver inviato o pubblicato qualcosa su "
     "Teams/Outlook: non puoi farlo, in nessun caso.\n\n"
+    "Se l'utente chiede di aprire un progetto in VS Code e/o di far lavorare "
+    "Claude Code su una modifica vera del codice, aggiungi IN FONDO alla "
+    "risposta un blocco:\n"
+    "```vscode\n"
+    '{"project":"...","prompt":"..."}\n'
+    "```\n"
+    f'"project" deve essere uno tra: {", ".join(sorted(WORKSPACES))} — nessun '
+    "altro path e' autorizzato, se l'utente nomina un progetto diverso dillo "
+    "chiaramente invece di inventare un blocco che verrebbe comunque "
+    'rifiutato. "prompt" e\' facoltativo: ometti solo "prompt" (o lascialo '
+    "vuoto) se l'utente vuole SOLO aprire VS Code senza far scrivere codice a "
+    "nessuno. Se c'e' un prompt, apre VS Code sul progetto E lancia una "
+    "sessione VERA e autonoma di Claude Code (il CLI, non tu) su quella "
+    "cartella — puo' metterci diversi minuti, il risultato arriva "
+    "all'utente su Telegram quando e' pronto, non nella tua risposta. Di' "
+    "chiaramente che hai delegato il lavoro e che l'aggiornamento arrivera' "
+    "dopo — non affermare mai di aver gia' scritto/modificato tu il codice.\n\n"
     "Hai accesso a strumenti reali per leggere/scrivere file ed eseguire comandi "
     "(read_file/write_file/list_dir/run_command) nel workspace corrente o in un "
     "altro progetto autorizzato — usali quando il task lo richiede davvero "
@@ -303,6 +320,8 @@ async def _run_post_processing(text: str, ws: str, original_prompt: str, channel
         text = await browser.extract_and_execute(text)
     if text:
         text = await mail_actions.extract_and_execute(text)
+    if text:
+        text = await vscode_actions.extract_and_execute(text)
     if text:
         text = await databricks.extract_and_execute(text)
     if text:

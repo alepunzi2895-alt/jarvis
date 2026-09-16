@@ -54,6 +54,7 @@ from core import (
     briefing,
     myfxbook,
     presence,
+    vscode_actions,
 )
 from core.executor_singleton import executor, vault
 from core.voice import camera, tts
@@ -125,6 +126,7 @@ def cmd_help() -> str:
         "/note <testo>  scrive nella daily note del vault Obsidian\n"
         "/search <query> cerca nelle note del vault\n"
         "/apri <app>    apre un'applicazione (Chrome, VS Code, Obsidian...)\n"
+        "/code <progetto> <prompt>  apre il progetto in VS Code e ci lancia Claude Code\n"
         "/run <comando> esegue un comando nel workspace attivo (whitelist)\n"
         "/confirm <token> conferma un'azione in sospeso\n"
         "/deny <token>  annulla un'azione in sospeso\n"
@@ -226,6 +228,27 @@ async def handle(text: str) -> None:
                 return send("Uso: /apri <app>")
             result = executor.open_app(arg)
             return send(f"Aperto {arg}." if result.ok else f"Errore: {result.stderr}")
+
+        if cmd == "/code":
+            if not arg:
+                return send(
+                    "Uso: /code <progetto> <prompt>\n"
+                    f"Progetti disponibili: {', '.join(sorted(WORKSPACES))}\n"
+                    "Prompt vuoto = apre solo VS Code, senza far lavorare Claude Code."
+                )
+            code_parts = arg.split(maxsplit=1)
+            project = code_parts[0]
+            code_prompt = code_parts[1] if len(code_parts) > 1 else ""
+            path = vscode_actions.resolve_project_path(project)
+            if not path:
+                return send(f'Progetto "{project}" non riconosciuto o non autorizzato.')
+            result = executor.open_vscode(path)
+            if not result.ok:
+                return send(f"Errore: {result.stderr}")
+            if not code_prompt:
+                return send(f'VS Code aperto su "{project}".')
+            vscode_actions.start_claude_code_task(project, path, code_prompt)
+            return send(f'VS Code aperto su "{project}". Claude Code al lavoro — ti aggiorno qui appena finisce.')
 
         if cmd == "/run":
             if not arg:
