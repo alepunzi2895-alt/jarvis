@@ -1,3 +1,4 @@
+import datetime as dt
 import threading
 
 from core import outlook
@@ -92,7 +93,66 @@ def test_format_summary_empty_list():
     assert "Signore" in outlook.format_summary([], voice=True)
 
 
-# Nota: _fetch_recent_sync() non ha un test a unit dedicato — tocca COM/
-# Outlook desktop reale (hardware/software esterno), stesso stile gia' in
-# uso nel repo per core/voice/camera.py (webcam): verificato dal vivo
-# invece che con un mock fragile dell'import di win32com.client.
+# Nota: _fetch_recent_sync()/_fetch_upcoming_sync() non hanno un test a unit
+# dedicato — tocca COM/Outlook desktop reale (hardware/software esterno),
+# stesso stile gia' in uso nel repo per core/voice/camera.py (webcam):
+# verificato dal vivo invece che con un mock fragile dell'import di
+# win32com.client.
+
+
+def test_calendar_intent_regex_matches_common_phrases():
+    assert outlook.CALENDAR_INTENT_RE.search("che meeting ho oggi?")
+    assert outlook.CALENDAR_INTENT_RE.search("quali riunioni ho")
+    assert outlook.CALENDAR_INTENT_RE.search("prossimo appuntamento")
+    assert outlook.CALENDAR_INTENT_RE.search("agenda di oggi")
+    assert outlook.CALENDAR_INTENT_RE.search("cosa ho in calendario")
+    assert outlook.CALENDAR_INTENT_RE.search("calendario di domani")
+
+
+def test_calendar_intent_regex_does_not_match_unrelated_text():
+    assert not outlook.CALENDAR_INTENT_RE.search("che tempo fa oggi")
+    assert not outlook.CALENDAR_INTENT_RE.search("controlla la posta")
+
+
+def _make_event(subject="Sync settimanale", hour=10, minute=0, location=""):
+    start = dt.datetime(2026, 9, 16, hour, minute)
+    return outlook.CalendarEvent(
+        subject=subject,
+        start=start,
+        end=start + dt.timedelta(minutes=30),
+        location=location,
+        entry_id=f"{subject}-{start.isoformat()}",
+    )
+
+
+def test_format_events_empty_list():
+    assert "Nessun" in outlook.format_events([], voice=False)
+    assert "Signore" in outlook.format_events([], voice=True)
+
+
+def test_format_events_voice_lists_subject_and_time():
+    events = [_make_event(subject="Standup", hour=9, minute=30)]
+    text = outlook.format_events(events, voice=True)
+    assert "Standup" in text and "09:30" in text and "Signore" in text
+
+
+def test_format_events_text_includes_location_when_present():
+    events = [_make_event(subject="Kickoff", hour=15, minute=0, location="Sala A")]
+    text = outlook.format_events(events, voice=False)
+    assert "Kickoff" in text and "Sala A" in text and "15:00" in text
+
+
+def test_format_event_reminder_voice_and_text():
+    event = _make_event(subject="Call cliente", hour=11, minute=45, location="Teams")
+    voice = outlook.format_event_reminder(event, voice=True)
+    text = outlook.format_event_reminder(event, voice=False)
+    assert "Call cliente" in voice and "Signore" in voice
+    assert "Call cliente" in text and "11:45" in text and "Teams" in text
+
+
+def test_com_time_to_datetime_strips_com_type():
+    class _FakeComTime:
+        year, month, day, hour, minute, second = 2026, 9, 16, 14, 30, 0
+
+    result = outlook._com_time_to_datetime(_FakeComTime())
+    assert result == dt.datetime(2026, 9, 16, 14, 30, 0)
