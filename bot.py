@@ -595,7 +595,13 @@ async def calendar_reminder_loop() -> None:
                 del _notified_events[k]
         except Exception as e:  # noqa: BLE001 — un blip Outlook/COM non deve mai fermare il loop
             print(f"controllo calendario fallito (ignorato): {e}")
-        await asyncio.sleep(60)
+        # 120s invece di 60: dimezza quanto spesso questo loop tiene occupato
+        # Outlook via COM in background (core/outlook.py::_COM_LOCK serializza
+        # comunque ogni accesso, ma un controllo di meno ogni tanto e' un
+        # controllo di meno che una domanda vocale reale puo' dover aspettare)
+        # — nessuna perdita pratica di precisione sulla finestra di preavviso
+        # di N minuti (default 15).
+        await asyncio.sleep(120)
 
 
 def _push_trading_status(data: list) -> None:

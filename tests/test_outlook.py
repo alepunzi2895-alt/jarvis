@@ -25,6 +25,41 @@ def test_run_in_fresh_thread_uses_a_different_thread():
     assert worker_thread != caller_thread
 
 
+def test_run_in_fresh_thread_serializes_concurrent_com_calls():
+    """_COM_LOCK deve impedire a due chiamate di sovrapporsi davvero —
+    causa reale scoperta il 2026-09-16: il loop dei promemoria calendario
+    (ogni 60s) e una domanda vocale sulla posta potevano finire a parlare
+    con Outlook.exe nello stesso istante, producendo "Server execution
+    failed" (0x80080005) ripetuto invece di un blip isolato."""
+    import time
+
+    active = []
+    overlapped = []
+
+    def _slow_call(tag):
+        active.append(tag)
+        if len(active) > 1:
+            overlapped.append(True)
+        time.sleep(0.05)
+        active.remove(tag)
+        return tag
+
+    results = []
+
+    def _worker(tag):
+        results.append(outlook._run_in_fresh_thread(_slow_call, tag))
+
+    t1 = threading.Thread(target=_worker, args=("a",))
+    t2 = threading.Thread(target=_worker, args=("b",))
+    t1.start()
+    t2.start()
+    t1.join()
+    t2.join()
+
+    assert not overlapped, "due chiamate Outlook COM sono girate in parallelo nonostante _COM_LOCK"
+    assert sorted(results) == ["a", "b"]
+
+
 def test_outlook_intent_regex_matches_common_phrases():
     assert outlook.OUTLOOK_INTENT_RE.search("controlla la posta")
     assert outlook.OUTLOOK_INTENT_RE.search("ho mail nuove?")

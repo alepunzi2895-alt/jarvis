@@ -95,6 +95,19 @@ class CalendarEvent:
 # vivo il 2026-09-15: una chiamata falliva con questo identico errore,
 # la successiva (pochi minuti dopo, nessuna modifica di configurazione)
 # e' andata a buon fine — non un problema di configurazione, un blip.
+#
+# 2026-09-16: causa reale trovata per le occorrenze RIPETUTE (non piu' un
+# blip isolato) — bot.py::calendar_reminder_loop interroga il calendario
+# ogni 60s in background, e una richiesta vocale/testuale sulla posta puo'
+# capitare nello stesso istante. Outlook.exe processa le chiamate COM in
+# arrivo in sostanza una alla volta: due thread Python diversi che aprono
+# CIASCUNO un proprio Dispatch("Outlook.Application") in parallelo si
+# scontrano lato server, non lato client — i retry da soli non bastavano
+# perche' il conflitto si ripresentava identico ad ogni nuovo tentativo se
+# l'altra chiamata era ancora in corso. _COM_LOCK serializza ogni accesso a
+# Outlook DENTRO questo processo (mail, calendario, bozze) cosi' due
+# chiamate non sono mai davvero concorrenti.
+_COM_LOCK = threading.Lock()
 _MAX_ATTEMPTS = 3
 _RETRY_DELAY_SEC = 1.5
 
@@ -109,12 +122,18 @@ def _run_in_fresh_thread(fn, *args):
     stato sporco — causa sospetta (non confermata, ma verosimile) di un
     fallimento 0x80080005 mai riprodotto isolando la stessa identica
     chiamata in un processo/thread tutto suo. Un thread dedicato per ogni
-    chiamata elimina il sospetto alla radice, a costo trascurabile."""
+    chiamata elimina il sospetto alla radice, a costo trascurabile.
+
+    _COM_LOCK serializza il lavoro vero e proprio (dentro _target, non
+    l'avvio del thread) — se due chiamate arrivano insieme, la seconda
+    aspetta che la prima finisca invece di scontrarsi con lei dentro
+    Outlook.exe."""
     result: dict = {}
 
     def _target():
         try:
-            result["value"] = fn(*args)
+            with _COM_LOCK:
+                result["value"] = fn(*args)
         except Exception as e:  # noqa: BLE001 — ripropagato tale e quale al chiamante
             result["error"] = e
 
