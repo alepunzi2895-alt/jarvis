@@ -64,3 +64,38 @@ def test_fetch_context_excludes_interaction_log_nodes_from_the_query():
 def test_fetch_context_returns_empty_string_when_no_nodes():
     with patch("core.brain._bootstrap"), patch("core.turso.execute", return_value=[]):
         assert brain.fetch_context("jarvis") == ""
+
+
+# ── search() — memoria on-demand (2026-09-16, spunto da Mark LIII) ──
+
+
+def test_search_empty_query_returns_empty_without_hitting_turso():
+    with patch("core.turso.execute") as execute:
+        assert brain.search("") == ""
+    execute.assert_not_called()
+
+
+def test_search_returns_empty_string_on_turso_error():
+    with patch("core.brain._bootstrap", side_effect=RuntimeError("turso down")):
+        assert brain.search("aura") == ""
+
+
+def test_search_excludes_interaction_log_nodes():
+    with patch("core.brain._bootstrap"), patch("core.turso.execute", return_value=[]) as execute:
+        brain.search("aura")
+    sql = execute.call_args_list[0].args[0]
+    assert "NOT LIKE '%interazione%'" in sql
+
+
+def test_search_formats_results_with_workspace_and_summary():
+    rows = [{"label": "AURA dominio", "summary": "aura-ibiza.com registrato", "workspace": "aura"}]
+    with patch("core.brain._bootstrap"), patch("core.turso.execute", return_value=rows):
+        result = brain.search("dominio")
+    assert "AURA dominio" in result
+    assert "aura-ibiza.com registrato" in result
+    assert "[aura]" in result
+
+
+def test_search_no_results():
+    with patch("core.brain._bootstrap"), patch("core.turso.execute", return_value=[]):
+        assert brain.search("qualcosa di mai visto") == ""

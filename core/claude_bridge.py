@@ -384,6 +384,23 @@ TOOLS = [
             "required": ["command"],
         },
     },
+    {
+        "name": "recall_memory",
+        "description": (
+            "Cerca nel second brain (memoria a lungo termine) oltre ai nodi gia' "
+            "iniettati in cima a questa conversazione — quelli sono solo i piu' "
+            "rilevanti/recenti (max 15), non tutto quello che JARVIS sa. Usalo "
+            "quando l'utente fa riferimento a qualcosa che sembra gia' saputo/deciso "
+            "in passato ma non e' nel contesto iniettato (es. \"cosa avevamo deciso "
+            "su X\", un progetto/dettaglio non menzionato sopra) — non per fatti "
+            "gia' visibili nel contesto, ne' per domande generiche."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {"query": {"type": "string", "description": "Parola chiave o frase breve da cercare"}},
+            "required": ["query"],
+        },
+    },
 ]
 
 
@@ -413,6 +430,12 @@ def _execute_tool(name: str, tool_input: dict, cwd: str) -> tuple[str, bool]:
         elif name == "run_command":
             run_cwd = _resolve_in_workspace(tool_input["cwd"], cwd) if tool_input.get("cwd") else cwd
             r = _system_executor.run(tool_input["command"], run_cwd)
+        elif name == "recall_memory":
+            # Non passa da SystemExecutor (nessuna whitelist/conferma da
+            # applicare, e' una query di sola lettura su Turso) — ritorna
+            # direttamente invece di costruire un ExecResult finto.
+            result = brain.search(tool_input["query"]) if turso.ENABLED else ""
+            return _truncate_tool_result(result or "Nessun risultato in memoria per questa ricerca."), False
         else:
             return f"Tool sconosciuto: {name}", True
     except Exception as e:  # noqa: BLE001 — un tool rotto non deve far crashare il loop
