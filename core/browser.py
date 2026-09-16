@@ -322,12 +322,28 @@ class BrowserAgent:
         except Exception as e:  # noqa: BLE001
             return f"Non sono riuscito a scrivere nella pagina: {e}"
 
-    async def screenshot(self) -> bytes:
+    async def screenshot(self, scoped: bool = False) -> bytes:
+        """`scoped=True` (Teams, 2026-09-16: "filtra tutto il resto che non
+        serve, vedi solo le chat e i messaggi") prova a fotografare solo la
+        regione ARIA "main" della pagina invece dell'intera finestra — su
+        una SPA con un vero landmark main (rail/nav laterali fuori da
+        <main>) esclude gia' molto rumore senza bisogno di sapere la
+        struttura DOM esatta di ogni sito. Ripiega sull'intera pagina se il
+        landmark non c'e' o la cattura scoped fallisce — MAI un errore
+        visibile per questo, e' solo un tentativo di inquadratura migliore."""
         context = await self._ensure_context()
         try:
             if not context.pages:
                 return b""
-            return await context.pages[-1].screenshot()
+            page = context.pages[-1]
+            if scoped:
+                try:
+                    main = page.get_by_role("main")
+                    if await main.count() > 0:
+                        return await main.first.screenshot()
+                except Exception:
+                    pass
+            return await page.screenshot()
         except Exception:
             await self._reset()
             return b""

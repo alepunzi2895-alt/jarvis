@@ -216,7 +216,10 @@ SYSTEM = (
     "invece di far finta di poterci accedere.\n\n"
     "Se ricevi un'immagine allegata che NON è la webcam (mostra invece Teams, "
     "Outlook, o una schermata del PC/Databricks), leggila e rispondi in base a "
-    "cosa mostra.\n\n"
+    "cosa mostra. Per Teams in particolare, filtra la UI (rail laterale, "
+    "pulsanti, ricerca) e riporta SOLO la sostanza: con chi è la chat/le chat "
+    "visibili e cosa dicono i messaggi (chi scrive + testo) — non descrivere "
+    "l'interfaccia.\n\n"
     "Per rispondere/scrivere una MAIL, aggiungi IN FONDO:\n"
     "```mail_draft\n"
     '{"to":"...","subject":"...","body":"..."}\n'
@@ -461,6 +464,23 @@ def _decode_b64_image(image_b64: str) -> bytes:
     return base64.b64decode(image_b64)
 
 
+_PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
+
+
+def _detect_image_media_type(raw: bytes) -> str:
+    """Le immagini che arrivano qui non sono sempre JPEG: la webcam
+    (core/voice/camera.py) usa cv2.imencode(".jpg", ...), ma gli screenshot
+    di Teams/schermo (core/screen_context.py) sono PNG veri (Playwright
+    page.screenshot() e GDI+ Bitmap.Save() sono PNG di default). Dichiarare
+    sempre "image/jpeg" (2026-09-14, mai notato perche' testato solo con la
+    webcam) faceva rifiutare la richiesta dall'API Anthropic con un 400
+    ogni volta che Alessandro chiedeva di leggere Teams/lo schermo
+    (segnalato 2026-09-16: "l'immagine ... appare essere una immagine
+    image/png"). Sniffing sui byte magici invece di passare un parametro in
+    piu' ovunque: i due formati coprono gia' tutte le sorgenti reali."""
+    return "image/png" if raw.startswith(_PNG_MAGIC) else "image/jpeg"
+
+
 async def _build_user_content(prompt: str, image_b64: str | None) -> str | list[dict]:
     """Come core/claude_api.py::_build_messages() per la parte immagine —
     duplicato apposta invece di importarlo da li' (evita un ciclo di import,
@@ -496,7 +516,11 @@ async def _build_user_content(prompt: str, image_b64: str | None) -> str | list[
     return [
         {
             "type": "image",
-            "source": {"type": "base64", "media_type": "image/jpeg", "data": base64.b64encode(raw).decode("ascii")},
+            "source": {
+                "type": "base64",
+                "media_type": _detect_image_media_type(raw),
+                "data": base64.b64encode(raw).decode("ascii"),
+            },
         },
         {"type": "text", "text": text},
     ]

@@ -97,7 +97,17 @@ _TIME_RE = re.compile(
     r"\bche\s+or[ae]\s+(?:è|e'|sono|fa)\b|\bche\s+giorno\s+(?:è|e')\b|\bche\s+data\s+(?:è|e')\b",
     re.IGNORECASE,
 )
-_WEATHER_RE = re.compile(r"\bche\s+tempo\s+fa\b", re.IGNORECASE)
+# 2026-09-16: "il tempo fara' domani" (previsione) non incrociava
+# l'originale "che tempo fa" (solo presente, solo oggi) — cadeva su Claude,
+# che ha in contesto SOLO il meteo di OGGI (iniettato ambient nel system
+# prompt) e nessun tool/dato per domani, quindi rispondeva onestamente di
+# non avere accesso e apriva una ricerca Google invece di una risposta
+# vera. "meteo"/"previsioni" da soli sono parole inequivocabili (mai
+# ambigue con "tempo" nel senso di durata), aggiunte per coprire piu'
+# fraseggi senza restringersi alla sola coniugazione "fa".
+_WEATHER_RE = re.compile(
+    r"\bche\s+tempo\s+f(?:a|ar[àa])\b|\bmeteo\b|\bprevisioni\b", re.IGNORECASE
+)
 
 # "jarvis stop" mentre sta parlando (2026-09-16): il barge-in
 # (web_bridge.py::poll_web_queue, tts.stop_current_speech()) gia' interrompe
@@ -161,7 +171,7 @@ def parse_intent(text: str) -> dict | None:
     if _TIME_RE.search(t):
         return {"type": "time"}
     if _WEATHER_RE.search(t):
-        return {"type": "weather"}
+        return {"type": "weather", "day": "domani" if re.search(r"\bdomani\b", t, re.IGNORECASE) else "oggi"}
 
     from core.outlook import CALENDAR_INTENT_RE, OUTLOOK_INTENT_RE, UNREAD_COUNT_RE  # import qui: evita pywin32 se l'intent non serve mai
 
@@ -300,7 +310,7 @@ def _execute(intent: dict, executor: SystemExecutor, voice: bool) -> str:
     if kind == "weather":
         from core import weather  # import qui: evita l'overhead di rete/requests se l'intent non serve mai
 
-        line = weather.get_weather_line()
+        line = weather.format_tomorrow_line() if intent.get("day") == "domani" else weather.get_weather_line()
         if not line:
             return f"Non riesco a controllare il meteo in questo momento{sir}."
         return f"{line}{sir}."

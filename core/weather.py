@@ -166,6 +166,23 @@ def get_weekly_forecast() -> dict | None:
         return None
 
 
+def format_tomorrow_line() -> str | None:
+    """Come get_weather_line() ma per DOMANI — riusa get_weekly_forecast()
+    (gia' esistente per il pannello meteo della dashboard) invece di
+    "current": il system prompt inietta solo il meteo di OGGI, quindi
+    "che tempo fara' domani" non aveva nessuna fonte dati reale e Claude
+    rispondeva onestamente aprendo una ricerca Google al posto di una
+    risposta vera (segnalato da Alessandro, 2026-09-16)."""
+    data = get_weekly_forecast()
+    if not data or len(data["days"]) < 2:
+        return None
+    day = data["days"][1]  # days[0] = oggi (forecast_days=7, timezone="auto")
+    if day["high"] is None or day["low"] is None:
+        return None
+    desc = day["description"] or "condizioni non disponibili"
+    return f"Domani {desc}, min {day['low']}°C max {day['high']}°C ({data['place']})"
+
+
 def get_weather_line() -> str | None:
     """Meteo attuale come riga breve, pronta da iniettare nel system prompt.
     Best-effort: None se posizione/rete non disponibili, mai un'eccezione —

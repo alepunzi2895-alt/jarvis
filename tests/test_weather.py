@@ -122,6 +122,45 @@ def test_get_weekly_forecast_returns_none_when_no_location_resolvable(monkeypatc
         assert weather.get_weekly_forecast() is None
 
 
+def test_format_tomorrow_line_uses_second_day_of_forecast(monkeypatch):
+    monkeypatch.setenv("JARVIS_WEATHER_LAT", "38.9")
+    monkeypatch.setenv("JARVIS_WEATHER_LON", "1.43")
+    monkeypatch.setenv("JARVIS_WEATHER_CITY", "Santa Eulària des Riu")
+
+    resp = _fake_response(
+        {
+            "daily": {
+                "time": ["2026-09-16", "2026-09-17"],
+                "weather_code": [0, 61],
+                "temperature_2m_max": [29.4, 24.6],
+                "temperature_2m_min": [21.5, 20.1],
+            }
+        }
+    )
+    with patch("core.weather.requests.get", return_value=resp):
+        line = weather.format_tomorrow_line()
+
+    assert "Domani" in line
+    assert "pioggia leggera" in line  # days[1], non days[0] ("cielo sereno")
+    assert "20" in line and "25" in line  # round(20.1)=20, round(24.6)=25
+    assert "Santa Eulària des Riu" in line
+
+
+def test_format_tomorrow_line_returns_none_when_forecast_too_short(monkeypatch):
+    monkeypatch.setenv("JARVIS_WEATHER_LAT", "38.9")
+    monkeypatch.setenv("JARVIS_WEATHER_LON", "1.43")
+    resp = _fake_response({"daily": {"time": ["2026-09-16"], "weather_code": [0], "temperature_2m_max": [29.4], "temperature_2m_min": [21.5]}})
+    with patch("core.weather.requests.get", return_value=resp):
+        assert weather.format_tomorrow_line() is None
+
+
+def test_format_tomorrow_line_returns_none_on_network_error(monkeypatch):
+    monkeypatch.setenv("JARVIS_WEATHER_LAT", "38.9")
+    monkeypatch.setenv("JARVIS_WEATHER_LON", "1.43")
+    with patch("core.weather.requests.get", side_effect=requests.exceptions.ConnectionError("no network")):
+        assert weather.format_tomorrow_line() is None
+
+
 def test_get_weather_line_returns_none_when_no_location_resolvable(monkeypatch):
     monkeypatch.delenv("JARVIS_WEATHER_LAT", raising=False)
     monkeypatch.delenv("JARVIS_WEATHER_LON", raising=False)

@@ -83,7 +83,18 @@ def test_parse_intent_time_and_weather():
     assert intents.parse_intent("che ora è") == {"type": "time"}
     assert intents.parse_intent("che ore sono") == {"type": "time"}
     assert intents.parse_intent("che giorno è oggi") == {"type": "time"}
-    assert intents.parse_intent("che tempo fa oggi") == {"type": "weather"}
+    assert intents.parse_intent("che tempo fa oggi") == {"type": "weather", "day": "oggi"}
+
+
+def test_parse_intent_weather_tomorrow_forecast():
+    # 2026-09-16: "il tempo fara' domani" (coniugazione al futuro, non
+    # "che tempo fa") non incrociava l'originale — cadeva su Claude, che ha
+    # in contesto solo il meteo di OGGI e apriva una ricerca Google invece
+    # di rispondere davvero.
+    assert intents.parse_intent("che tempo farà domani") == {"type": "weather", "day": "domani"}
+    assert intents.parse_intent("meteo domani") == {"type": "weather", "day": "domani"}
+    assert intents.parse_intent("previsioni di domani") == {"type": "weather", "day": "domani"}
+    assert intents.parse_intent("che meteo c'è") == {"type": "weather", "day": "oggi"}
 
 
 def test_execute_intent_time_returns_formatted_datetime():
@@ -104,6 +115,16 @@ def test_execute_intent_weather_degrades_gracefully_when_unavailable(monkeypatch
     monkeypatch.setattr("core.weather.get_weather_line", lambda: None)
     result = intents.execute_intent({"type": "weather"}, executor, voice=False)
     assert "non riesco" in result.lower()
+
+
+def test_execute_intent_weather_tomorrow_uses_forecast_not_current(monkeypatch):
+    executor = MagicMock()
+    current_fn = MagicMock(return_value="22°C, cielo sereno")
+    monkeypatch.setattr("core.weather.get_weather_line", current_fn)
+    monkeypatch.setattr("core.weather.format_tomorrow_line", lambda: "Domani nuvoloso, min 14°C max 20°C (Ibiza)")
+    result = intents.execute_intent({"type": "weather", "day": "domani"}, executor, voice=False)
+    assert "Domani nuvoloso" in result
+    current_fn.assert_not_called()
 
 
 def test_long_compound_requests_are_left_to_claude():
