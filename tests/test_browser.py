@@ -96,6 +96,7 @@ def test_click_no_pages_open():
 
 def test_type_text_uses_already_focused_element():
     page = MagicMock()
+    page.url = "https://example.com/page"
     page.evaluate = AsyncMock(return_value="TEXTAREA:")
     page.locator = MagicMock()
     page.keyboard = MagicMock()
@@ -111,6 +112,7 @@ def test_type_text_uses_already_focused_element():
 
 def test_type_text_falls_back_to_last_input_when_nothing_focused():
     page = MagicMock()
+    page.url = "https://example.com/page"
     page.evaluate = AsyncMock(return_value="BODY:")
     locator = MagicMock()
     locator.last.click = AsyncMock()
@@ -128,6 +130,53 @@ def test_type_text_falls_back_to_last_input_when_nothing_focused():
 def test_type_text_no_pages_open():
     agent, _ = _agent_with_fake_pages([])
     assert "nessuna pagina" in asyncio.run(agent.type_text("x")).lower()
+
+
+# ── draft-mode forzato su Teams/Outlook (mai invio automatico, a livello di
+# codice non solo di prompt — richiesta esplicita di Alessandro, 2026-09-16) ──
+
+def test_type_text_forces_draft_on_teams_even_if_submit_true():
+    page = MagicMock()
+    page.url = "https://teams.microsoft.com/v2/"
+    page.evaluate = AsyncMock(return_value="TEXTAREA:")
+    page.keyboard = MagicMock()
+    page.keyboard.type = AsyncMock()
+    page.keyboard.press = AsyncMock()
+    agent, _ = _agent_with_fake_pages([page])
+
+    result = asyncio.run(agent.type_text("ciao", submit=True))
+
+    page.keyboard.press.assert_not_called()  # mai Invio, a prescindere da submit=True
+    assert "bozza" in result.lower()
+
+
+def test_type_text_forces_draft_on_outlook_web():
+    page = MagicMock()
+    page.url = "https://outlook.office.com/mail/inbox"
+    page.evaluate = AsyncMock(return_value="TEXTAREA:")
+    page.keyboard = MagicMock()
+    page.keyboard.type = AsyncMock()
+    page.keyboard.press = AsyncMock()
+    agent, _ = _agent_with_fake_pages([page])
+
+    asyncio.run(agent.type_text("ciao", submit=True))
+
+    page.keyboard.press.assert_not_called()
+
+
+def test_type_text_does_not_force_draft_on_other_sites():
+    page = MagicMock()
+    page.url = "https://www.google.com/search?q=x"
+    page.evaluate = AsyncMock(return_value="TEXTAREA:")
+    page.keyboard = MagicMock()
+    page.keyboard.type = AsyncMock()
+    page.keyboard.press = AsyncMock()
+    agent, _ = _agent_with_fake_pages([page])
+
+    result = asyncio.run(agent.type_text("ciao", submit=True))
+
+    page.keyboard.press.assert_awaited_once_with("Enter")
+    assert "bozza" not in result.lower()
 
 
 def test_extract_and_execute_dispatches_read_click_type():

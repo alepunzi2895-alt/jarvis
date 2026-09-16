@@ -60,6 +60,33 @@ _PROJECT_STATUS_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Briefing mattutino unificato (core/briefing.py) — richiesta esplicita di
+# Alessandro (2026-09-16). "buongiorno" da solo (nessun'altra parola oltre
+# punteggiatura) e' il trigger naturale; ANCORATO a inizio/fine frase per
+# non "rubare" un comando composto come "buongiorno, apri chrome" — le
+# altre frasi (briefing/punto della giornata/...) sono gia' inequivocabili
+# di per se', non serve la stessa cautela.
+_BRIEFING_RE = re.compile(
+    r"^buongiorno\W*$"
+    r"|\bbrief(?:ing)?\b"
+    r"|\bpunto della giornata\b"
+    r"|\briassunto della giornata\b"
+    r"|\baggiornami su tutto\b",
+    re.IGNORECASE,
+)
+
+# P&L trading reale (core/myfxbook.py) — richiede sempre un riferimento
+# esplicito al trading/oro, non solo "quanto guadagno" (troppo generico,
+# rischierebbe di intercettare domande non-trading).
+_TRADING_PNL_RE = re.compile(
+    r"\bcome\s+va\s+il\s+trading\b"
+    r"|\bp\s*&?\s*l\s+trading\b"
+    r"|\bquanto\s+(?:sto\s+)?guadagn\w*\b.*\b(trading|xau|oro|myfxbook)\b"
+    r"|\bcome\s+va\s+(?:l')?oro\b"
+    r"|\bcome\s+va\s+xau\b",
+    re.IGNORECASE,
+)
+
 # Domande banali che Claude rispondeva gia' correttamente (il SYSTEM prompt
 # inietta data/ora/meteo) ma passando comunque da un giro API intero (~3s
 # misurati dal vivo il 2026-09-15, contro pressoche' zero qui) — richiesta
@@ -112,6 +139,10 @@ def parse_intent(text: str) -> dict | None:
 
     if _PROJECT_STATUS_RE.search(t):
         return {"type": "project_status"}
+    if _BRIEFING_RE.search(t):
+        return {"type": "briefing"}
+    if _TRADING_PNL_RE.search(t):
+        return {"type": "trading_pnl"}
 
     if _TIME_RE.search(t):
         return {"type": "time"}
@@ -216,6 +247,26 @@ def _execute(intent: dict, executor: SystemExecutor, voice: bool) -> str:
         from core import project_status  # import qui: evita l'overhead se l'intent non serve mai
 
         return project_status.format_report(project_status.check_all(executor), voice=voice)
+
+    if kind == "briefing":
+        from core import briefing  # import qui: evita l'overhead (meteo/Outlook/git) se l'intent non serve mai
+
+        return briefing.format_briefing(briefing.gather_briefing_data(executor), voice=voice)
+
+    if kind == "trading_pnl":
+        from core import myfxbook  # import qui: evita l'overhead di rete se l'intent non serve mai
+
+        if not myfxbook.ENABLED:
+            return (
+                "Myfxbook non configurato, Signore."
+                if voice
+                else "Myfxbook non configurato — aggiungi MYFXBOOK_EMAIL/MYFXBOOK_PASSWORD al .env."
+            )
+        try:
+            accounts = myfxbook.get_accounts_sync()
+        except myfxbook.MyfxbookError as e:
+            return str(e)
+        return myfxbook.format_accounts(accounts, voice=voice)
 
     if kind == "time":
         from datetime import datetime

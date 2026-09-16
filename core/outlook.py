@@ -4,9 +4,16 @@ Riusa la sessione GIA' autenticata del client Outlook classico installato
 su questa macchina — zero credenziali/OAuth da gestire, ma richiede
 Outlook desktop installato (e piu' affidabile se e' anche aperto).
 
-Sola lettura, sempre: nessuna funzione qui chiama .Send()/.Delete()/.Move()
-su un oggetto Outlook — solo proprieta' lette da MAPIFolder.Items. Stessa
-filosofia di core/browser.py per Teams: leggere si', agire mai da soli.
+Sola lettura per la posta esistente: nessuna funzione qui chiama .Send()/
+.Delete()/.Move() su un oggetto Outlook gia' arrivato — solo proprieta'
+lette da MAPIFolder.Items. Stessa filosofia di core/browser.py per Teams:
+leggere si', agire mai da soli.
+
+Unica eccezione, sicura per costruzione: create_draft_email() chiama SOLO
+.Save() su un MailItem nuovo (mai .Send()) — il messaggio finisce nella
+cartella Bozze di Outlook, mai spedito, resta sempre sotto il controllo di
+Alessandro. Coerente con la regola "mai inviare messaggi senza conferma
+esplicita" gia' in CLAUDE.md.
 """
 
 from __future__ import annotations
@@ -288,6 +295,38 @@ async def get_upcoming_events(minutes_ahead: int = 20) -> list[CalendarEvent]:
 def get_upcoming_events_sync(minutes_ahead: int = 20) -> list[CalendarEvent]:
     """Per chiamanti gia' sincroni (core/intents.py) — vedi list_recent_emails_sync."""
     return _run_in_fresh_thread(_fetch_upcoming_sync, minutes_ahead)
+
+
+def _create_draft_sync(to: str, subject: str, body: str) -> str:
+    """CreateItem(0) = olMailItem. .Save() su un item MAI aperto con .Send()
+    lo deposita nella cartella Bozze — comportamento COM standard, non serve
+    specificare la cartella. Nessun .Send() esiste in questo modulo: e'
+    strutturalmente impossibile che questa funzione spedisca qualcosa."""
+    try:
+        import pythoncom
+        import win32com.client
+    except ImportError as e:
+        raise OutlookError(f"pywin32 non installato: {e}") from e
+
+    pythoncom.CoInitialize()
+    try:
+        outlook = win32com.client.Dispatch("Outlook.Application")
+        mail = outlook.CreateItem(0)
+        mail.To = to
+        mail.Subject = subject
+        mail.Body = body
+        mail.Save()
+        return f'Bozza creata in Outlook per "{to}" — controllala e invia tu, JARVIS non invia mai mail da solo.'
+    except Exception as e:  # noqa: BLE001 — COM puo' fallire in tanti modi diversi
+        raise OutlookError(f"Impossibile creare la bozza: {e}") from e
+    finally:
+        pythoncom.CoUninitialize()
+
+
+async def create_draft_email(to: str, subject: str, body: str) -> str:
+    import asyncio
+
+    return await asyncio.to_thread(_run_in_fresh_thread, _create_draft_sync, to, subject, body)
 
 
 async def count_unread_emails() -> int:

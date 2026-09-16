@@ -28,7 +28,7 @@ from pathlib import Path
 import anthropic
 from dotenv import load_dotenv
 
-from core import turso, brain, browser, databricks, persona, system_actions, weather
+from core import turso, brain, browser, databricks, mail_actions, persona, system_actions, weather
 from core.executor_singleton import executor as _system_executor
 from core.voice import face_id
 
@@ -72,6 +72,14 @@ WORKSPACES = {
     "trading": os.getenv("WS_TRADING", str(JARVIS_HOME)),
     "isabela": os.getenv("WS_ISABELA", str(JARVIS_HOME)),
     "vino": os.getenv("WS_VINO", str(JARVIS_HOME)),
+    # EnvironmentRouter, blocco B — solo il routing verso il repo/ambiente
+    # Iveco (Databricks/Qlik/PySpark), richiesta esplicita di Alessandro
+    # (2026-09-16): "solo routing Iveco", niente altri MCP server per ora.
+    # Genie/dbSQL (core/databricks.py) restano disponibili SEMPRE, a
+    # prescindere dal workspace attivo — questa voce serve solo per
+    # read_file/write_file/run_command e per il second brain quando si
+    # parla esplicitamente di lavoro Iveco.
+    "iveco": os.getenv("WS_IVECO", str(JARVIS_HOME)),
 }
 
 # Riconoscimento automatico del progetto dal testo del task — richiesta
@@ -87,6 +95,7 @@ _WORKSPACE_KEYWORDS: dict[str, tuple[str, ...]] = {
     "trading": ("tradeflow", "trading", "xau", "forex", "mt4", "mt5", "expert advisor", "backtest"),
     "isabela": ("isabela",),
     "vino": ("vinitalimport", "vino", "cantina", "bottigli"),
+    "iveco": ("iveco", "databricks", "qlik", "unity catalog", "pyspark", "genie", "dbsql"),
 }
 
 
@@ -199,11 +208,28 @@ SYSTEM = (
     "invece di far finta di poterci accedere.\n\n"
     "Se ricevi un'immagine allegata che NON è la webcam (mostra invece Teams, "
     "Outlook, o una schermata del PC/Databricks), leggila e rispondi in base a "
-    "cosa mostra. Se ti viene chiesto di 'rispondere' a un messaggio Teams o a "
-    "una mail, scrivi solo una bozza di testo nella tua risposta normale — non "
-    "hai nessun modo di inviarla tu stesso, dev'essere l'utente a copiarla e "
-    "mandarla di persona. Non affermare mai di aver inviato o pubblicato "
-    "qualcosa su Teams/Outlook: non puoi farlo.\n\n"
+    "cosa mostra.\n\n"
+    "Se l'utente chiede di rispondere/scrivere una MAIL (non un messaggio "
+    "Teams — quello sotto), NON limitarti a scrivere il testo nella risposta: "
+    "aggiungi IN FONDO un blocco\n"
+    "```mail_draft\n"
+    '{"to":"...","subject":"...","body":"..."}\n'
+    "```\n"
+    "Crea una vera bozza nella cartella Bozze di Outlook (mai inviata: solo "
+    ".Save(), MAI .Send() — strutturalmente impossibile che parta da sola). "
+    "Resta comunque l'utente a doverla rivedere e inviare di persona: non "
+    "affermare mai di aver spedito una mail, tu prepari solo la bozza.\n\n"
+    "Se l'utente chiede di rispondere/scrivere su Teams e la pagina Teams "
+    "risulta gia' aperta e loggata nel browser di JARVIS (controllalo con "
+    "```browser``` {\"action\":\"read\"} prima di agire — se non e' loggato "
+    "o non trovi la chat, dillo e ripiega su una bozza scritta a parole nella "
+    "risposta), scrivi il messaggio direttamente nel campo di composizione "
+    "con ```browser``` {\"action\":\"type\",\"text\":\"...\",\"submit\":false}: "
+    "il codice forza comunque submit a false su teams.microsoft.com e "
+    "outlook.office.com a prescindere da cosa chiedi, quindi non verra' mai "
+    "inviato da solo — lascialo li' pronto, dì all'utente di controllarlo e "
+    "inviarlo lui. Non affermare mai di aver inviato o pubblicato qualcosa su "
+    "Teams/Outlook: non puoi farlo, in nessun caso.\n\n"
     "Hai accesso a strumenti reali per leggere/scrivere file ed eseguire comandi "
     "(read_file/write_file/list_dir/run_command) nel workspace corrente o in un "
     "altro progetto autorizzato — usali quando il task lo richiede davvero "
@@ -275,6 +301,8 @@ async def _run_post_processing(text: str, ws: str, original_prompt: str, channel
         threading.Thread(target=brain.log_interaction, args=(original_prompt, ws, channel), daemon=True).start()
     if text:
         text = await browser.extract_and_execute(text)
+    if text:
+        text = await mail_actions.extract_and_execute(text)
     if text:
         text = await databricks.extract_and_execute(text)
     if text:
