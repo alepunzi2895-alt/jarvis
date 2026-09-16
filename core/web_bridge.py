@@ -62,9 +62,20 @@ _HALLUCINATION_PHRASES = {
 # ..."/"Ok Jarvis..."), non in un punto qualunque di una frase lunga —
 # altrimenti un'allucinazione/rumore di sottofondo che nomina "arvis" a
 # meta' frase (es. dentro un discorso captato per sbaglio) verrebbe presa
-# per un comando reale. 24 caratteri copre comodamente "ehi jarvis"/
-# "ok jarvis"/"ciao jarvis" piu' un margine.
-_WAKE_WORD_MAX_START = 24
+# per un comando reale.
+#
+# 2026-09-16: alzato da 24 a 40 — segnalato "non intercetta piu' il
+# comando vocale", causa reale trovata in logs/bot.log: un comando VERO
+# ("Jarvis, che tempo farà domani?") scartato perche' whisper aveva
+# trascritto un frammento di rumore/allucinazione PRIMA della parola
+# d'attivazione ("È una sbarpa di caggina. Jarvis..."), spostando "Jarvis"
+# al carattere 26 — appena 2 sopra la soglia di allora. Il vero caso da
+# respingere (wake word sepolta dentro una frase lunga, non un breve
+# prefisso rumoroso) resta a ~90 caratteri nel test dedicato — 40 lascia
+# ancora un margine enorme rispetto a quello, coprendo pero' prefissi di
+# rumore piu' lunghi delle 2-3 parole ("ehi jarvis"/"ok jarvis") coperte
+# dalla soglia precedente.
+_WAKE_WORD_MAX_START = 40
 
 
 def _strip_wake_word(text: str) -> str | None:
