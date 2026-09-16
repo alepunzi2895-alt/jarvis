@@ -63,6 +63,48 @@ def test_wake_word_still_matches_with_short_lead_in():
     assert _strip_wake_word("ok, adesso jarvis apri chrome") == "apri chrome"
 
 
+# ── _claim_next_task: "ad ogni domanda nuova killa tutti i vecchi
+# processi" (Alessandro, 2026-09-16) — reclama solo il piu' recente
+# "pending", marca gli altri "superseded" invece di rispondere in ordine
+# a domande ormai superate.
+
+
+def test_claim_next_task_supersedes_older_pending_tasks(monkeypatch):
+    select_calls = {"n": 0}
+    executed: list[tuple[str, list | None]] = []
+
+    def fake_execute(query, params=None):
+        executed.append((query, params))
+        if query.startswith("SELECT"):
+            select_calls["n"] += 1
+            return [{
+                "id": "newest", "channel": "web", "workspace": "jarvis",
+                "prompt": "il più recente", "image_b64": None, "audio_b64": None,
+            }]
+        return []
+
+    monkeypatch.setattr(web_bridge.turso, "execute", fake_execute)
+
+    task = asyncio.run(web_bridge._claim_next_task())
+
+    assert task["id"] == "newest"
+    # SELECT ordina DESC (il piu' recente prima), non ASC come prima del fix.
+    assert "ORDER BY created_at DESC" in executed[0][0]
+    supersede_calls = [q for q, _p in executed if "superseded" in q]
+    assert len(supersede_calls) == 1
+    assert supersede_calls[0].startswith("UPDATE") and "id != ?" in supersede_calls[0]
+    running_calls = [q for q, p in executed if "'running'" in q]
+    assert len(running_calls) == 1
+
+
+def test_claim_next_task_no_pending_returns_none(monkeypatch):
+    def fake_execute(query, params=None):
+        return [] if query.startswith("SELECT") else None
+
+    monkeypatch.setattr(web_bridge.turso, "execute", fake_execute)
+    assert asyncio.run(web_bridge._claim_next_task()) is None
+
+
 class _StopLoop(Exception):
     """Interrompe poll_web_queue() dopo un ciclo, per testarlo senza
     farlo girare per sempre (e' un while True)."""

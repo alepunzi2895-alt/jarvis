@@ -84,14 +84,28 @@ def _strip_wake_word(text: str) -> str | None:
 
 
 async def _claim_next_task() -> dict | None:
+    """Reclama SOLO il task piu' recente in coda — se il mic a mani libere
+    (o piu' messaggi testuali di fila) ne hanno accumulati altri piu'
+    vecchi ancora "pending" mentre il precedente era in elaborazione, li
+    marca 'superseded' invece di rispondere anche a quelli in ordine.
+    Richiesta esplicita di Alessandro (2026-09-16): "ogni tanto prosegue a
+    rispondere con vecchie domande" -> "ad ogni domanda nuova killa tutti
+    i vecchi processi". Non e' una cancellazione vera di un task GIA' in
+    elaborazione (questo loop e' seriale, non c'e' mai piu' di un task
+    "running" alla volta) — riguarda solo il backlog non ancora iniziato."""
     def work():
         rows = turso.execute(
             "SELECT id, channel, workspace, prompt, image_b64, audio_b64 FROM tasks "
-            "WHERE status='pending' ORDER BY created_at ASC LIMIT 1"
+            "WHERE status='pending' ORDER BY created_at DESC LIMIT 1"
         )
         if not rows:
             return None
         task = rows[0]
+        turso.execute(
+            "UPDATE tasks SET status='superseded', updated_at=CURRENT_TIMESTAMP "
+            "WHERE status='pending' AND id != ?",
+            [task["id"]],
+        )
         turso.execute(
             "UPDATE tasks SET status='running', updated_at=CURRENT_TIMESTAMP WHERE id=?",
             [task["id"]],

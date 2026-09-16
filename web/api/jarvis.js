@@ -144,12 +144,19 @@ async function tasksRecent(db, req, body) {
 
 async function taskGet(db, body) {
   requireBotAuth(body);
+  // Solo il piu' recente "pending" — gli altri ancora in coda vengono
+  // marcati 'superseded' invece di essere risposti in ordine dopo di lui
+  // (stesso fix di core/web_bridge.py::_claim_next_task, 2026-09-16).
   const pending = await db.execute({
-    sql: "SELECT id, workspace, prompt, image_b64 FROM tasks WHERE status='pending' ORDER BY created_at ASC LIMIT 1",
+    sql: "SELECT id, workspace, prompt, image_b64 FROM tasks WHERE status='pending' ORDER BY created_at DESC LIMIT 1",
     args: [],
   });
   if (!pending.rows.length) return { ok: true, task: null };
   const task = pending.rows[0];
+  await db.execute({
+    sql: "UPDATE tasks SET status='superseded', updated_at=CURRENT_TIMESTAMP WHERE status='pending' AND id != ?",
+    args: [task.id],
+  });
   await db.execute({
     sql: "UPDATE tasks SET status='running', updated_at=CURRENT_TIMESTAMP WHERE id=?",
     args: [task.id],

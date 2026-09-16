@@ -184,6 +184,13 @@ async function pollTask(taskId, el) {
     await new Promise((r) => setTimeout(r, 1500));
     try {
       const { task } = await api("task_poll", { task_id: taskId });
+      // "superseded" (2026-09-16): una domanda piu' recente ha sostituito
+      // questa prima che partisse — non e' un errore/timeout, dillo chiaro
+      // invece di lasciar scadere i 200 tentativi con un falso "Timeout".
+      if (task.status === "superseded") {
+        fillEntry(el, { status: "done", result: "Sostituita da una domanda più recente." });
+        return;
+      }
       if (task.status === "done" || task.status === "error") {
         fillEntry(el, task);
         return;
@@ -604,6 +611,13 @@ async function pollTranscribedTask(taskId, el) {
     }
 
     if (task.status === "ignored") {
+      el.remove();
+      if (orbState === "thinking") setOrbState("idle");
+      return;
+    }
+    if (task.status === "superseded") {
+      // Come "ignored": una domanda vocale piu' recente l'ha gia'
+      // sostituita, rimossa in silenzio invece di mostrare un "Timeout".
       el.remove();
       if (orbState === "thinking") setOrbState("idle");
       return;
