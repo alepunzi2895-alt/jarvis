@@ -149,6 +149,16 @@ def test_calendar_intent_regex_does_not_match_unrelated_text():
     assert not outlook.CALENDAR_INTENT_RE.search("controlla la posta")
 
 
+def test_calendar_intent_regex_matches_stt_garbled_phrasing():
+    # 2026-09-16: "dimmi che riunioni ho in programma domani" trascritto
+    # dalla STT come sotto (il verbo "ho" mangiato) non incrociava nessuna
+    # delle alternative originali — la domanda cadeva su Claude, che non ha
+    # nessun accesso al calendario, rispondendo "non posso collegarmi".
+    assert outlook.CALENDAR_INTENT_RE.search("dici che riunioni un programma domani")
+    assert outlook.CALENDAR_INTENT_RE.search("impegni di domani")
+    assert outlook.CALENDAR_INTENT_RE.search("domani ho riunioni")
+
+
 def _make_event(subject="Sync settimanale", hour=10, minute=0, location=""):
     start = dt.datetime(2026, 9, 16, hour, minute)
     return outlook.CalendarEvent(
@@ -175,6 +185,14 @@ def test_format_events_text_includes_location_when_present():
     events = [_make_event(subject="Kickoff", hour=15, minute=0, location="Sala A")]
     text = outlook.format_events(events, voice=False)
     assert "Kickoff" in text and "Sala A" in text and "15:00" in text
+
+
+def test_format_events_day_label_domani():
+    events = [_make_event(subject="Standup", hour=9, minute=30)]
+    voice = outlook.format_events(events, voice=True, day="domani")
+    text = outlook.format_events([], voice=False, day="domani")
+    assert "domani" in voice
+    assert "domani" in text
 
 
 def test_format_event_reminder_voice_and_text():

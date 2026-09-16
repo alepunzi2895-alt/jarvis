@@ -99,6 +99,17 @@ _TIME_RE = re.compile(
 )
 _WEATHER_RE = re.compile(r"\bche\s+tempo\s+fa\b", re.IGNORECASE)
 
+# "jarvis stop" mentre sta parlando (2026-09-16): il barge-in
+# (web_bridge.py::poll_web_queue, tts.stop_current_speech()) gia' interrompe
+# l'audio in corso su QUALUNQUE nuovo comando con la parola d'attivazione —
+# "stop" da solo pero' non era un intent riconosciuto, quindi dopo
+# l'interruzione cadeva su Claude come un comando vero e proprio, che
+# generava una risposta nuova e JARVIS ricominciava subito a parlare
+# (l'opposto di quello che voleva). Ancorato a inizio/fine frase come
+# _BRIEFING_RE: "stop" da solo, non come sostantivo dentro una frase piu'
+# lunga (che comunque non arriverebbe qui, essendo oltre _MAX_WORDS di rado).
+_STOP_RE = re.compile(r"^(?:stop|basta|fermati|smettila|taci|zitto|silenzio)\W*$", re.IGNORECASE)
+
 # Nomi giorni in italiano hardcoded invece di strftime("%A"): dipende dal
 # locale di sistema, che su questa macchina Windows non e' garantito essere
 # italiano (stesso principio gia' seguito altrove nel repo per evitare
@@ -113,6 +124,9 @@ def parse_intent(text: str) -> dict | None:
     t = text.strip()
     if not t or len(t.split()) > _MAX_WORDS:
         return None
+
+    if _STOP_RE.match(t):
+        return {"type": "stop"}
 
     if _SHUTDOWN_RE.search(t):
         return {"type": "power", "mode": "shutdown"}
@@ -156,7 +170,9 @@ def parse_intent(text: str) -> dict | None:
         # diversa e piu' efficiente (vedi core/outlook.py::count_unread_emails*).
         return {"type": "outlook", "unread_count": bool(UNREAD_COUNT_RE.search(t))}
     if CALENDAR_INTENT_RE.search(t):
-        return {"type": "calendar"}
+        from core.outlook import _TOMORROW_RE  # stesso modulo, import gia' fatto sopra
+
+        return {"type": "calendar", "day": "domani" if _TOMORROW_RE.search(t) else "oggi"}
 
     low = t.lower()
     for app in _APP_NAMES:
@@ -203,6 +219,12 @@ def execute_intent(
 def _execute(intent: dict, executor: SystemExecutor, voice: bool) -> str:
     kind = intent["type"]
     sir = ", Signore" if voice else ""
+
+    if kind == "stop":
+        from core.voice import tts  # import qui: evita di caricare sounddevice/edge-tts se l'intent non serve mai
+
+        tts.stop_current_speech()
+        return "Silenzio."
 
     if kind == "power":
         if voice:
@@ -297,10 +319,16 @@ def _execute(intent: dict, executor: SystemExecutor, voice: bool) -> str:
     if kind == "calendar":
         from core import outlook  # import qui: evita di caricare pywin32 se l'intent non serve mai
 
+        day = intent.get("day", "oggi")
         try:
-            events = outlook.get_upcoming_events_sync(minutes_ahead=12 * 60)
+            if day == "domani":
+                import datetime as _dt
+
+                events = outlook.get_events_for_day_sync(_dt.date.today() + _dt.timedelta(days=1))
+            else:
+                events = outlook.get_upcoming_events_sync(minutes_ahead=12 * 60)
         except outlook.OutlookError as e:
             return str(e)
-        return outlook.format_events(events, voice=voice)
+        return outlook.format_events(events, voice=voice, day=day)
 
     return "Comando riconosciuto ma non ancora gestito."
