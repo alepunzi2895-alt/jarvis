@@ -117,6 +117,55 @@ def test_claim_next_task_no_pending_returns_none(monkeypatch):
     assert asyncio.run(web_bridge._claim_next_task()) is None
 
 
+def test_run_claude_timeout_keeps_queue_responsive(monkeypatch):
+    """2026-09-16: un comando reale ("apri chrome e metti Battiato su
+    YouTube") ha bloccato l'intero poller — nessuna nuova riga in bot.log,
+    CPU ferma, per minuti. Con RUN_CLAUDE_TIMEOUT_SEC un run_claude() che
+    non ritorna mai non deve piu' bloccare il loop per sempre: il task va
+    comunque in "done" con un messaggio onesto, cosi' il prossimo task in
+    coda viene comunque processato."""
+    calls = {"select": 0}
+    updates: list[tuple[str, list]] = []
+
+    def fake_execute(query, params=None):
+        if query.startswith("SELECT"):
+            calls["select"] += 1
+            if calls["select"] > 1:
+                raise _StopLoop()
+            return [{
+                "id": "t1", "channel": "web", "workspace": "jarvis",
+                "prompt": "apri chrome e metti Battiato su YouTube", "image_b64": None, "audio_b64": None,
+            }]
+        updates.append((query, params))
+        return []
+
+    async def hanging_run_claude(*_a, **_k):
+        # asyncio.Event().wait() invece di asyncio.sleep(): il test rimpiazza
+        # asyncio.sleep per non aspettare davvero POLL_SEC tra un giro e
+        # l'altro, il che farebbe finire anche questa "attesa infinita"
+        # subito se usasse la stessa funzione.
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(web_bridge, "RUN_CLAUDE_TIMEOUT_SEC", 0.05)
+    monkeypatch.setattr(web_bridge.turso, "execute", fake_execute)
+    monkeypatch.setattr(web_bridge, "run_claude", hanging_run_claude)
+    monkeypatch.setattr(web_bridge.intents, "parse_intent", lambda _text: None)
+    monkeypatch.setattr(web_bridge.asyncio, "sleep", lambda _s: asyncio.sleep(0))
+    monkeypatch.setattr(web_bridge.tts, "speak_if_enabled", lambda _text: None)
+    monkeypatch.setattr(web_bridge, "_notify_telegram", lambda *a, **k: None)
+    monkeypatch.setattr(web_bridge.screen_context, "target_for", lambda _t: None)
+    monkeypatch.setattr(web_bridge.camera, "wants_camera", lambda _t: False)
+
+    with pytest.raises(_StopLoop):
+        asyncio.run(web_bridge.poll_web_queue())
+
+    result_updates = [p for q, p in updates if "status=?" in q]
+    assert len(result_updates) == 1
+    status, result = result_updates[0][0], result_updates[0][1]
+    assert status == "done"
+    assert "troppo tempo" in result.lower()
+
+
 class _StopLoop(Exception):
     """Interrompe poll_web_queue() dopo un ciclo, per testarlo senza
     farlo girare per sempre (e' un while True)."""
