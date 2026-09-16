@@ -131,15 +131,18 @@ def test_format_summary_empty_list():
 # ── flusso interattivo "quale mail apro" (2026-09-16) — list_emails/read_email ──
 
 
-def test_format_email_list_for_picking_numbers_subject_and_sender():
+def test_format_email_list_for_picking_numbers_subject_and_sender_no_badges():
+    # 2026-09-16: "solo i titoli delle chat, no badge ecc" — niente flag
+    # "(non letta)" per riga (il fatto "ci sono non lette" va detto una
+    # volta sola, a parole, non ripetuto riga per riga nell'elenco).
     emails = [
         outlook.EmailSummary(sender="Mario Rossi", subject="Riunione", received="", unread=True, snippet="ciao"),
         outlook.EmailSummary(sender="Newsletter", subject="Offerte", received="", unread=False, snippet=""),
     ]
     text = outlook.format_email_list_for_picking(emails)
-    assert "1. Riunione — Mario Rossi (non letta)" in text
+    assert "1. Riunione — Mario Rossi" in text
     assert "2. Offerte — Newsletter" in text
-    assert "(non letta)" not in text.split("\n")[1]
+    assert "non letta" not in text.lower()
 
 
 def test_format_email_list_for_picking_empty():
