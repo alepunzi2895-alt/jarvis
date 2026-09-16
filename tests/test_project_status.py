@@ -1,4 +1,3 @@
-import time
 from unittest.mock import MagicMock
 
 from core import project_status
@@ -113,61 +112,32 @@ def test_format_report_voice_flags_known_issue():
     assert "problema noto" in text
 
 
-def test_clean_recent_repo_captures_timestamp_and_full_health(monkeypatch, tmp_path):
-    repo = tmp_path / "auraibiza"
-    repo.mkdir()
-    monkeypatch.setenv("WS_AURA", str(repo))
-    now_ts = int(time.time())
-    executor = _make_executor(_ok("## main...origin/main"), _ok(f"abc123 fix qualcosa (2 ore fa)|{now_ts}"))
-    statuses = project_status.check_all(executor)
-    aura = next(s for s in statuses if s.key == "aura")
-    assert aura.last_commit == "abc123 fix qualcosa (2 ore fa)"  # testo mostrato invariato
-    assert aura.last_commit_ts == now_ts
-    assert aura.health_percent == 100
-
-
-def test_health_percent_none_when_not_configured(monkeypatch):
-    monkeypatch.delenv("WS_AURA", raising=False)
-    statuses = project_status.check_all(_make_executor(_ok("## main")))
-    aura = next(s for s in statuses if s.key == "aura")
-    assert aura.health_percent is None
-
-
-def test_health_percent_penalizes_dirty_files_and_known_issue_flag(monkeypatch, tmp_path):
-    repo = tmp_path / "tradeflow-ai"
-    repo.mkdir()
-    monkeypatch.setenv("WS_AURA", str(repo))
-    executor = _make_executor(_ok("## main...origin/main\n M a.py\n M b.py"))
-    monkeypatch.setattr(
-        project_status, "_read_notes_excerpt", lambda notes_file: "## Stato\n🔴 Bot fermo." if notes_file == "aura-ibiza.md" else None
-    )
-    statuses = project_status.check_all(executor)
-    aura = next(s for s in statuses if s.key == "aura")
-    assert aura.dirty_files == 2
-    assert aura.health_percent == 40  # 100 - 50 (flag noto) - 10 (2 file sporchi)
-
-
-def test_health_percent_penalizes_stale_commits(monkeypatch, tmp_path):
-    repo = tmp_path / "auraibiza"
-    repo.mkdir()
-    monkeypatch.setenv("WS_AURA", str(repo))
-    old_ts = int(time.time()) - 40 * 86400  # 40 giorni fa
-    executor = _make_executor(_ok("## main...origin/main"), _ok(f"abc123 fix (40 giorni fa)|{old_ts}"))
-    statuses = project_status.check_all(executor)
-    aura = next(s for s in statuses if s.key == "aura")
-    assert aura.health_percent == 70  # 100 - 30 (oltre 30 giorni senza commit)
-
-
 def test_to_json_ready_serializes_all_fields():
     statuses = [project_status.ProjectStatus(key="aura", label="Aura Ibiza", path=None, configured=False)]
     data = project_status.to_json_ready(statuses)
     assert data == [
         {
             "key": "aura", "label": "Aura Ibiza", "path": None, "configured": False,
-            "branch": None, "dirty_files": 0, "last_commit": None, "last_commit_ts": None,
-            "notes": None, "error": None, "health_percent": None,
+            "branch": None, "dirty_files": 0, "last_commit": None,
+            "notes": None, "error": None,
         }
     ]
+
+
+def test_check_one_by_key_returns_single_project(monkeypatch, tmp_path):
+    repo = tmp_path / "auraibiza"
+    repo.mkdir()
+    monkeypatch.setenv("WS_AURA", str(repo))
+    executor = _make_executor(_ok("## main...origin/main"), _ok("abc123 fix (1 ora fa)"))
+    status = project_status.check_one_by_key("aura", executor)
+    assert status is not None
+    assert status.key == "aura"
+    assert status.configured is True
+    assert status.last_commit == "abc123 fix (1 ora fa)"
+
+
+def test_check_one_by_key_unknown_key_returns_none():
+    assert project_status.check_one_by_key("non-esiste", MagicMock()) is None
 
 
 def test_format_report_text_lists_all_projects():

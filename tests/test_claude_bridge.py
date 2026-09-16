@@ -129,6 +129,78 @@ def test_detect_image_media_type_jpeg():
     assert claude_bridge._detect_image_media_type(jpeg_bytes) == "image/jpeg"
 
 
+def test_execute_tool_get_weather_forecast_uses_days_ahead(monkeypatch):
+    fmt = MagicMock(return_value="Domani nuvoloso, min 14°C max 20°C (Ibiza)")
+    monkeypatch.setattr(claude_bridge.weather, "format_day_line", fmt)
+    text, is_error = claude_bridge._execute_tool("get_weather_forecast", {"days_ahead": 1}, "C:\\ws")
+    fmt.assert_called_once_with(1)
+    assert "Domani nuvoloso" in text
+    assert is_error is False
+
+
+def test_execute_tool_get_weather_forecast_defaults_to_today(monkeypatch):
+    fmt = MagicMock(return_value="Oggi sereno, min 18°C max 26°C (Ibiza)")
+    monkeypatch.setattr(claude_bridge.weather, "format_day_line", fmt)
+    claude_bridge._execute_tool("get_weather_forecast", {}, "C:\\ws")
+    fmt.assert_called_once_with(0)
+
+
+def test_execute_tool_get_weather_forecast_degrades_gracefully(monkeypatch):
+    monkeypatch.setattr(claude_bridge.weather, "format_day_line", lambda d: None)
+    text, is_error = claude_bridge._execute_tool("get_weather_forecast", {"days_ahead": 3}, "C:\\ws")
+    assert "non disponibili" in text.lower()
+    assert is_error is False
+
+
+def test_execute_tool_list_emails_formats_for_picking(monkeypatch):
+    from core.outlook import EmailSummary
+
+    emails = [EmailSummary(sender="Mario", subject="Asset management", received="", unread=True, snippet="")]
+    list_fn = MagicMock(return_value=emails)
+    monkeypatch.setattr("core.outlook.list_recent_emails_sync", list_fn)
+    text, is_error = claude_bridge._execute_tool("list_emails", {"unread_only": True}, "C:\\ws")
+    list_fn.assert_called_once_with(unread_only=True)
+    assert "Asset management" in text and "Mario" in text
+    assert is_error is False
+
+
+def test_execute_tool_read_email_returns_full_body(monkeypatch):
+    from core.outlook import EmailDetail
+
+    detail = EmailDetail(sender="Mario", subject="Asset management", received="oggi", body="corpo vero")
+    find_fn = MagicMock(return_value=detail)
+    monkeypatch.setattr("core.outlook.find_email_sync", find_fn)
+    text, is_error = claude_bridge._execute_tool("read_email", {"query": "Mario"}, "C:\\ws")
+    find_fn.assert_called_once_with("Mario", False)
+    assert "corpo vero" in text
+    assert is_error is False
+
+
+def test_execute_tool_read_email_no_match():
+    with patch("core.outlook.find_email_sync", return_value=None):
+        text, is_error = claude_bridge._execute_tool("read_email", {"query": "nessuno"}, "C:\\ws")
+    assert "nessuna mail trovata" in text.lower()
+    assert is_error is False
+
+
+def test_execute_tool_get_project_status_formats_single_project(monkeypatch):
+    fake_status = claude_bridge.project_status.ProjectStatus(
+        key="aura", label="Aura Ibiza", path="/x", configured=True, branch="main", dirty_files=0,
+    )
+    monkeypatch.setattr(claude_bridge.project_status, "check_one_by_key", lambda key, ex: fake_status)
+    text, is_error = claude_bridge._execute_tool("get_project_status", {"project": "aura"}, "C:\\ws")
+    assert "Aura Ibiza" in text
+    assert "%" not in text  # niente percentuali/punteggio inventato
+    assert is_error is False
+
+
+def test_execute_tool_get_project_status_unknown_project(monkeypatch):
+    monkeypatch.setattr(claude_bridge.project_status, "check_one_by_key", lambda key, ex: None)
+    text, is_error = claude_bridge._execute_tool("get_project_status", {"project": "boh"}, "C:\\ws")
+    assert is_error is True
+    assert "aura" in text  # suggerisce le chiavi valide
+
+
 def test_execute_tool_recall_memory_skips_query_when_turso_disabled(monkeypatch):
     monkeypatch.setattr(claude_bridge.turso, "ENABLED", False)
     search_mock = MagicMock()

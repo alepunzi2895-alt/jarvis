@@ -761,21 +761,6 @@ header::after {
   color: var(--text-muted);
 }
 
-.health-bar {
-  height: 5px;
-  border-radius: 999px;
-  background: var(--gridline);
-  overflow: hidden;
-  margin-bottom: 6px;
-}
-
-.health-fill {
-  height: 100%;
-  border-radius: 999px;
-  transition: width 1.1s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 1.1s ease;
-  box-shadow: 0 0 8px 1px currentColor;
-}
-
 .project-card-row {
   display: flex;
   justify-content: space-between;

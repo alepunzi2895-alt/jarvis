@@ -662,6 +662,25 @@ codice — in esecuzione dalle 13:10, precede il merge.
   reale raggiungibile da qui per confermare che il crop tolga davvero il
   rumore visto da Alessandro.
 
+**Flusso interattivo mail/Teams + stato progetti senza percentuali** —
+mail/Teams: nuovo flusso "non lette o tutte? -> elenco -> quale? -> apri e
+riassumi" (tool `list_emails`/`read_email` in `core/outlook.py`/
+`core/claude_bridge.py`, SYSTEM prompt aggiornato; Teams via i primitivi
+```browser``` read/click gia' esistenti, pagina persistente tra i turni).
+Rimosso il fast-path `core/intents.py` per "leggi le mail" (restava solo
+il conteggio non lette) e per "stato progetti" generico (ora chiede quale
+progetto, tool `get_project_status`). Rimosso `health_percent` (punteggio
+sintetico mai piu' necessario dopo GitHub/Vercel reali) da backend e
+dashboard. 325/325 test verdi. Non verificato dal vivo.
+
+**Meteo: tool `get_weather_forecast` invece di ricerca browser** — il
+fast-path di `core/intents.py` copriva solo oggi/domani; per ogni altro
+giorno Claude non aveva alternativa e apriva un browser. Aggiunto
+`weather.format_day_line(days_ahead 0-6)` + tool nativo
+`get_weather_forecast` (stesso pattern di `recall_memory`), SYSTEM prompt
+aggiornato per vietare esplicitamente la ricerca browser per il meteo.
+320/320 test verdi. Non verificato dal vivo.
+
 **Ricerca (non implementata)**: guardato github.com/FatihMakes/Mark-LIII
 su richiesta di Alessandro per idee. Spunti concreti non ancora costruiti
 in JARVIS: memoria "on-demand" (solo core+fatti recenti nel prompt, resto

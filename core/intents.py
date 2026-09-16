@@ -53,13 +53,6 @@ _SHOW_DESKTOP_RE = re.compile(r"\bmostra\w*\b.*\bdesktop\b|\bminimizza tutto\b",
 _SCREENSHOT_RE = re.compile(
     r"\b(fai|scatta|cattura)\w*\b.*\bscreenshot\b|\bcattura\w*\b.*\bschermo\b", re.IGNORECASE
 )
-_PROJECT_STATUS_RE = re.compile(
-    r"\b(stato|situazione)\s+(dei\s+|di\s+)?progetti\b"
-    r"|\bprogetti\b.*\b(stato|situazione)\b"
-    r"|\bcome\s+vanno\b.*\bprogetti\b",
-    re.IGNORECASE,
-)
-
 # Briefing mattutino unificato (core/briefing.py) — richiesta esplicita di
 # Alessandro (2026-09-16). "buongiorno" da solo (nessun'altra parola oltre
 # punteggiatura) e' il trigger naturale; ANCORATO a inizio/fine frase per
@@ -161,8 +154,9 @@ def parse_intent(text: str) -> dict | None:
     if _SCREENSHOT_RE.search(t):
         return {"type": "screenshot"}
 
-    if _PROJECT_STATUS_RE.search(t):
-        return {"type": "project_status"}
+    # "stato progetti" (2026-09-16): non e' piu' un fast-path — Claude deve
+    # chiedere PRIMA quale progetto (tool get_project_status), non buttare
+    # giu' il report di tutti e 3 senza che nessuno l'abbia chiesto.
     if _BRIEFING_RE.search(t):
         return {"type": "briefing"}
     if _TRADING_PNL_RE.search(t):
@@ -176,9 +170,17 @@ def parse_intent(text: str) -> dict | None:
     from core.outlook import CALENDAR_INTENT_RE, OUTLOOK_INTENT_RE, UNREAD_COUNT_RE  # import qui: evita pywin32 se l'intent non serve mai
 
     if OUTLOOK_INTENT_RE.search(t):
-        # "quante mail (ho)?"/"mail non lette": conteggio, non lista — risposta
-        # diversa e piu' efficiente (vedi core/outlook.py::count_unread_emails*).
-        return {"type": "outlook", "unread_count": bool(UNREAD_COUNT_RE.search(t))}
+        # "quante mail (ho)?"/"mail non lette": conteggio, resta fast-path
+        # (una sola domanda, una sola risposta — nessun bisogno del flusso
+        # interattivo sotto). "leggi le mail"/"controlla la posta" ecc.
+        # invece NON scattano piu' qui (2026-09-16, richiesta esplicita di
+        # Alessandro): cadono su Claude, che ora ha il flusso "non lette o
+        # tutte? -> elenco -> quale? -> apri e riassumi" (SYSTEM prompt +
+        # tool list_emails/read_email) — la vecchia risposta diretta saltava
+        # tutto questo.
+        if UNREAD_COUNT_RE.search(t):
+            return {"type": "outlook", "unread_count": True}
+        return None
     if CALENDAR_INTENT_RE.search(t):
         from core.outlook import _TOMORROW_RE  # stesso modulo, import gia' fatto sopra
 
@@ -274,11 +276,6 @@ def _execute(intent: dict, executor: SystemExecutor, voice: bool) -> str:
     if kind == "close_app":
         result = executor.close_app(intent["name"])
         return f"Chiudo {intent['name']}{sir}." if result.ok else f"{intent['name']}: {result.stderr}"
-
-    if kind == "project_status":
-        from core import project_status  # import qui: evita l'overhead se l'intent non serve mai
-
-        return project_status.format_report(project_status.check_all(executor), voice=voice)
 
     if kind == "briefing":
         from core import briefing  # import qui: evita l'overhead (meteo/Outlook/git) se l'intent non serve mai
