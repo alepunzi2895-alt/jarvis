@@ -63,6 +63,18 @@ def test_wake_word_still_matches_with_short_lead_in():
     assert _strip_wake_word("ok, adesso jarvis apri chrome") == "apri chrome"
 
 
+def test_wake_word_survives_longer_noise_prefix_from_stt():
+    # Caso reale osservato in logs/bot.log il 2026-09-16: un comando VERO
+    # scartato perche' whisper aveva trascritto rumore/un'allucinazione
+    # PRIMA della parola d'attivazione, spostandola oltre la vecchia
+    # soglia di 24 caratteri (segnalato: "non intercetta il comando
+    # vocale"). La soglia (40) deve tollerare questo prefisso pur
+    # continuando a respingere una wake word sepolta in una frase lunga
+    # (vedi test_wake_word_far_from_start_is_ignored, ~90 caratteri).
+    result = _strip_wake_word("È una sbarpa di caggina.  Jarvis, che tempo farà domani?")
+    assert result == "che tempo farà domani?"
+
+
 # ── _claim_next_task: "ad ogni domanda nuova killa tutti i vecchi
 # processi" (Alessandro, 2026-09-16) — reclama solo il piu' recente
 # "pending", marca gli altri "superseded" invece di rispondere in ordine
