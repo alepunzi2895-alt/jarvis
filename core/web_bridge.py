@@ -15,7 +15,7 @@ import tempfile
 from pathlib import Path
 
 from core import turso, intents, screen_context, telegram
-from core.claude_bridge import run_claude
+from core.claude_bridge import run_claude, detect_workspace
 from core.executor_singleton import executor
 from core.voice import camera, tts
 
@@ -170,13 +170,25 @@ def _notify_telegram(prompt: str, response: str) -> None:
     asyncio.get_running_loop().run_in_executor(None, work)
 
 
-async def _push_result(task_id: str, status: str, result: str, session_id: str | None, cost_usd: float) -> None:
+async def _push_result(
+    task_id: str, status: str, result: str, session_id: str | None, cost_usd: float, workspace: str | None = None
+) -> None:
     def work():
-        turso.execute(
-            "UPDATE tasks SET status=?, result=?, session_id=?, cost_usd=?, "
-            "updated_at=CURRENT_TIMESTAMP WHERE id=?",
-            [status, result, session_id, cost_usd, task_id],
-        )
+        if workspace:
+            # Scrive indietro il progetto rilevato automaticamente (vedi
+            # detect_workspace) — la dashboard non lo sceglie piu' a mano
+            # (niente pill), ma lo mostra ancora nell'HUD/cronologia task.
+            turso.execute(
+                "UPDATE tasks SET status=?, result=?, session_id=?, cost_usd=?, workspace=?, "
+                "updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                [status, result, session_id, cost_usd, workspace, task_id],
+            )
+        else:
+            turso.execute(
+                "UPDATE tasks SET status=?, result=?, session_id=?, cost_usd=?, "
+                "updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                [status, result, session_id, cost_usd, task_id],
+            )
 
     await asyncio.to_thread(work)
 
@@ -228,6 +240,9 @@ async def poll_web_queue() -> None:
 
             print(f"> [web] {task['prompt'][:80]}")
             image_b64 = task.get("image_b64")
+            # Progetto rilevato dal testo, non piu' scelto a mano dalla
+            # dashboard (niente pill, vedi core/claude_bridge.py::detect_workspace).
+            ws = detect_workspace(task["prompt"])
 
             intent = intents.parse_intent(task["prompt"]) if not image_b64 else None
             if intent:
@@ -254,11 +269,11 @@ async def poll_web_queue() -> None:
                 # git in sequenza — non deve bloccare il polling della coda.
                 response = await asyncio.to_thread(
                     intents.execute_intent,
-                    intent, executor, voice_flag, task.get("workspace") or "jarvis", task["prompt"],
+                    intent, executor, voice_flag, ws, task["prompt"],
                 )
                 tts.speak_if_enabled(response)
                 _notify_telegram(task["prompt"], response)
-                await _push_result(task["id"], "done", response, None, 0.0)
+                await _push_result(task["id"], "done", response, None, 0.0, workspace=ws)
                 continue
 
             # Se il client (dashboard) non ha gia' allegato un'immagine (es.
@@ -275,13 +290,13 @@ async def poll_web_queue() -> None:
 
             result, sid, cost = await run_claude(
                 task["prompt"],
-                ws=task.get("workspace"),
+                ws=ws,
                 image_b64=image_b64,
                 channel=task.get("channel") or "text",
             )
             tts.speak_if_enabled(result)
             _notify_telegram(task["prompt"], result)
-            await _push_result(task["id"], "done", result, sid, cost)
+            await _push_result(task["id"], "done", result, sid, cost, workspace=ws)
         except Exception as e:  # noqa: BLE001
             try:
                 await _push_result(task["id"], "error", str(e)[:1500], None, 0.0)

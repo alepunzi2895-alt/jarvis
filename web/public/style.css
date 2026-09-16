@@ -188,30 +188,8 @@ header::after {
   box-shadow: 0 0 8px var(--good);
 }
 
-.ws-pills {
-  display: flex;
-  gap: 6px;
-  flex: 1;
-  flex-wrap: wrap;
-}
-
-.ws-pill {
-  padding: 6px 14px;
-  border-radius: 999px;
-  border: 1px solid var(--border);
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: 12px;
-  letter-spacing: 0.04em;
-}
-
-.ws-pill.active {
-  border-color: var(--accent);
-  color: var(--accent);
-  background: var(--accent-dim);
-}
-
 .header-clock {
+  margin-left: auto;
   font-family: var(--font-mono);
   font-size: 13px;
   letter-spacing: 0.08em;

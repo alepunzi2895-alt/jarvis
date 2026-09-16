@@ -1,8 +1,5 @@
 // JARVIS dashboard — app.js (vanilla, nessun framework)
 
-const WORKSPACES = ["jarvis", "aura", "whitesoul", "trading", "isabela", "vino"];
-let currentWs = localStorage.getItem("jarvis_ws") || "jarvis";
-
 const $ = (sel) => document.querySelector(sel);
 
 async function api(action, body = {}) {
@@ -124,26 +121,6 @@ $("#logout-btn").addEventListener("click", () => {
   location.reload();
 });
 
-// ── Workspace pills ──────────────────────────────────────────────────
-
-function renderPills() {
-  const wrap = $("#ws-pills");
-  wrap.innerHTML = "";
-  for (const ws of WORKSPACES) {
-    const btn = document.createElement("button");
-    btn.className = "ws-pill" + (ws === currentWs ? " active" : "");
-    btn.textContent = ws;
-    btn.addEventListener("click", () => {
-      currentWs = ws;
-      localStorage.setItem("jarvis_ws", ws);
-      renderPills();
-      $("#hud-ws").textContent = currentWs;
-    });
-    wrap.appendChild(btn);
-  }
-  $("#hud-ws").textContent = currentWs;
-}
-
 // ── HUD strip: clock, session uptime, connection status ─────────────
 
 const bootedAt = Date.now();
@@ -191,6 +168,9 @@ function fillEntry(el, task) {
   if (task.workspace) meta.push(task.workspace);
   if (task.cost_usd) meta.push(`$${Number(task.cost_usd).toFixed(3)}`);
   el.querySelector(".meta").textContent = meta.join(" · ");
+  // Progetto rilevato automaticamente dal testo (non piu' scelto a mano
+  // dalla dashboard) — l'HUD mostra l'ultimo, solo a scopo informativo.
+  if (task.workspace) $("#hud-ws").textContent = task.workspace;
   $("#console-log").scrollTop = $("#console-log").scrollHeight;
   // La bolla torna a idle quando la risposta arriva (se JARVIS deve anche
   // parlarla, pollSpeakingStatus() la porta a "speaking" al prossimo giro di
@@ -222,7 +202,9 @@ async function submitTask(text, imageB64) {
   const el = appendEntry(text);
   $("#console-text").value = "";
   try {
-    const body = { workspace: currentWs, prompt: text };
+    // Niente piu' "workspace" dal client — il bridge locale lo rileva da
+    // solo dal testo (core/claude_bridge.py::detect_workspace).
+    const body = { prompt: text };
     if (imageB64) body.image_b64 = imageB64;
     const { task_id } = await api("task_push", body);
     setOrbState("thinking");
@@ -593,7 +575,7 @@ async function submitTaskAudio(audioB64) {
   openWindow("win-chat");
   const el = appendEntry("🎙️ (trascrizione in corso…)");
   try {
-    const { task_id } = await api("task_push", { workspace: currentWs, audio_b64: audioB64 });
+    const { task_id } = await api("task_push", { audio_b64: audioB64 });
     setOrbState("thinking");
     pollTranscribedTask(task_id, el);
   } catch (err) {
@@ -883,18 +865,11 @@ async function refreshRemoteStatus() {
 }
 
 // ── Second brain — grafo animato (canvas, nessuna libreria) ──────────
-// Colori per workspace: stesso ordine/palette categorica della skill dataviz
-// (slot 1-6 del tema dark), cosi' l'ordine resta fisso indipendentemente
-// dall'ordine con cui i workspace compaiono nei dati.
-const WORKSPACE_COLORS = {
-  jarvis: "#3987e5",
-  aura: "#199e70",
-  whitesoul: "#c98500",
-  trading: "#008300",
-  isabela: "#9085e9",
-  vino: "#e66767",
-};
-const BRAIN_DEFAULT_COLOR = "#898781";
+// Un solo brain, senza piu' distinzione per progetto (richiesta esplicita
+// di Alessandro, 2026-09-16: "non mi piace avere tutti quei contesti
+// sopra... mettere tutto insieme nel brain"). Un colore unico per tutti i
+// nodi, stesso accent fisso della dashboard.
+const BRAIN_NODE_COLOR = "#3987e5";
 
 let brainNodes = [];
 let brainEdges = [];
@@ -908,13 +883,6 @@ let brainPollTimer = null;
 let hoveredNode = null;
 let focusedNode = null;
 let brainScale = 1; // ricalcolato ad ogni frame per far stare l'intero grafo nel canvas
-
-function hexToRgba(hex, alpha) {
-  const r = parseInt(hex.slice(1, 3), 16);
-  const g = parseInt(hex.slice(3, 5), 16);
-  const b = parseInt(hex.slice(5, 7), 16);
-  return `rgba(${r},${g},${b},${alpha})`;
-}
 
 function brainIsConnected(node, focus) {
   return brainEdges.some(
@@ -1070,13 +1038,11 @@ function brainStep() {
 }
 
 function brainNodeStyle(node) {
-  const base = WORKSPACE_COLORS[node.workspace] || BRAIN_DEFAULT_COLOR;
   if (focusedNode) {
     const on = node === focusedNode || brainIsConnected(node, focusedNode);
-    return on ? { fill: base, glow: 8 } : { fill: "rgba(255,255,255,0.07)", glow: 0 };
+    return on ? { fill: BRAIN_NODE_COLOR, glow: 8 } : { fill: "rgba(255,255,255,0.07)", glow: 0 };
   }
-  const onWs = node.workspace === currentWs;
-  return onWs ? { fill: base, glow: 7 } : { fill: hexToRgba(base, 0.35), glow: 0 };
+  return { fill: BRAIN_NODE_COLOR, glow: 4 };
 }
 
 function brainRender() {
@@ -1290,7 +1256,6 @@ function _bootStep(label, fn) {
 async function boot() {
   $("#login-screen").style.display = "none";
   $("#app").classList.add("visible");
-  _bootStep("pills", renderPills);
   _bootStep("orb", () => {
     window.JarvisOrb = window.createJarvisOrb($("#orb-canvas"));
     window.JarvisOrb.start();
