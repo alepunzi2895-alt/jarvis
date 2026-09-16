@@ -496,17 +496,17 @@ def find_email_sync(query: str, unread_only: bool = False) -> EmailDetail | None
 
 
 def format_email_list_for_picking(emails: list[EmailSummary]) -> str:
-    """Elenco numerato con oggetto+mittente (niente snippet: qui serve solo
-    a farsi indicare QUALE aprire, non a leggerla) — usato dal tool Claude
-    "list_emails", diverso da format_summary() che invece mostra gia' un
-    'assaggio' di ognuna per una lettura rapida non interattiva."""
+    """Elenco numerato con SOLO oggetto+mittente — niente snippet (qui serve
+    solo a farsi indicare QUALE aprire, non a leggerla) e niente flag/badge
+    "non letta" per riga (Alessandro, 2026-09-16: "solo i titoli... no
+    badge ecc" — chi chiama questa funzione ha gia' filtrato per
+    unread_only a monte se voleva solo le non lette, o l'ha gia' detto a
+    parole come fatto a se', non serve ripeterlo riga per riga). Diverso da
+    format_summary(), che mostra gia' un 'assaggio' di ognuna per una
+    lettura rapida non interattiva."""
     if not emails:
         return "Nessuna mail trovata."
-    lines = []
-    for i, e in enumerate(emails, 1):
-        flag = " (non letta)" if e.unread else ""
-        lines.append(f"{i}. {e.subject} — {e.sender}{flag}")
-    return "\n".join(lines)
+    return "\n".join(f"{i}. {e.subject} — {e.sender}" for i, e in enumerate(emails, 1))
 
 
 def format_email_detail(detail: EmailDetail) -> str:
