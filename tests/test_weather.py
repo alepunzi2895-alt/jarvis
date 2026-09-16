@@ -122,6 +122,30 @@ def test_get_weekly_forecast_returns_none_when_no_location_resolvable(monkeypatc
         assert weather.get_weekly_forecast() is None
 
 
+def test_format_day_line_today_and_clamped_range(monkeypatch):
+    monkeypatch.setenv("JARVIS_WEATHER_LAT", "38.9")
+    monkeypatch.setenv("JARVIS_WEATHER_LON", "1.43")
+    monkeypatch.setenv("JARVIS_WEATHER_CITY", "Ibiza")
+    resp = _fake_response(
+        {
+            "daily": {
+                "time": ["2026-09-16", "2026-09-17", "2026-09-18"],
+                "weather_code": [0, 61, 2],
+                "temperature_2m_max": [29.4, 24.6, 22.0],
+                "temperature_2m_min": [21.5, 20.1, 18.0],
+            }
+        }
+    )
+    with patch("core.weather.requests.get", return_value=resp):
+        oggi = weather.format_day_line(0)
+        tra_due = weather.format_day_line(2)
+        fuori_range = weather.format_day_line(99)  # clampato a 6, ma solo 3 giorni disponibili -> None
+
+    assert oggi.startswith("Oggi") and "cielo sereno" in oggi
+    assert "Tra 2 giorni" in tra_due and "parzialmente nuvoloso" in tra_due
+    assert fuori_range is None
+
+
 def test_format_tomorrow_line_uses_second_day_of_forecast(monkeypatch):
     monkeypatch.setenv("JARVIS_WEATHER_LAT", "38.9")
     monkeypatch.setenv("JARVIS_WEATHER_LON", "1.43")

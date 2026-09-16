@@ -76,6 +76,7 @@ CALENDAR_INTENT_RE = re.compile(
 _TOMORROW_RE = re.compile(r"\bdomani\b", re.IGNORECASE)
 
 _SNIPPET_CHARS = 200
+_BODY_CHARS = 4000  # per read_email: intero corpo ma con un tetto, mai l'intera casella in un tool_result
 # olFolderInbox = 6, olFolderCalendar = 9 (costanti Outlook, non serve
 # importare win32com.client.constants per due soli valori — evita un giro
 # COM in piu' solo per risolvere i nomi).
@@ -94,6 +95,19 @@ class EmailSummary:
     received: str
     unread: bool
     snippet: str
+
+
+@dataclass
+class EmailDetail:
+    """Come EmailSummary ma con il corpo COMPLETO (fino a _BODY_CHARS) invece
+    dello snippet a 200 caratteri — per il flusso "elenca -> scegli -> apri e
+    riassumi" (Alessandro, 2026-09-16): un riassunto vero non si puo' fare da
+    200 caratteri."""
+
+    sender: str
+    subject: str
+    received: str
+    body: str
 
 
 @dataclass
@@ -204,6 +218,72 @@ def _fetch_recent_sync(count: int, unread_only: bool) -> list[EmailSummary]:
                     if len(results) >= count:
                         break
                 return results
+            except Exception as e:  # noqa: BLE001 — COM puo' fallire in tanti modi diversi, molti transitori
+                last_error = e
+                if attempt < _MAX_ATTEMPTS - 1:
+                    time.sleep(_RETRY_DELAY_SEC)
+
+        raise OutlookError(
+            "Non riesco a leggere Outlook — verifica che sia installato e configurato "
+            f"su questa macchina (dettaglio: {last_error})."
+        ) from last_error
+    finally:
+        pythoncom.CoUninitialize()
+
+
+def _find_email_sync(query: str, unread_only: bool, scan_limit: int = 50) -> EmailDetail | None:
+    """Cerca la prima mail (piu' recente prima, stesso ordinamento di
+    _fetch_recent_sync) il cui mittente O oggetto contiene `query`
+    (case-insensitive, sottostringa — non serve il match esatto: l'utente
+    la nomina a voce/testo dopo averla vista in un elenco, "quella di
+    Mario"/"quella dell'asset management"). scan_limit tiene sotto
+    controllo il caso di una query che non matcha nulla (non deve scorrere
+    l'intera casella all'infinito)."""
+    query_low = (query or "").strip().lower()
+    if not query_low:
+        return None
+    try:
+        import time
+        import pythoncom
+        import win32com.client
+    except ImportError as e:
+        raise OutlookError(f"pywin32 non installato: {e}") from e
+
+    pythoncom.CoInitialize()
+    try:
+        last_error: Exception | None = None
+        for attempt in range(_MAX_ATTEMPTS):
+            try:
+                outlook = win32com.client.Dispatch("Outlook.Application")
+                namespace = outlook.GetNamespace("MAPI")
+                inbox = namespace.GetDefaultFolder(_OL_FOLDER_INBOX)
+                items = inbox.Items
+                items.Sort("[ReceivedTime]", True)
+
+                scanned = 0
+                for item in items:
+                    if scanned >= scan_limit:
+                        break
+                    scanned += 1
+                    try:
+                        if unread_only and not bool(getattr(item, "UnRead", False)):
+                            continue
+                        sender = getattr(item, "SenderName", "") or ""
+                        subject = getattr(item, "Subject", "") or ""
+                        if query_low not in sender.lower() and query_low not in subject.lower():
+                            continue
+                        body = (getattr(item, "Body", "") or "").strip()
+                        if len(body) > _BODY_CHARS:
+                            body = body[:_BODY_CHARS].rstrip() + "…"
+                        return EmailDetail(
+                            sender=sender or "sconosciuto",
+                            subject=subject or "(nessun oggetto)",
+                            received=str(getattr(item, "ReceivedTime", "")),
+                            body=body,
+                        )
+                    except Exception:
+                        continue  # una singola mail malformata non deve far fallire la ricerca
+                return None
             except Exception as e:  # noqa: BLE001 — COM puo' fallire in tanti modi diversi, molti transitori
                 last_error = e
                 if attempt < _MAX_ATTEMPTS - 1:
@@ -405,6 +485,32 @@ def list_recent_emails_sync(count: int = 8, unread_only: bool = False) -> list[E
     _run_in_fresh_thread per il perche' non basta gia' essere su UN thread
     qualunque, deve essere uno dedicato e mai riusato."""
     return _run_in_fresh_thread(_fetch_recent_sync, count, unread_only)
+
+
+def find_email_sync(query: str, unread_only: bool = False) -> EmailDetail | None:
+    """Per il tool Claude "read_email" (core/claude_bridge.py) — flusso
+    "elenca -> l'utente sceglie -> apri e riassumi" (Alessandro, 2026-09-16):
+    a differenza di list_recent_emails_sync() ritorna il corpo COMPLETO di
+    UNA mail scelta per mittente/oggetto, non uno snippet di tutte."""
+    return _run_in_fresh_thread(_find_email_sync, query, unread_only)
+
+
+def format_email_list_for_picking(emails: list[EmailSummary]) -> str:
+    """Elenco numerato con oggetto+mittente (niente snippet: qui serve solo
+    a farsi indicare QUALE aprire, non a leggerla) — usato dal tool Claude
+    "list_emails", diverso da format_summary() che invece mostra gia' un
+    'assaggio' di ognuna per una lettura rapida non interattiva."""
+    if not emails:
+        return "Nessuna mail trovata."
+    lines = []
+    for i, e in enumerate(emails, 1):
+        flag = " (non letta)" if e.unread else ""
+        lines.append(f"{i}. {e.subject} — {e.sender}{flag}")
+    return "\n".join(lines)
+
+
+def format_email_detail(detail: EmailDetail) -> str:
+    return f"Da: {detail.sender}\nOggetto: {detail.subject}\nRicevuta: {detail.received}\n\n{detail.body}"
 
 
 def format_unread_count(n: int, voice: bool) -> str:

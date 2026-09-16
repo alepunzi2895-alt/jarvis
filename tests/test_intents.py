@@ -132,22 +132,13 @@ def test_long_compound_requests_are_left_to_claude():
     assert intents.parse_intent(long_text) is None
 
 
-def test_parse_intent_project_status():
-    assert intents.parse_intent("stato progetti") == {"type": "project_status"}
-    assert intents.parse_intent("come vanno i progetti") == {"type": "project_status"}
-    assert intents.parse_intent("qual e' la situazione dei progetti") == {"type": "project_status"}
-
-
-def test_execute_intent_project_status():
-    executor = MagicMock()
-    with (
-        patch("core.project_status.check_all", return_value=["finto"]) as check_all,
-        patch("core.project_status.format_report", return_value="report finto") as format_report,
-    ):
-        result = intents.execute_intent({"type": "project_status"}, executor, voice=False)
-    check_all.assert_called_once_with(executor)
-    format_report.assert_called_once_with(["finto"], voice=False)
-    assert result == "report finto"
+def test_parse_intent_project_status_falls_through_to_claude():
+    # 2026-09-16: "stato progetti" non e' piu' un fast-path — deve cadere su
+    # Claude, che chiede prima quale progetto (tool get_project_status)
+    # invece di buttare giu' il report di tutti e 3 non richiesto.
+    assert intents.parse_intent("stato progetti") is None
+    assert intents.parse_intent("come vanno i progetti") is None
+    assert intents.parse_intent("qual e' la situazione dei progetti") is None
 
 
 def test_parse_intent_briefing():
@@ -252,8 +243,12 @@ def test_execute_intent_skips_logging_when_turso_disabled():
     log.assert_not_called()
 
 
-def test_parse_intent_outlook_plain_read():
-    assert intents.parse_intent("leggi l'ultima mail") == {"type": "outlook", "unread_count": False}
+def test_parse_intent_outlook_plain_read_falls_through_to_claude():
+    # 2026-09-16: "leggi le mail" non e' piu' un fast-path — deve cadere su
+    # Claude per il flusso interattivo (non lette o tutte? -> elenco ->
+    # quale? -> apri e riassumi), non rispondere subito con l'elenco intero.
+    assert intents.parse_intent("leggi l'ultima mail") is None
+    assert intents.parse_intent("controlla la posta") is None
 
 
 def test_parse_intent_outlook_unread_count():

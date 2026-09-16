@@ -166,21 +166,37 @@ def get_weekly_forecast() -> dict | None:
         return None
 
 
-def format_tomorrow_line() -> str | None:
-    """Come get_weather_line() ma per DOMANI — riusa get_weekly_forecast()
-    (gia' esistente per il pannello meteo della dashboard) invece di
-    "current": il system prompt inietta solo il meteo di OGGI, quindi
-    "che tempo fara' domani" non aveva nessuna fonte dati reale e Claude
-    rispondeva onestamente aprendo una ricerca Google al posto di una
-    risposta vera (segnalato da Alessandro, 2026-09-16)."""
+def format_day_line(days_ahead: int = 0) -> str | None:
+    """Riga meteo per un giorno della previsione a 7 giorni (0=oggi,
+    1=domani, ... fino a 6) — riusa get_weekly_forecast(), gia' esistente
+    ma prima raggiungibile SOLO dal pannello animato della dashboard, mai
+    da una domanda vera. Copre qualunque fraseggio che l'intent veloce di
+    core/intents.py non intercetta (es. "che tempo fa venerdì") tramite il
+    tool "get_weather_forecast" (core/claude_bridge.py): richiesta
+    esplicita di Alessandro (2026-09-16) che JARVIS non apra MAI una
+    ricerca browser per il meteo quando i dati veri sono gia' disponibili
+    qui."""
+    days_ahead = max(0, min(days_ahead, 6))
     data = get_weekly_forecast()
-    if not data or len(data["days"]) < 2:
+    if not data or len(data["days"]) <= days_ahead:
         return None
-    day = data["days"][1]  # days[0] = oggi (forecast_days=7, timezone="auto")
+    day = data["days"][days_ahead]
     if day["high"] is None or day["low"] is None:
         return None
     desc = day["description"] or "condizioni non disponibili"
-    return f"Domani {desc}, min {day['low']}°C max {day['high']}°C ({data['place']})"
+    if days_ahead == 0:
+        label = "Oggi"
+    elif days_ahead == 1:
+        label = "Domani"
+    else:
+        label = f"Tra {days_ahead} giorni ({day['date']})"
+    return f"{label} {desc}, min {day['low']}°C max {day['high']}°C ({data['place']})"
+
+
+def format_tomorrow_line() -> str | None:
+    """Come get_weather_line() ma per DOMANI — usato dal fast-path di
+    core/intents.py (zero costo/latenza per "che tempo farà domani")."""
+    return format_day_line(1)
 
 
 def get_weather_line() -> str | None:

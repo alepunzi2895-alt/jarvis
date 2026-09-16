@@ -721,20 +721,12 @@ async function refreshWeatherForecast() {
   }
 }
 
-// ── Stato progetti (salute 0-100 da segnali git reali) ─────────────────
+// ── Stato progetti (segnali git reali, niente percentuali) ─────────────
 // Dati scritti da bot.py::project_status_loop() su Turso — git status/log
 // gira solo in locale (SystemExecutor), il browser non puo' farlo da solo.
-// "Salute" e' onestamente una metrica derivata (albero pulito, commit
-// recenti, flag 🔴 nelle note), NON una percentuale di completamento reale
-// (nessun task tracker esiste per questi progetti) — vedi
-// core/project_status.py::_compute_health_percent per la formula esatta.
-function _healthColor(pct) {
-  if (pct == null) return "var(--text-muted)";
-  if (pct >= 70) return "var(--good)";
-  if (pct >= 40) return "var(--warning)";
-  return "var(--critical)";
-}
-
+// Niente punteggio/percentuale "salute" (rimosso 2026-09-16, richiesta
+// esplicita di Alessandro: GitHub/Vercel coprono gia' lo stato reale dei
+// progetti, un numero derivato in piu' qui era ridondante).
 function _lastCommitShort(text) {
   if (!text) return "—";
   const m = text.match(/\(([^)]+)\)\s*$/); // "%h %s (%cr)" -> solo il "%cr" finale
@@ -763,34 +755,14 @@ async function refreshProjectStatus() {
             <p class="panel-footnote">Errore git: ${p.error.slice(0, 80)}</p>
           </div>`;
         }
-        const pct = p.health_percent ?? 0;
-        const color = _healthColor(p.health_percent);
-        // width:0% in partenza + data-target: la barra parte vuota e si
-        // "carica" fino al valore vero (vedi sotto, dopo l'innerHTML) invece
-        // di comparire gia' piena — richiesta esplicita di Alessandro
-        // (2026-09-15): "quando vedo le percentuali dei progetti vorrei si
-        // riempissero". Un'innerHTML fresca non anima MAI una transizione
-        // CSS su se stessa (non c'e' un valore "prima" da cui partire).
         return `
           <div class="project-card">
             <div class="project-card-title">${p.label} <span class="project-branch">${p.branch || ""}</span></div>
-            <div class="health-bar"><div class="health-fill" data-target="${pct}" style="width:0%;background:${color};color:${color}"></div></div>
-            <div class="project-card-row"><span>Salute</span><strong style="color:${color}">${pct}%</strong></div>
             <div class="project-card-row"><span>Modifiche in sospeso</span><strong>${p.dirty_files}</strong></div>
             <div class="project-card-row"><span>Ultimo commit</span><strong>${_lastCommitShort(p.last_commit)}</strong></div>
           </div>`;
       })
       .join("");
-    // Doppio rAF: il primo frame dipinge width:0%, solo al secondo il
-    // browser ha gia' "committato" quel valore iniziale - cambiarla subito
-    // nello stesso frame del innerHTML non farebbe animare nulla.
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        container.querySelectorAll(".health-fill[data-target]").forEach((el) => {
-          el.style.width = `${el.dataset.target}%`;
-        });
-      });
-    });
   } catch {
     // rete assente/blip transitorio: lascia il pannello com'era
   }

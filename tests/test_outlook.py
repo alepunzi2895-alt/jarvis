@@ -128,6 +128,32 @@ def test_format_summary_empty_list():
     assert "Signore" in outlook.format_summary([], voice=True)
 
 
+# ── flusso interattivo "quale mail apro" (2026-09-16) — list_emails/read_email ──
+
+
+def test_format_email_list_for_picking_numbers_subject_and_sender():
+    emails = [
+        outlook.EmailSummary(sender="Mario Rossi", subject="Riunione", received="", unread=True, snippet="ciao"),
+        outlook.EmailSummary(sender="Newsletter", subject="Offerte", received="", unread=False, snippet=""),
+    ]
+    text = outlook.format_email_list_for_picking(emails)
+    assert "1. Riunione — Mario Rossi (non letta)" in text
+    assert "2. Offerte — Newsletter" in text
+    assert "(non letta)" not in text.split("\n")[1]
+
+
+def test_format_email_list_for_picking_empty():
+    assert "nessuna mail" in outlook.format_email_list_for_picking([]).lower()
+
+
+def test_format_email_detail_includes_full_body():
+    detail = outlook.EmailDetail(sender="Mario Rossi", subject="Riunione", received="2026-09-16 10:00", body="corpo completo della mail, non troncato")
+    text = outlook.format_email_detail(detail)
+    assert "Mario Rossi" in text
+    assert "Riunione" in text
+    assert "corpo completo della mail, non troncato" in text
+
+
 # Nota: _fetch_recent_sync()/_fetch_upcoming_sync() non hanno un test a unit
 # dedicato — tocca COM/Outlook desktop reale (hardware/software esterno),
 # stesso stile gia' in uso nel repo per core/voice/camera.py (webcam):

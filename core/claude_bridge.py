@@ -28,7 +28,7 @@ from pathlib import Path
 import anthropic
 from dotenv import load_dotenv
 
-from core import turso, brain, browser, databricks, mail_actions, persona, system_actions, vscode_actions, weather
+from core import turso, brain, browser, databricks, mail_actions, persona, project_status, system_actions, vscode_actions, weather
 from core.executor_singleton import executor as _system_executor
 from core.voice import face_id
 
@@ -139,7 +139,8 @@ SYSTEM = (
     '{"action":"search","engine":"youtube","query":"...","open_first_result":true}\n'
     "```\n"
     '("engine" può essere "google" o "youtube"). Usalo solo quando serve davvero '
-    "aprire un browser reale — non per domande generiche. Se l'utente chiede di "
+    "aprire un browser reale — non per domande generiche, e MAI per il meteo "
+    "(usa sempre il tool get_weather_forecast, dati reali, mai una ricerca). Se l'utente chiede di "
     "aprire/navigare Databricks (senza specificare produzione), usa il blocco "
     '```browser``` con "action":"open" e l\'URL dell\'ambiente di test (QAS): '
     f'{DATABRICKS_QAS_HOST or "(non configurato)"}. Non hai un URL diretto per aprire '
@@ -226,6 +227,21 @@ SYSTEM = (
     "```\n"
     "Crea una bozza vera in Outlook (solo .Save(), mai .Send()) — dillo, non "
     "affermare mai di averla spedita.\n\n"
+    "Quando l'utente chiede di LEGGERE mail o chat Teams (non scrivere), segui "
+    "questo flusso invece di buttarti a leggere tutto subito: (1) chiedi se vuole "
+    "solo le non lette o tutte, e aspetta la risposta; (2) elenca per oggetto+"
+    "mittente (mail: tool list_emails) o per nome della persona (Teams: leggi la "
+    "pagina/lista chat gia' aperta) e chiedi quale aprire, aspetta la risposta; "
+    "(3) apri SOLO quella (mail: tool read_email con quello che l'utente ha detto "
+    "per riconoscerla; Teams: apri quella chat nel browser di JARVIS e leggila) e "
+    "fanne un riassunto breve degli ultimi scambi, senza dilungarti. Non saltare "
+    "i passaggi (1)/(2) anche se l'utente sembra chiedere 'leggimi le mail' in "
+    "modo generico — e' proprio quello il caso che deve attivare il flusso.\n\n"
+    "Quando l'utente chiede genericamente 'come vanno i progetti'/'stato progetti' "
+    "senza nominarne uno, chiedi PRIMA quale (aura/trading/whitesoul) invece di "
+    "controllarli tutti e tre — poi usa il tool get_project_status su quello "
+    "scelto. Se nomina gia' un progetto specifico nella stessa domanda, salta la "
+    "domanda e vai dritto al tool.\n\n"
     "Per rispondere/scrivere su TEAMS, se la pagina e' gia' aperta/loggata nel "
     "browser di JARVIS (controlla con ```browser``` {\"action\":\"read\"} "
     "prima — altrimenti ripiega su una bozza a parole), scrivi con "
@@ -404,6 +420,73 @@ TOOLS = [
             "required": ["query"],
         },
     },
+    {
+        "name": "list_emails",
+        "description": (
+            "Elenca le mail recenti (oggetto + mittente + flag non letta, NESSUN "
+            "contenuto) — usalo per il flusso 'quali mail vuoi vedere', mai per "
+            "leggere il contenuto di una mail specifica (per quello usa read_email "
+            "dopo che l'utente ha scelto quale)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {"unread_only": {"type": "boolean", "description": "true = solo le non lette, false = tutte (default false)"}},
+        },
+    },
+    {
+        "name": "read_email",
+        "description": (
+            "Apre UNA mail specifica (cercata per mittente o oggetto, sottostringa "
+            "case-insensitive — passa quello che l'utente ha detto per riconoscerla, "
+            "es. 'Mario' o 'asset management') e ne ritorna il corpo COMPLETO, non "
+            "troncato. Usalo dopo list_emails, quando l'utente ha indicato quale "
+            "aprire — poi RIASSUMILA tu nella risposta, breve, non incollare tutto "
+            "il testo grezzo."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Mittente o parte dell'oggetto per riconoscere la mail"},
+                "unread_only": {"type": "boolean", "description": "Limita la ricerca alle non lette (default false)"},
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "get_project_status",
+        "description": (
+            "Stato git reale (branch, modifiche in sospeso, ultimo commit, note "
+            "JARVIS) di UN progetto specifico — mai una percentuale/punteggio "
+            "inventato, GitHub/Vercel coprono gia' quello. Chiedi sempre prima "
+            "all'utente quale progetto vuole (non presumere), poi chiama questo "
+            "tool con la chiave scelta."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {"project": {"type": "string", "description": f'Una tra: {", ".join(p.key for p in project_status.PROJECTS)}'}},
+            "required": ["project"],
+        },
+    },
+    {
+        "name": "get_weather_forecast",
+        "description": (
+            "Previsioni meteo REALI (Open-Meteo) per un giorno preciso, oggi incluso — "
+            "usalo SEMPRE per qualunque domanda sul meteo che non sia gia' coperta dal "
+            "\"Meteo attuale\" iniettato sopra (es. domani, un giorno della settimana, "
+            "un weekend). Non aprire MAI un browser/una ricerca per il meteo: i dati "
+            "veri sono sempre disponibili qui, un browser darebbe solo una pagina da "
+            "interpretare invece di un numero preciso."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "days_ahead": {
+                    "type": "integer",
+                    "description": "0 = oggi, 1 = domani, fino a 6 (una settimana da oggi). Default 0.",
+                }
+            },
+        },
+    },
 ]
 
 
@@ -439,6 +522,33 @@ def _execute_tool(name: str, tool_input: dict, cwd: str) -> tuple[str, bool]:
             # direttamente invece di costruire un ExecResult finto.
             result = brain.search(tool_input["query"]) if turso.ENABLED else ""
             return _truncate_tool_result(result or "Nessun risultato in memoria per questa ricerca."), False
+        elif name == "get_project_status":
+            status = project_status.check_one_by_key(tool_input["project"], _system_executor)
+            if not status:
+                keys = ", ".join(p.key for p in project_status.PROJECTS)
+                return f'Progetto sconosciuto — usa una di queste chiavi: {keys}.', True
+            return project_status.format_report([status], voice=False), False
+        elif name == "get_weather_forecast":
+            line = weather.format_day_line(tool_input.get("days_ahead", 0))
+            return (line or "Previsioni non disponibili al momento (rete/API meteo irraggiungibile)."), False
+        elif name == "list_emails":
+            from core import outlook  # import qui: evita di caricare pywin32 se il tool non serve mai
+
+            try:
+                emails = outlook.list_recent_emails_sync(unread_only=bool(tool_input.get("unread_only", False)))
+            except outlook.OutlookError as e:
+                return str(e), True
+            return outlook.format_email_list_for_picking(emails), False
+        elif name == "read_email":
+            from core import outlook  # import qui: evita di caricare pywin32 se il tool non serve mai
+
+            try:
+                detail = outlook.find_email_sync(tool_input["query"], bool(tool_input.get("unread_only", False)))
+            except outlook.OutlookError as e:
+                return str(e), True
+            if not detail:
+                return f"Nessuna mail trovata per \"{tool_input['query']}\".", False
+            return _truncate_tool_result(outlook.format_email_detail(detail)), False
         else:
             return f"Tool sconosciuto: {name}", True
     except Exception as e:  # noqa: BLE001 — un tool rotto non deve far crashare il loop
