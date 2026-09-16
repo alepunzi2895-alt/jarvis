@@ -24,18 +24,18 @@ import edge_tts
 from core import turso
 from core.voice import resolve_output_device
 
-# it-IT-DiegoNeural, non la variante "Multilingual" (2026-09-16, segnalato
-# da Alessandro: "perche' mi parla anche in altre lingue? vorrei solo
-# italiano"). Le voci "Multilingual" di Azure/edge-tts riconoscono le
-# singole parole non italiane (nomi prodotto, termini tecnici — GitHub,
-# Vercel, VS Code, Teams... ricorrono in ogni risposta) e cambiano accento/
-# pronuncia SU QUELLA PAROLA passando alla lingua rilevata — comportamento
-# della voce stessa, non risolvibile ripulendo il testo (gia' tentato il
-# 2026-09-15 per il testo verboso, non basta perche' qui il problema sono
-# proprio le singole parole inglesi dentro frasi altrimenti italiane). Una
-# voce IT non-multilingua pronuncia tutto con fonetica italiana a
-# prescindere dalla parola, invece di alternare lingua a meta' frase.
-VOICE = os.getenv("JARVIS_TTS_VOICE", "it-IT-DiegoNeural")
+# 2026-09-16: cambiata a it-IT-DiegoNeural (non multilingua) per evitare lo
+# switch di lingua sulle parole inglesi ricorrenti (GitHub, Teams, ecc.),
+# poi RIPORTATA a Giuseppe su richiesta esplicita di Alessandro dopo aver
+# sentito Diego: preferisce il tono di Giuseppe e accetta il difetto della
+# lingua piuttosto che tenere una voce che non gli piace. Query reale del
+# catalogo edge-tts (2026-09-16): solo 4 voci it-IT esistono (Giuseppe
+# Multilingual, Diego, Elsa, Isabella) — Giuseppe e' l'UNICA voce
+# maschile con quel timbro, non esiste una variante non-multilingua dello
+# stesso personaggio. Se lo switch di lingua torna a dare fastidio, le
+# uniche alternative reali sono Diego (gia' provato, scartato) o una voce
+# femminile (Elsa/Isabella, mai provate).
+VOICE = os.getenv("JARVIS_TTS_VOICE", "it-IT-GiuseppeMultilingualNeural")
 
 # --------------------------------------------------------------------------- stato "sto parlando" (dashboard)
 #
