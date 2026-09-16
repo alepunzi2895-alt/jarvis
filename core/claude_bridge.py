@@ -154,6 +154,14 @@ SYSTEM = (
     '{"action":"type","text":"...","submit":true} - scrive nel campo attivo (o nel '
     "campo di testo piu' plausibile della pagina) e preme Invio se submit e' true "
     "(default true, mettilo a false se non deve inviare subito).\n"
+    'Per leggere davvero delle mail su Outlook Web (outlook.office.com), NON usare '
+    '"read" (torna anche ribbon/cartelle/anteprime mischiati al contenuto — per '
+    "questo la posta ha gia' un canale rapido dedicato che non passa nemmeno da te; "
+    'se arrivi comunque qui e la pagina e\' gia\' aperta) usa invece:\n'
+    '{"action":"read_mail","count":3} - apre in sequenza le prime N mail '
+    "dell'elenco (default 3, max 5) e ne ritorna SOLO il corpo di ciascuna, gia' "
+    "filtrato da bottoni/menu/cartelle. Poi fanne tu il riassunto nella risposta, "
+    "non limitarti a incollare il testo grezzo.\n"
     "Con questi puoi aprire il pannello Genie Code (di solito un pulsante/icona con "
     "quel nome), leggere l'ultima risposta, scrivere una domanda e leggerne l'esito — "
     "ma leggi sempre la pagina prima di ogni azione, la UI reale la vedi solo cosi', "

@@ -75,6 +75,29 @@ def _is_draft_only_host(url: str) -> bool:
     return any(host == h or host.endswith(f".{h}") for h in _DRAFT_ONLY_HOSTS)
 
 
+# "leggere Outlook nel browser deve filtrare tutti i bottoni ecc e leggere
+# solo le mail aprendole" (Alessandro, 2026-09-16): read() con inner_text("body")
+# su Outlook Web dava un unico muro di testo — ribbon, albero cartelle,
+# anteprime dell'elenco messaggi E il corpo della mail aperta tutti
+# concatenati, che poi finiva letto ad alta voce parola per parola (bug
+# osservato dal vivo: logs/bot.log del 2026-09-16 mostra JARVIS che legge
+# "Crea nuovo messaggio"/"Sposta in cartella"/nomi di cartelle come se
+# fossero contenuto vero). Fix: due ruoli ARIA STANDARD, indipendenti dalla
+# lingua dell'interfaccia (a differenza degli aria-label, che sono
+# localizzati) — role="option" per le righe dell'elenco messaggi,
+# role="document" per il riquadro di lettura della mail aperta. Ribbon e
+# albero cartelle sono sempre role="button"/"treeitem", mai inclusi in
+# nessuno dei due, quindi il filtro e' strutturale, non un elenco di parole
+# da escludere.
+_OWA_HOSTS = ("outlook.office.com", "outlook.office365.com", "outlook.live.com")
+_MAX_MAIL_ITEMS = 5
+
+
+def _is_owa_host(url: str) -> bool:
+    host = (urlparse(url).hostname or "").lower()
+    return any(host == h or host.endswith(f".{h}") for h in _OWA_HOSTS)
+
+
 def _clean_page_text(text: str) -> str:
     lines = [line.rstrip() for line in text.splitlines()]
     cleaned = re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
@@ -169,16 +192,87 @@ class BrowserAgent:
     async def read(self) -> str:
         """Testo visibile dell'ultima pagina aperta nella sessione — cosi'
         Claude puo' "vedere" cosa c'e' (es. l'ultima risposta di Genie Code)
-        senza dover interpretare uno screenshot per ogni domanda."""
+        senza dover interpretare uno screenshot per ogni domanda. Su Outlook
+        Web usa la lettura mirata (_read_scoped) invece del body intero —
+        stesso filtro di read_emails(), qui applicato anche a un click/read
+        manuale fatto da Claude passo-passo."""
         context = await self._ensure_context()
         if not context.pages:
             return "Nessuna pagina aperta nel browser di JARVIS."
         page = context.pages[-1]
         try:
-            text = await page.inner_text("body")
+            text = await self._read_scoped(page) if _is_owa_host(page.url) else ""
+            if not text:
+                text = await page.inner_text("body")
         except Exception as e:  # noqa: BLE001
             return f"Impossibile leggere la pagina: {e}"
         return _clean_page_text(text) or "(pagina vuota o senza testo visibile)"
+
+    async def _read_scoped(self, page) -> str:
+        """Riquadro di lettura (role="document") se una mail e' aperta,
+        altrimenti l'elenco messaggi (role="option") — mai il body intero.
+        Stringa vuota se nessuno dei due e' presente (pagina non ancora
+        caricata): il chiamante ripiega su inner_text("body")."""
+        try:
+            doc = page.get_by_role("document")
+            if await doc.count() > 0:
+                text = (await doc.first.inner_text()).strip()
+                if text:
+                    return text
+        except Exception:
+            pass
+        try:
+            options = page.get_by_role("option")
+            n = await options.count()
+            if n:
+                items = [
+                    (await options.nth(i).inner_text()).strip()
+                    for i in range(min(n, _MAX_MAIL_ITEMS * 3))
+                ]
+                return "\n---\n".join(i for i in items if i)
+        except Exception:
+            pass
+        return ""
+
+    async def read_emails(self, count: int = 3) -> str:
+        """Apre in sequenza le prime `count` righe dell'elenco messaggi
+        (Outlook Web) e ne legge SOLO il riquadro di lettura di ciascuna —
+        Claude riceve il testo pulito di ogni mail e ne fa il riassunto
+        nella sua risposta, questo metodo non riassume da solo (stesso
+        principio di read(): dati grezzi puliti, non un'interpretazione)."""
+        context = await self._ensure_context()
+        if not context.pages:
+            return "Nessuna pagina aperta nel browser di JARVIS."
+        page = context.pages[-1]
+        if not _is_owa_host(page.url):
+            return (
+                'Non sono su Outlook Web — apri prima "outlook.office.com" '
+                'con ```browser``` {"action":"open"}.'
+            )
+
+        count = max(1, min(count, _MAX_MAIL_ITEMS))
+        try:
+            rows = page.get_by_role("option")
+            total = await rows.count()
+        except Exception as e:  # noqa: BLE001
+            return f"Impossibile leggere l'elenco messaggi: {e}"
+        if total == 0:
+            return "Nessuna mail nell'elenco visibile."
+
+        summaries: list[str] = []
+        for i in range(min(count, total)):
+            try:
+                await rows.nth(i).click(timeout=5000)
+                await page.wait_for_timeout(800)  # tempo per il caricamento del riquadro di lettura
+                body = await self._read_scoped(page)
+                summaries.append(
+                    f"Mail {i + 1}:\n{_clean_page_text(body)}"
+                    if body else f"Mail {i + 1}: corpo non leggibile (non ancora caricato)."
+                )
+            except Exception as e:  # noqa: BLE001 — una mail non apribile non deve fermare le altre
+                summaries.append(f"Mail {i + 1}: non apribile ({e}).")
+        _bring_browser_to_foreground()
+        return "\n\n".join(summaries)
 
     async def click(self, label: str) -> str:
         """Clicca il primo elemento visibile che contiene il testo dato
@@ -286,6 +380,8 @@ async def extract_and_execute(text: str) -> str:
                 )
             elif kind == "read":
                 outcomes.append(await agent.read())
+            elif kind == "read_mail":
+                outcomes.append(await agent.read_emails(action.get("count", 3)))
             elif kind == "click" and action.get("text"):
                 outcomes.append(await agent.click(action["text"]))
             elif kind == "type" and action.get("text"):

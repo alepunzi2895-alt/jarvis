@@ -335,7 +335,8 @@ async def handle(text: str) -> None:
         # sequenza (~0.2-0.5s l'uno) — troppo per il path pensato per costo/
         # latenza zero, non deve pero' bloccare il polling Telegram nel frattempo.
         response = await asyncio.to_thread(intents.execute_intent, intent, executor, voice_flag, state["ws"], text)
-        speak_locally(response)
+        if intent["type"] != "stop":  # non pronunciare la conferma di "stop" — vedi core/web_bridge.py
+            speak_locally(response)
         return send(response)
 
     # "scatta/fotografa/apri la webcam e dimmi cosa vedi" da Telegram: senza

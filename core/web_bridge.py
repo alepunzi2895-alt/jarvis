@@ -271,7 +271,12 @@ async def poll_web_queue() -> None:
                     intents.execute_intent,
                     intent, executor, voice_flag, ws, task["prompt"],
                 )
-                tts.speak_if_enabled(response)
+                # "stop" ha gia' interrotto l'audio in corso (barge-in qui
+                # sopra) — parlare ora la conferma vanificherebbe la richiesta
+                # ("deve smettere di leggere", 2026-09-16): unico intent che
+                # non si fa mai pronunciare.
+                if intent["type"] != "stop":
+                    tts.speak_if_enabled(response)
                 _notify_telegram(task["prompt"], response)
                 await _push_result(task["id"], "done", response, None, 0.0, workspace=ws)
                 continue

@@ -39,6 +39,43 @@ def test_generic_questions_are_not_intercepted():
     assert intents.parse_intent("apri la webcam") is None  # gestito da core.voice.camera, non qui
 
 
+def test_parse_intent_stop():
+    assert intents.parse_intent("stop") == {"type": "stop"}
+    assert intents.parse_intent("Basta!") == {"type": "stop"}
+    assert intents.parse_intent("zitto") == {"type": "stop"}
+    # non deve "rubare" una frase piu' lunga che contiene la parola
+    assert intents.parse_intent("stop al progetto quando arrivi a un milione") is None
+
+
+def test_execute_intent_stop_interrupts_tts_and_does_not_call_claude():
+    with patch("core.voice.tts.stop_current_speech") as stop_fn:
+        result = intents.execute_intent({"type": "stop"}, MagicMock(), voice=True)
+    stop_fn.assert_called_once()
+    assert result == "Silenzio."
+
+
+def test_parse_intent_calendar_detects_day():
+    assert intents.parse_intent("che meeting ho oggi") == {"type": "calendar", "day": "oggi"}
+    assert intents.parse_intent("che riunioni ho domani") == {"type": "calendar", "day": "domani"}
+    # variante STT-garbled reale (2026-09-16, vedi core/outlook.py)
+    assert intents.parse_intent("dici che riunioni un programma domani") == {
+        "type": "calendar", "day": "domani",
+    }
+
+
+def test_execute_intent_calendar_domani_calls_day_window():
+    with (
+        patch("core.outlook.get_events_for_day_sync", return_value=["finto"]) as day_fn,
+        patch("core.outlook.get_upcoming_events_sync") as upcoming_fn,
+        patch("core.outlook.format_events", return_value="Impegni di domani...") as fmt,
+    ):
+        result = intents.execute_intent({"type": "calendar", "day": "domani"}, MagicMock(), voice=False)
+    day_fn.assert_called_once()
+    upcoming_fn.assert_not_called()
+    fmt.assert_called_once_with(["finto"], voice=False, day="domani")
+    assert result == "Impegni di domani..."
+
+
 def test_parse_intent_time_and_weather():
     # Aggiunti il 2026-09-15 per portare la voce sotto i 4-5s: Claude
     # rispondeva gia' bene (data/ora/meteo sono nel SYSTEM prompt) ma con

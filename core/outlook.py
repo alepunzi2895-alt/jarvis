@@ -49,14 +49,31 @@ UNREAD_COUNT_RE = re.compile(r"\bquant[eo]\b|\bnon\s+lett[ei]\b", re.IGNORECASE)
 
 # Query on-demand sul calendario (a differenza del promemoria automatico dei
 # 15 minuti in bot.py::calendar_reminder_loop, che non passa da qui).
+#
+# 2026-09-16: "dimmi che riunioni ho in programma domani" trascritto dalla
+# STT come "dici che riunioni un programma domani" (il "ho" garbled in
+# "un") non incrociava NESSUna delle alternative sotto (tutte richiedevano
+# "ho"/"ci sono" letterali subito dopo il sostantivo, o le parole esatte
+# "agenda"/"cosa ho in calendario"/"calendario di") — la domanda cadeva
+# intera su Claude (motore API diretto, senza alcun accesso al calendario)
+# che rispondeva "non posso collegarmi al calendario". Aggiunta un'ultima
+# alternativa piu' permissiva: sostantivo calendario + oggi/domani/
+# programma/agenda entro una manciata di parole, in qualunque ordine, senza
+# richiedere un verbo coniugato preciso — tollera meglio le trascrizioni
+# imperfette senza intercettare frasi non pertinenti (il sostantivo
+# meeting/riunione/appuntamento/impegno resta comunque obbligatorio).
 CALENDAR_INTENT_RE = re.compile(
     r"\b(?:che|quali)\s+(?:meeting|riunion\w*|appuntament\w*|impegn\w*)\s+(?:ho|ci\s+sono)\b"
     r"|\bprossim\w+\s+(?:meeting|riunion\w*|appuntament\w*|impegn\w*)\b"
     r"|\bagenda\s+(?:di\s+oggi|del\s+giorno|di\s+domani)?\b"
     r"|\bcosa\s+ho\s+in\s+calendario\b"
-    r"|\bcalendario\s+di\s+(?:oggi|domani)\b",
+    r"|\bcalendario\s+di\s+(?:oggi|domani)\b"
+    r"|\b(?:meeting|riunion\w*|appuntament\w*|impegn\w*)\w*[^.?!]{0,25}?\b(?:oggi|domani|programma|agenda)\b"
+    r"|\b(?:oggi|domani)\b[^.?!]{0,25}?\b(?:meeting|riunion\w*|appuntament\w*|impegn\w*)\b",
     re.IGNORECASE,
 )
+
+_TOMORROW_RE = re.compile(r"\bdomani\b", re.IGNORECASE)
 
 _SNIPPET_CHARS = 200
 # olFolderInbox = 6, olFolderCalendar = 9 (costanti Outlook, non serve
@@ -242,12 +259,13 @@ def _com_time_to_datetime(t) -> dt.datetime:
     return dt.datetime(t.year, t.month, t.day, t.hour, t.minute, t.second)
 
 
-def _fetch_upcoming_sync(minutes_ahead: int) -> list[CalendarEvent]:
-    """Come _fetch_recent_sync ma sul calendario. IncludeRecurrences=True
-    prima di Restrict e' obbligatorio: senza, una riunione ricorrente
-    settimanale sparirebbe dal filtro dopo la sua primissima occorrenza
-    (Outlook la tratta come un singolo master item con la data originale,
-    non una per occorrenza) — pattern standard per pywin32/Outlook COM."""
+def _fetch_events_in_window_sync(start: dt.datetime, end: dt.datetime) -> list[CalendarEvent]:
+    """Come _fetch_recent_sync ma sul calendario, su una finestra [start, end]
+    esplicita. IncludeRecurrences=True prima di Restrict e' obbligatorio:
+    senza, una riunione ricorrente settimanale sparirebbe dal filtro dopo la
+    sua primissima occorrenza (Outlook la tratta come un singolo master item
+    con la data originale, non una per occorrenza) — pattern standard per
+    pywin32/Outlook COM."""
     try:
         import time
         import pythoncom
@@ -267,13 +285,11 @@ def _fetch_upcoming_sync(minutes_ahead: int) -> list[CalendarEvent]:
                 items.IncludeRecurrences = True
                 items.Sort("[Start]")
 
-                now = dt.datetime.now()
-                until = now + dt.timedelta(minutes=minutes_ahead)
                 # Formato riconosciuto da Outlook.Restrict a prescindere dal
                 # locale regionale di Windows — verificato dal vivo su
                 # questa macchina (locale italiano) il 2026-09-16.
                 fmt = "%m/%d/%Y %I:%M %p"
-                restriction = f"[Start] >= '{now.strftime(fmt)}' AND [Start] <= '{until.strftime(fmt)}'"
+                restriction = f"[Start] >= '{start.strftime(fmt)}' AND [Start] <= '{end.strftime(fmt)}'"
                 restricted = items.Restrict(restriction)
 
                 results: list[CalendarEvent] = []
@@ -305,6 +321,14 @@ def _fetch_upcoming_sync(minutes_ahead: int) -> list[CalendarEvent]:
         pythoncom.CoUninitialize()
 
 
+def _fetch_upcoming_sync(minutes_ahead: int) -> list[CalendarEvent]:
+    """Finestra relativa [ora, ora+minutes_ahead] — usata dal promemoria
+    automatico (bot.py::calendar_reminder_loop), dove "quanto manca" conta
+    piu' del giorno solare."""
+    now = dt.datetime.now()
+    return _fetch_events_in_window_sync(now, now + dt.timedelta(minutes=minutes_ahead))
+
+
 async def get_upcoming_events(minutes_ahead: int = 20) -> list[CalendarEvent]:
     import asyncio
 
@@ -314,6 +338,17 @@ async def get_upcoming_events(minutes_ahead: int = 20) -> list[CalendarEvent]:
 def get_upcoming_events_sync(minutes_ahead: int = 20) -> list[CalendarEvent]:
     """Per chiamanti gia' sincroni (core/intents.py) — vedi list_recent_emails_sync."""
     return _run_in_fresh_thread(_fetch_upcoming_sync, minutes_ahead)
+
+
+def get_events_for_day_sync(target: dt.date) -> list[CalendarEvent]:
+    """Finestra sul giorno SOLARE (00:00–23:59) invece che relativa a ora —
+    e' la finestra giusta per "che riunioni ho domani" (get_upcoming_events_sync
+    con un minutes_ahead fisso non arriverebbe mai a coprire la giornata di
+    domani per intero, e comunque avrebbe poco senso parlare di "minuti da
+    ora" per un giorno diverso da oggi)."""
+    start = dt.datetime.combine(target, dt.time.min)
+    end = dt.datetime.combine(target, dt.time.max)
+    return _run_in_fresh_thread(_fetch_events_in_window_sync, start, end)
 
 
 def _create_draft_sync(to: str, subject: str, body: str) -> str:
@@ -400,17 +435,20 @@ def format_summary(emails: list[EmailSummary], voice: bool) -> str:
     return "\n".join(lines).strip()
 
 
-def format_events(events: list[CalendarEvent], voice: bool) -> str:
+def format_events(events: list[CalendarEvent], voice: bool, day: str = "oggi") -> str:
     """Per la query on-demand ("che meeting ho"), non per il promemoria
-    automatico — vedi format_event_reminder."""
+    automatico — vedi format_event_reminder. `day` e' solo per la frase
+    ("oggi"/"domani"), la finestra vera e' gia' decisa da chi chiama
+    get_upcoming_events_sync/get_events_for_day_sync."""
+    label = "domani" if day == "domani" else "oggi"
     if not events:
-        return "Nessun impegno in calendario, Signore." if voice else "Nessun impegno trovato."
+        return f"Nessun impegno in calendario per {label}, Signore." if voice else f"Nessun impegno trovato per {label}."
 
     if voice:
         parts = [f"{e.subject} alle {e.start.strftime('%H:%M')}" for e in events[:3]]
-        return f"Prossimi impegni — {'; '.join(parts)}, Signore."
+        return f"Impegni di {label} — {'; '.join(parts)}, Signore."
 
-    lines = ["Prossimi impegni:", ""]
+    lines = [f"Impegni di {label}:", ""]
     for e in events:
         loc = f" @ {e.location}" if e.location else ""
         lines.append(f"**{e.start.strftime('%H:%M')}–{e.end.strftime('%H:%M')}** {e.subject}{loc}")
