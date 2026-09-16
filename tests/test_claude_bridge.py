@@ -49,6 +49,30 @@ def test_execute_tool_error_result_is_flagged(monkeypatch):
     assert is_error is True
 
 
+# --------------------------------------------------------------------------- detect_workspace
+
+
+@pytest.mark.parametrize(
+    "prompt,expected",
+    [
+        ("controlla lo stato di aura", "aura"),
+        ("come va White Soul Ibiza oggi", "whitesoul"),
+        ("controlla il bot tradeflow", "trading"),
+        ("che succede sul forex", "trading"),
+        ("genera il catalogo vinitalimport", "vino"),
+        ("isabela ha nuovi contenuti?", "isabela"),
+        ("che ore sono", "jarvis"),
+        ("come vanno i progetti?", "jarvis"),
+    ],
+)
+def test_detect_workspace_matches_keywords(prompt, expected):
+    assert claude_bridge.detect_workspace(prompt) == expected
+
+
+def test_detect_workspace_is_case_insensitive():
+    assert claude_bridge.detect_workspace("AURA HA BISOGNO DI UN FIX") == "aura"
+
+
 def test_execute_tool_unknown_name():
     text, is_error = claude_bridge._execute_tool("delete_everything", {}, "C:\\ws")
     assert is_error is True

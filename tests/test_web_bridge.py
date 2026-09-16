@@ -147,3 +147,46 @@ def test_voice_command_triggers_barge_in_stop(monkeypatch):
         asyncio.run(web_bridge.poll_web_queue())
 
     assert stop_calls == [True]
+
+
+def test_intent_result_is_tagged_with_auto_detected_workspace(monkeypatch):
+    """Il progetto non arriva piu' dal client (pill rimosse dalla dashboard,
+    2026-09-16: "non mi piace avere tutti quei contesti sopra") - va
+    rilevato dal testo del task e scritto indietro nella riga, cosi' la
+    dashboard puo' comunque mostrarlo (HUD/cronologia) senza che l'utente
+    lo scelga a mano."""
+    calls = {"select": 0}
+    updates: list[tuple[str, list]] = []
+    captured = {}
+
+    def fake_execute(query, params=None):
+        if query.startswith("SELECT"):
+            calls["select"] += 1
+            if calls["select"] > 1:
+                raise _StopLoop()
+            return [{
+                "id": "t1", "channel": "web", "workspace": "jarvis",
+                "prompt": "aura, che ore sono?", "image_b64": None, "audio_b64": None,
+            }]
+        updates.append((query, params))
+        return []
+
+    def fake_execute_intent(intent, executor, voice_flag, ws, prompt):
+        captured["ws"] = ws
+        return "Sono le 18:00, Signore."
+
+    monkeypatch.setattr(web_bridge.turso, "execute", fake_execute)
+    monkeypatch.setattr(web_bridge.asyncio, "sleep", lambda _s: asyncio.sleep(0))
+    monkeypatch.setattr(web_bridge.intents, "parse_intent", lambda _text: {"type": "time"})
+    monkeypatch.setattr(web_bridge.intents, "execute_intent", fake_execute_intent)
+    monkeypatch.setattr(web_bridge.tts, "speak_if_enabled", lambda _text: None)
+    monkeypatch.setattr(web_bridge, "_notify_telegram", lambda *a, **k: None)
+
+    with pytest.raises(_StopLoop):
+        asyncio.run(web_bridge.poll_web_queue())
+
+    assert captured["ws"] == "aura"
+    result_updates = [p for q, p in updates if "workspace=?" in q]
+    assert len(result_updates) == 1
+    _status, _result, _session_id, _cost, workspace, _task_id = result_updates[0]
+    assert workspace == "aura"

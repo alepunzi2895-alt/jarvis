@@ -501,3 +501,53 @@ al catch-all generico gia' esistente in bot.py/web_bridge.py).
 motore — chi chiede dati TradingView da testo/dashboard FUORI dal
 workspace "trading" non li ha (gia' cosi' anche prima, non una
 regressione introdotta oggi).
+
+## Promemoria calendario Outlook (2026-09-16, branch feature/outlook-calendar-reminders, mergiato in main)
+
+Richiesta esplicita di Alessandro: usare il calendario Outlook e avvisare
+15 minuti prima dei meeting. `core/outlook.py` esteso con lettura
+calendario via COM (olFolderCalendar, `IncludeRecurrences=True` + `Restrict`
+sulla finestra temporale — stesso pattern retry/thread-fresco gia' in uso
+per la posta). `bot.py::calendar_reminder_loop()` (nuovo task in `main()`,
+poll ogni 60s) avvisa su Telegram + voce quando un evento entra nella
+finestra (`JARVIS_CALENDAR_REMINDER_MINUTES`, default 15, 0 disattiva),
+dedup in-memory senza persistenza (accettato: un riavvio del bridge puo'
+far ripetere un promemoria recente, rischio trascurabile). Aggiunto anche
+un intent on-demand ("che meeting ho oggi"/"agenda di oggi", vedi
+`CALENDAR_INTENT_RE`). Verificato dal vivo: lettura reale del calendario
+Outlook di Alessandro (trovato l'evento vero delle 10:05) e intent
+completo via `parse_intent`/`execute_intent`. 227/227 test verdi.
+**Non verificato dal vivo**: il loop always-on nel processo bot.py reale
+(richiede il riavvio del bridge locale per caricare il nuovo codice).
+
+## Pill workspace rimosse dalla dashboard, brain unificato (2026-09-16, branch feature/unify-workspace-brain, mergiato in main)
+
+Richiesta esplicita di Alessandro: non vuole piu' vedere le pill progetto
+(jarvis/aura/whitesoul/trading/isabela/vino) in cima alla dashboard, ne'
+il grafo second brain segmentato/attenuato per workspace attivo — vuole
+un brain unico che si popola man mano. Chiarito prima (le pill non erano
+solo estetiche, sceglievano anche il repo/cwd su cui JARVIS opera) e
+scelto con lui: auto-detect del progetto dal testo del task, non piu'
+selezione manuale.
+
+`core/claude_bridge.py::detect_workspace()` (nuovo, parole chiave per
+progetto, default "jarvis") usato in `core/web_bridge.py::poll_web_queue()`
+per la dashboard — il bot Telegram resta sul comando esplicito `/ws`
+(`state["ws"]`), non toccato. `core/web_bridge.py::_push_result()` scrive
+indietro il progetto rilevato sulla riga Turso (parametro `workspace`
+opzionale) cosi' la dashboard puo' ancora mostrarlo (HUD "Progetto",
+sola lettura ora, e tag nella cronologia task) senza che l'utente lo
+scelga a mano. Rimossa la barra pill (`web/public/index.html`, `app.js`,
+`style.css` — `.ws-pills`/`.ws-pill` morti, `header-clock` ora con
+`margin-left:auto` per tenere clock/logout a destra senza lo spacer
+`flex:1` che le pill fornivano). Grafo second brain: un solo colore per
+tutti i nodi (`BRAIN_NODE_COLOR`, accent fisso #3987e5 — vedi
+[[feedback-dashboard-accent-color]]) al posto della palette per-workspace
+con dimming dei nodi fuori dal workspace attivo (probabile causa
+principale del fastidio segnalato, non solo le pill in se').
+
+237/237 test verdi (10 nuovi). **Non verificato dal vivo nel browser
+reale**: serve il login della dashboard (password non presente in questo
+ambiente/.env locale) — da controllare dopo il deploy che l'header non
+abbia buchi di layout e che un messaggio tipo "controlla aura" venga
+instradato davvero sul progetto giusto.

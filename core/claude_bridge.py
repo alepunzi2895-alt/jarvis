@@ -74,6 +74,29 @@ WORKSPACES = {
     "vino": os.getenv("WS_VINO", str(JARVIS_HOME)),
 }
 
+# Riconoscimento automatico del progetto dal testo del task — richiesta
+# esplicita di Alessandro (2026-09-16): non vuole piu' scegliere a mano il
+# progetto dalle pill della dashboard ("non mi piace avere tutti quei
+# contesti sopra"). Usato solo dalla dashboard web (core/web_bridge.py);
+# il bot Telegram resta sul comando esplicito /ws (state["ws"]), non
+# passa da qui. "jarvis" resta il default quando nessuna parola chiave
+# matcha, stesso comportamento di prima quando la pill era su "jarvis".
+_WORKSPACE_KEYWORDS: dict[str, tuple[str, ...]] = {
+    "aura": ("aura",),
+    "whitesoul": ("white soul", "whitesoul", "white-soul"),
+    "trading": ("tradeflow", "trading", "xau", "forex", "mt4", "mt5", "expert advisor", "backtest"),
+    "isabela": ("isabela",),
+    "vino": ("vinitalimport", "vino", "cantina", "bottigli"),
+}
+
+
+def detect_workspace(prompt: str) -> str:
+    low = prompt.lower()
+    for ws, keywords in _WORKSPACE_KEYWORDS.items():
+        if any(kw in low for kw in keywords):
+            return ws
+    return "jarvis"
+
 SYSTEM = (
     "Sei JARVIS, assistente personale di Alessandro. Rivolgiti a lui con "
     "gentilezza e cortesia, sempre — mai freddo, mai sbrigativo. "
