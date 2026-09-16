@@ -11,6 +11,7 @@ filosofia di core/browser.py per Teams: leggere si', agire mai da soli.
 
 from __future__ import annotations
 
+import datetime as dt
 import re
 import threading
 from dataclasses import dataclass
@@ -39,10 +40,23 @@ OUTLOOK_INTENT_RE = re.compile(
 # come list_recent_emails che tronca la lista).
 UNREAD_COUNT_RE = re.compile(r"\bquant[eo]\b|\bnon\s+lett[ei]\b", re.IGNORECASE)
 
+# Query on-demand sul calendario (a differenza del promemoria automatico dei
+# 15 minuti in bot.py::calendar_reminder_loop, che non passa da qui).
+CALENDAR_INTENT_RE = re.compile(
+    r"\b(?:che|quali)\s+(?:meeting|riunion\w*|appuntament\w*|impegn\w*)\s+(?:ho|ci\s+sono)\b"
+    r"|\bprossim\w+\s+(?:meeting|riunion\w*|appuntament\w*|impegn\w*)\b"
+    r"|\bagenda\s+(?:di\s+oggi|del\s+giorno|di\s+domani)?\b"
+    r"|\bcosa\s+ho\s+in\s+calendario\b"
+    r"|\bcalendario\s+di\s+(?:oggi|domani)\b",
+    re.IGNORECASE,
+)
+
 _SNIPPET_CHARS = 200
-# olFolderInbox = 6 (costante Outlook, non serve importare win32com.client.constants
-# per un solo valore — evita un giro COM in piu' solo per risolvere il nome).
+# olFolderInbox = 6, olFolderCalendar = 9 (costanti Outlook, non serve
+# importare win32com.client.constants per due soli valori — evita un giro
+# COM in piu' solo per risolvere i nomi).
 _OL_FOLDER_INBOX = 6
+_OL_FOLDER_CALENDAR = 9
 
 
 class OutlookError(Exception):
@@ -56,6 +70,15 @@ class EmailSummary:
     received: str
     unread: bool
     snippet: str
+
+
+@dataclass
+class CalendarEvent:
+    subject: str
+    start: dt.datetime
+    end: dt.datetime
+    location: str
+    entry_id: str
 
 
 # "Server execution failed" (HRESULT 0x80080005) e simili sono errori COM
@@ -186,6 +209,87 @@ def _count_unread_sync() -> int:
         pythoncom.CoUninitialize()
 
 
+def _com_time_to_datetime(t) -> dt.datetime:
+    """pywintypes.datetime (tipo COM di Start/End) espone gia' year/month/...
+    ma non e' un datetime nativo — le sottrazioni con dt.datetime.now() in
+    bot.py::calendar_reminder_loop richiedono la conversione esplicita."""
+    return dt.datetime(t.year, t.month, t.day, t.hour, t.minute, t.second)
+
+
+def _fetch_upcoming_sync(minutes_ahead: int) -> list[CalendarEvent]:
+    """Come _fetch_recent_sync ma sul calendario. IncludeRecurrences=True
+    prima di Restrict e' obbligatorio: senza, una riunione ricorrente
+    settimanale sparirebbe dal filtro dopo la sua primissima occorrenza
+    (Outlook la tratta come un singolo master item con la data originale,
+    non una per occorrenza) — pattern standard per pywin32/Outlook COM."""
+    try:
+        import time
+        import pythoncom
+        import win32com.client
+    except ImportError as e:
+        raise OutlookError(f"pywin32 non installato: {e}") from e
+
+    pythoncom.CoInitialize()
+    try:
+        last_error: Exception | None = None
+        for attempt in range(_MAX_ATTEMPTS):
+            try:
+                outlook = win32com.client.Dispatch("Outlook.Application")
+                namespace = outlook.GetNamespace("MAPI")
+                calendar = namespace.GetDefaultFolder(_OL_FOLDER_CALENDAR)
+                items = calendar.Items
+                items.IncludeRecurrences = True
+                items.Sort("[Start]")
+
+                now = dt.datetime.now()
+                until = now + dt.timedelta(minutes=minutes_ahead)
+                # Formato riconosciuto da Outlook.Restrict a prescindere dal
+                # locale regionale di Windows — verificato dal vivo su
+                # questa macchina (locale italiano) il 2026-09-16.
+                fmt = "%m/%d/%Y %I:%M %p"
+                restriction = f"[Start] >= '{now.strftime(fmt)}' AND [Start] <= '{until.strftime(fmt)}'"
+                restricted = items.Restrict(restriction)
+
+                results: list[CalendarEvent] = []
+                for item in restricted:
+                    try:
+                        results.append(
+                            CalendarEvent(
+                                subject=getattr(item, "Subject", "") or "(senza titolo)",
+                                start=_com_time_to_datetime(item.Start),
+                                end=_com_time_to_datetime(item.End),
+                                location=getattr(item, "Location", "") or "",
+                                entry_id=getattr(item, "EntryID", "") or "",
+                            )
+                        )
+                    except Exception:
+                        continue  # un singolo evento malformato non deve far fallire tutto l'elenco
+                results.sort(key=lambda e: e.start)
+                return results
+            except Exception as e:  # noqa: BLE001 — COM puo' fallire in tanti modi diversi, molti transitori
+                last_error = e
+                if attempt < _MAX_ATTEMPTS - 1:
+                    time.sleep(_RETRY_DELAY_SEC)
+
+        raise OutlookError(
+            "Non riesco a leggere il calendario Outlook — verifica che sia installato e configurato "
+            f"su questa macchina (dettaglio: {last_error})."
+        ) from last_error
+    finally:
+        pythoncom.CoUninitialize()
+
+
+async def get_upcoming_events(minutes_ahead: int = 20) -> list[CalendarEvent]:
+    import asyncio
+
+    return await asyncio.to_thread(_run_in_fresh_thread, _fetch_upcoming_sync, minutes_ahead)
+
+
+def get_upcoming_events_sync(minutes_ahead: int = 20) -> list[CalendarEvent]:
+    """Per chiamanti gia' sincroni (core/intents.py) — vedi list_recent_emails_sync."""
+    return _run_in_fresh_thread(_fetch_upcoming_sync, minutes_ahead)
+
+
 async def count_unread_emails() -> int:
     import asyncio
 
@@ -236,3 +340,30 @@ def format_summary(emails: list[EmailSummary], voice: bool) -> str:
             lines.append(f"  {e.snippet}")
         lines.append("")
     return "\n".join(lines).strip()
+
+
+def format_events(events: list[CalendarEvent], voice: bool) -> str:
+    """Per la query on-demand ("che meeting ho"), non per il promemoria
+    automatico — vedi format_event_reminder."""
+    if not events:
+        return "Nessun impegno in calendario, Signore." if voice else "Nessun impegno trovato."
+
+    if voice:
+        parts = [f"{e.subject} alle {e.start.strftime('%H:%M')}" for e in events[:3]]
+        return f"Prossimi impegni — {'; '.join(parts)}, Signore."
+
+    lines = ["Prossimi impegni:", ""]
+    for e in events:
+        loc = f" @ {e.location}" if e.location else ""
+        lines.append(f"**{e.start.strftime('%H:%M')}–{e.end.strftime('%H:%M')}** {e.subject}{loc}")
+    return "\n".join(lines).strip()
+
+
+def format_event_reminder(event: CalendarEvent, voice: bool) -> str:
+    """Promemoria push (Telegram + voce) 15 minuti prima di un meeting —
+    vedi bot.py::calendar_reminder_loop."""
+    when = event.start.strftime("%H:%M")
+    loc = f" ({event.location})" if event.location else ""
+    if voice:
+        return f"Tra 15 minuti ha inizio: {event.subject}{loc}, Signore."
+    return f"📅 Tra 15 minuti: **{event.subject}** alle {when}{loc}."

@@ -118,12 +118,14 @@ def parse_intent(text: str) -> dict | None:
     if _WEATHER_RE.search(t):
         return {"type": "weather"}
 
-    from core.outlook import OUTLOOK_INTENT_RE, UNREAD_COUNT_RE  # import qui: evita pywin32 se l'intent non serve mai
+    from core.outlook import CALENDAR_INTENT_RE, OUTLOOK_INTENT_RE, UNREAD_COUNT_RE  # import qui: evita pywin32 se l'intent non serve mai
 
     if OUTLOOK_INTENT_RE.search(t):
         # "quante mail (ho)?"/"mail non lette": conteggio, non lista — risposta
         # diversa e piu' efficiente (vedi core/outlook.py::count_unread_emails*).
         return {"type": "outlook", "unread_count": bool(UNREAD_COUNT_RE.search(t))}
+    if CALENDAR_INTENT_RE.search(t):
+        return {"type": "calendar"}
 
     low = t.lower()
     for app in _APP_NAMES:
@@ -240,5 +242,14 @@ def _execute(intent: dict, executor: SystemExecutor, voice: bool) -> str:
         except outlook.OutlookError as e:
             return str(e)
         return outlook.format_summary(emails, voice=voice)
+
+    if kind == "calendar":
+        from core import outlook  # import qui: evita di caricare pywin32 se l'intent non serve mai
+
+        try:
+            events = outlook.get_upcoming_events_sync(minutes_ahead=12 * 60)
+        except outlook.OutlookError as e:
+            return str(e)
+        return outlook.format_events(events, voice=voice)
 
     return "Comando riconosciuto ma non ancora gestito."

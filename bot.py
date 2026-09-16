@@ -40,7 +40,7 @@ from core.claude_bridge import (
     save_state,
     run_claude,
 )
-from core import web_bridge, intents, project_status, remote_status, screen_context, databricks, telegram, weather, turso
+from core import web_bridge, intents, project_status, remote_status, screen_context, databricks, telegram, weather, turso, outlook
 from core.executor_singleton import executor, vault
 from core.voice import camera, tts
 
@@ -524,6 +524,41 @@ async def remote_status_loop() -> None:
         await asyncio.sleep(900)
 
 
+CALENDAR_REMINDER_MINUTES = int(os.getenv("JARVIS_CALENDAR_REMINDER_MINUTES", "15") or "15")
+_notified_events: dict[str, dt.datetime] = {}
+
+
+async def calendar_reminder_loop() -> None:
+    """Avvisa (Telegram + voce) N minuti prima di ogni meeting Outlook —
+    richiesta esplicita di Alessandro (2026-09-16). Stateless tra riavvii
+    (_notified_events e' solo in-memory): un restart del bridge puo' far
+    ripetere un promemoria gia' mandato pochi minuti prima — rischio
+    trascurabile rispetto alla complessita' di persistere lo stato per un
+    evento cosi' raro (riavvio + finestra di N minuti)."""
+    if CALENDAR_REMINDER_MINUTES <= 0:
+        return
+    while True:
+        try:
+            events = await outlook.get_upcoming_events(minutes_ahead=CALENDAR_REMINDER_MINUTES + 5)
+            now = dt.datetime.now()
+            for ev in events:
+                if ev.entry_id in _notified_events:
+                    continue
+                minutes_to_start = (ev.start - now).total_seconds() / 60
+                if 0 <= minutes_to_start <= CALENDAR_REMINDER_MINUTES:
+                    send(outlook.format_event_reminder(ev, voice=False))
+                    speak_locally(outlook.format_event_reminder(ev, voice=True))
+                    _notified_events[ev.entry_id] = now
+            # pulizia: dimentica gli eventi ormai notificati da un pezzo,
+            # altrimenti il dict cresce senza fine in un processo always-on
+            stale = [k for k, notified_at in _notified_events.items() if (now - notified_at).total_seconds() > 3600]
+            for k in stale:
+                del _notified_events[k]
+        except Exception as e:  # noqa: BLE001 — un blip Outlook/COM non deve mai fermare il loop
+            print(f"controllo calendario fallito (ignorato): {e}")
+        await asyncio.sleep(60)
+
+
 async def main() -> None:
     tasks = [
         asyncio.create_task(telegram_loop()),
@@ -531,6 +566,7 @@ async def main() -> None:
         asyncio.create_task(weather_forecast_loop()),
         asyncio.create_task(project_status_loop()),
         asyncio.create_task(remote_status_loop()),
+        asyncio.create_task(calendar_reminder_loop()),
     ]
     if web_bridge.ENABLED:
         tasks.append(asyncio.create_task(web_bridge.poll_web_queue()))
