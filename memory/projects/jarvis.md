@@ -551,3 +551,41 @@ reale**: serve il login della dashboard (password non presente in questo
 ambiente/.env locale) — da controllare dopo il deploy che l'header non
 abbia buchi di layout e che un messaggio tipo "controlla aura" venga
 instradato davvero sul progetto giusto.
+
+## "Vero Jarvis" — 5 feature in un colpo solo (2026-09-16, branch feature/jarvis-five-features, mergiato in main)
+
+Su richiesta di Alessandro ("cosa possiamo implementare ancora da vero
+Jarvis" -> 5 proposte -> "facciamo tutti e 5"). Dettaglio completo nel log
+delle 11:53. Riassunto stato/config per sessioni future:
+
+- **Briefing mattutino** (`core/briefing.py`): `/buongiorno` su Telegram +
+  intent vocale/testo, sostituisce il digest mattutino di prima
+  (`JARVIS_DAILY_DIGEST_HOUR` invariato come trigger orario). Verificato
+  dal vivo con dati veri (meteo/calendario/mail).
+- **Presenza proattiva** (`core/presence.py`): **disattiva di default**
+  (`JARVIS_PRESENCE_INTERVAL_SEC` vuoto) — va accesa esplicitamente in
+  `.env`, attiva la webcam periodicamente. Non ancora accesa qui.
+- **Bozze mail/Teams**: Outlook via `core/outlook.py::create_draft_email()`
+  (verificato dal vivo, vedi log) sempre attivo, nessuna config richiesta.
+  Teams via browser richiede che Alessandro faccia il login UNA TANTUM
+  nella finestra Playwright di JARVIS (limite gia' noto da prima, non
+  nuovo) — finche' non lo fa, Claude ripiega sulla vecchia bozza scritta
+  a parole.
+- **Dashboard trading** (`core/myfxbook.py`): richiede `MYFXBOOK_EMAIL`/
+  `MYFXBOOK_PASSWORD` in `.env` (non ancora impostate) — finche' mancano,
+  intent/briefing/pannello dashboard restano silenziosamente disattivi.
+  Unica fonte finanziaria collegata per scelta esplicita sua (2026-09-16):
+  AURA/WhiteSoul/AP Systems non hanno ancora un posto strutturato da cui
+  prendere i ricavi (ConciergeFlow ha un modulo contabilita' vero ma
+  `JARVIS_ALLOWED_DIRS` punta al clone sbagliato/stale — da sistemare se
+  in futuro si vuole aggiungere anche quello).
+- **EnvironmentRouter Iveco**: nuova voce `iveco` in `WORKSPACES` (env
+  `WS_IVECO`, vuoto = nessun path locale ma il routing/rilevamento dal
+  testo funziona comunque). Genie/dbSQL restavano gia' disponibili sempre
+  a prescindere dal workspace — questa voce serve solo per file/comandi
+  e second brain quando si parla esplicitamente di lavoro Iveco.
+
+**Non verificato dal vivo** (richiede lui): saluto automatico webcam,
+bozza Teams reale (serve prima il suo login nel browser JARVIS), pannello
+trading (serve prima `MYFXBOOK_EMAIL`/`PASSWORD`), un vero `WS_IVECO`.
+271/271 test verdi.

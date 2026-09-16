@@ -60,6 +60,20 @@ RESULT_SELECTORS = {
 _READ_MAX_CHARS = 6000
 _INPUT_SELECTOR = "textarea, input[type='text'], input:not([type]), [contenteditable='true']"
 
+# "bozze Teams/mail da approvare, mai invio automatico" (richiesta esplicita
+# di Alessandro, 2026-09-16, estensione della regola gia' in CLAUDE.md "mai
+# inviare messaggi a clienti senza conferma", qui allargata a chiunque via
+# Teams). Applicata a livello di codice, non solo di prompt — stesso
+# principio gia' in uso per `git push` in core/claude_bridge.py: anche se
+# Claude (o un bug nel prompt) chiedesse submit=true su questi domini,
+# type_text() lo ignora e lascia il testo scritto ma non inviato.
+_DRAFT_ONLY_HOSTS = ("teams.microsoft.com", "outlook.office.com", "outlook.office365.com", "outlook.live.com")
+
+
+def _is_draft_only_host(url: str) -> bool:
+    host = (urlparse(url).hostname or "").lower()
+    return any(host == h or host.endswith(f".{h}") for h in _DRAFT_ONLY_HOSTS)
+
 
 def _clean_page_text(text: str) -> str:
     lines = [line.rstrip() for line in text.splitlines()]
@@ -192,6 +206,9 @@ class BrowserAgent:
         if not context.pages:
             return "Nessuna pagina aperta su cui scrivere."
         page = context.pages[-1]
+        forced_draft = submit and _is_draft_only_host(page.url)
+        if forced_draft:
+            submit = False
         try:
             active = await page.evaluate(
                 "() => { const el = document.activeElement; "
@@ -204,7 +221,10 @@ class BrowserAgent:
             await page.keyboard.type(text, delay=15)
             if submit:
                 await page.keyboard.press("Enter")
-            return f'Scritto "{text}"{" e inviato" if submit else ""}.'
+            result = f'Scritto "{text}"{" e inviato" if submit else ""}.'
+            if forced_draft:
+                result += " Lasciato come bozza (mai invio automatico su Teams/Outlook): controllalo e invialo tu."
+            return result
         except Exception as e:  # noqa: BLE001
             return f"Non sono riuscito a scrivere nella pagina: {e}"
 

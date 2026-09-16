@@ -40,7 +40,21 @@ from core.claude_bridge import (
     save_state,
     run_claude,
 )
-from core import web_bridge, intents, project_status, remote_status, screen_context, databricks, telegram, weather, turso, outlook
+from core import (
+    web_bridge,
+    intents,
+    project_status,
+    remote_status,
+    screen_context,
+    databricks,
+    telegram,
+    weather,
+    turso,
+    outlook,
+    briefing,
+    myfxbook,
+    presence,
+)
 from core.executor_singleton import executor, vault
 from core.voice import camera, tts
 
@@ -106,6 +120,7 @@ def cmd_help() -> str:
         "/new           nuova sessione (dimentica contesto chat)\n"
         "/status        stato\n"
         "/progetti      stato git + note JARVIS dei progetti\n"
+        "/buongiorno    briefing: meteo + calendario + mail + trading + progetti\n"
         "/log           log di oggi\n"
         "/note <testo>  scrive nella daily note del vault Obsidian\n"
         "/search <query> cerca nelle note del vault\n"
@@ -148,10 +163,6 @@ def cmd_status() -> str:
     )
 
 
-def cmd_progetti() -> str:
-    return project_status.format_report(project_status.check_all(executor), voice=False)
-
-
 async def handle(text: str) -> None:
     if text.startswith("/"):
         parts = text.split(maxsplit=1)
@@ -182,6 +193,11 @@ async def handle(text: str) -> None:
             statuses = await asyncio.to_thread(project_status.check_all, executor)
             speak_locally(project_status.format_report(statuses, voice=True))
             return send(project_status.format_report(statuses, voice=False))
+
+        if cmd in ("/buongiorno", "/briefing"):
+            data = await asyncio.to_thread(briefing.gather_briefing_data, executor)
+            speak_locally(briefing.format_briefing(data, voice=True))
+            return send(briefing.format_briefing(data, voice=False))
 
         if cmd == "/log":
             return send(cmd_log())
@@ -428,8 +444,8 @@ async def daily_digest_loop() -> None:
             target += dt.timedelta(days=1)
         await asyncio.sleep((target - now).total_seconds())
         try:
-            report = await asyncio.to_thread(cmd_progetti)
-            send(f"Buongiorno.\n\n{report}")
+            data = await asyncio.to_thread(briefing.gather_briefing_data, executor)
+            send(briefing.format_briefing(data, voice=False))
         except Exception as e:  # noqa: BLE001
             print(f"digest mattutino fallito (ignorato): {e}")
 
@@ -559,6 +575,57 @@ async def calendar_reminder_loop() -> None:
         await asyncio.sleep(60)
 
 
+def _push_trading_status(data: list) -> None:
+    turso.execute(
+        "CREATE TABLE IF NOT EXISTS runtime_flags ("
+        "key TEXT PRIMARY KEY, value TEXT, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP)"
+    )
+    turso.execute(
+        "INSERT INTO runtime_flags (key, value, updated_at) VALUES ('trading_status', ?, CURRENT_TIMESTAMP) "
+        "ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=CURRENT_TIMESTAMP",
+        [json.dumps(data)],
+    )
+
+
+async def trading_snapshot_loop() -> None:
+    """Aggiorna su Turso il P&L reale del trading (core/myfxbook.py) per un
+    pannello dashboard — richiesta esplicita di Alessandro (2026-09-16,
+    dashboard finanziaria: "solo trading per ora", unica fonte dati
+    realmente strutturata oggi). Disattivo se Myfxbook non e' configurato
+    o il second brain/Turso non e' abilitato. Ogni 15 minuti, stesso ritmo
+    di remote_status_loop — i numeri Myfxbook non cambiano piu' in fretta
+    di cosi' per uno sguardo d'insieme."""
+    if not turso.ENABLED or not myfxbook.ENABLED:
+        return
+    while True:
+        try:
+            accounts = await asyncio.to_thread(myfxbook.get_accounts_sync)
+            data = [vars(a) for a in accounts]
+            await asyncio.to_thread(_push_trading_status, data)
+        except Exception as e:  # noqa: BLE001 — un blip Myfxbook non deve mai fermare il loop
+            print(f"push stato trading fallito (ignorato): {e}")
+        await asyncio.sleep(900)
+
+
+async def presence_loop() -> None:
+    """Presenza proattiva (core/presence.py) — richiesta esplicita di
+    Alessandro (2026-09-16). Disattivo di default (JARVIS_PRESENCE_INTERVAL_SEC
+    assente/0): attiva la webcam periodicamente senza che lui chieda nulla,
+    va acceso di proposito."""
+    if not presence.ENABLED:
+        return
+    tracker = presence.PresenceTracker()
+    while True:
+        try:
+            greeting = await asyncio.to_thread(tracker.check)
+            if greeting:
+                speak_locally(greeting)
+                send(greeting)
+        except Exception as e:  # noqa: BLE001 — un blip webcam non deve mai fermare il loop
+            print(f"controllo presenza fallito (ignorato): {e}")
+        await asyncio.sleep(presence.INTERVAL_SEC)
+
+
 async def main() -> None:
     tasks = [
         asyncio.create_task(telegram_loop()),
@@ -567,6 +634,8 @@ async def main() -> None:
         asyncio.create_task(project_status_loop()),
         asyncio.create_task(remote_status_loop()),
         asyncio.create_task(calendar_reminder_loop()),
+        asyncio.create_task(trading_snapshot_loop()),
+        asyncio.create_task(presence_loop()),
     ]
     if web_bridge.ENABLED:
         tasks.append(asyncio.create_task(web_bridge.poll_web_queue()))

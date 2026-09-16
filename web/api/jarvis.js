@@ -237,6 +237,21 @@ async function remoteStatusData(db, req) {
   }
 }
 
+async function tradingStatusData(db, req) {
+  // P&L trading reale (Myfxbook) scritto da bot.py::trading_snapshot_loop()
+  // ogni 15 minuti (core/myfxbook.py) - stesso pattern/tabella degli altri
+  // runtime_flags. null se Myfxbook non e' configurato (nessuna riga mai
+  // scritta) - la dashboard nasconde il pannello in quel caso.
+  requireBrowserAuth(req);
+  const r = await db.execute({ sql: "SELECT value FROM runtime_flags WHERE key='trading_status'", args: [] });
+  if (!r.rows.length) return { ok: true, trading: null };
+  try {
+    return { ok: true, trading: JSON.parse(r.rows[0].value) };
+  } catch {
+    return { ok: true, trading: null };
+  }
+}
+
 async function brainGraph(db, req) {
   requireBrowserAuth(req);
   const nodes = await db.execute(
@@ -267,6 +282,7 @@ const ACTIONS = {
   weather_forecast: (db, req, res, body) => weatherForecast(db, req),
   project_status_data: (db, req, res, body) => projectStatusData(db, req),
   remote_status_data: (db, req, res, body) => remoteStatusData(db, req),
+  trading_status_data: (db, req, res, body) => tradingStatusData(db, req),
   brain_graph: (db, req, res, body) => brainGraph(db, req),
   brain_node_delete: (db, req, res, body) => brainNodeDelete(db, req, body),
 };

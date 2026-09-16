@@ -92,6 +92,53 @@ def test_execute_intent_project_status():
     assert result == "report finto"
 
 
+def test_parse_intent_briefing():
+    assert intents.parse_intent("buongiorno") == {"type": "briefing"}
+    assert intents.parse_intent("buongiorno!") == {"type": "briefing"}
+    assert intents.parse_intent("dammi il briefing") == {"type": "briefing"}
+    assert intents.parse_intent("fammi il punto della giornata") == {"type": "briefing"}
+
+
+def test_parse_intent_briefing_does_not_steal_a_compound_command():
+    # "buongiorno" seguito da un comando vero non deve rubare l'intent —
+    # deve restare un comando composto per Claude (o un altro intent).
+    assert intents.parse_intent("buongiorno apri chrome") != {"type": "briefing"}
+
+
+def test_execute_intent_briefing_uses_briefing_module():
+    executor = MagicMock()
+    with patch("core.briefing.gather_briefing_data", return_value={"x": 1}) as gather, \
+         patch("core.briefing.format_briefing", return_value="briefing finto") as fmt:
+        result = intents.execute_intent({"type": "briefing"}, executor, voice=False)
+    gather.assert_called_once_with(executor)
+    fmt.assert_called_once_with({"x": 1}, voice=False)
+    assert result == "briefing finto"
+
+
+def test_parse_intent_trading_pnl():
+    assert intents.parse_intent("come va il trading") == {"type": "trading_pnl"}
+    assert intents.parse_intent("quanto sto guadagnando col trading") == {"type": "trading_pnl"}
+    assert intents.parse_intent("come va l'oro") == {"type": "trading_pnl"}
+
+
+def test_execute_intent_trading_pnl_disabled(monkeypatch):
+    executor = MagicMock()
+    monkeypatch.setattr("core.myfxbook.ENABLED", False)
+    result = intents.execute_intent({"type": "trading_pnl"}, executor, voice=False)
+    assert "non configurato" in result.lower()
+
+
+def test_execute_intent_trading_pnl_formats_accounts(monkeypatch):
+    executor = MagicMock()
+    monkeypatch.setattr("core.myfxbook.ENABLED", True)
+    with patch("core.myfxbook.get_accounts_sync", return_value=["acc"]) as get_accounts, \
+         patch("core.myfxbook.format_accounts", return_value="pnl finto") as fmt:
+        result = intents.execute_intent({"type": "trading_pnl"}, executor, voice=True)
+    get_accounts.assert_called_once()
+    fmt.assert_called_once_with(["acc"], voice=True)
+    assert result == "pnl finto"
+
+
 def test_execute_intent_power_refuses_on_voice():
     executor = MagicMock()
     result = intents.execute_intent({"type": "power", "mode": "shutdown"}, executor, voice=True)

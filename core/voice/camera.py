@@ -39,8 +39,10 @@ def wants_camera(text: str) -> bool:
     return bool(CAMERA_INTENT_RE.search(text))
 
 
-def capture_frame_b64(device_index: int = 0) -> str | None:
-    """Cattura un singolo frame dalla webcam, ritorna JPEG base64 o None se non disponibile.
+def capture_frame_raw(device_index: int = 0):
+    """Cattura un singolo frame dalla webcam, ritorna l'array BGR nativo di
+    OpenCV (o None se non disponibile) — per chi deve elaborarlo in locale
+    (core/voice/face_id.py) invece di spedirlo a Claude come immagine.
 
     Backend forzato a DirectShow (CAP_DSHOW): senza specificarlo, OpenCV su
     Windows sceglie MSMF/auto-detect per questa webcam, che impiega 30-60s per
@@ -57,11 +59,18 @@ def capture_frame_b64(device_index: int = 0) -> str | None:
         for _ in range(3):
             cap.read()
         ok, frame = cap.read()
-        if not ok:
-            return None
-        ok, buf = cv2.imencode(".jpg", frame)
-        if not ok:
-            return None
-        return base64.b64encode(buf.tobytes()).decode("ascii")
+        return frame if ok else None
     finally:
         cap.release()
+
+
+def capture_frame_b64(device_index: int = 0) -> str | None:
+    """Come capture_frame_raw, ma JPEG base64 — canale image_b64 gia' usato
+    da core/claude_bridge.py (Claude legge il file con il suo Read tool)."""
+    frame = capture_frame_raw(device_index)
+    if frame is None:
+        return None
+    ok, buf = cv2.imencode(".jpg", frame)
+    if not ok:
+        return None
+    return base64.b64encode(buf.tobytes()).decode("ascii")

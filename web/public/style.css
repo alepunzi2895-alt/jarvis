@@ -737,6 +737,8 @@ header::after {
   gap: 10px;
 }
 
+.project-cards[hidden] { display: none; }
+
 .project-card {
   padding: 10px 12px;
   border-radius: 8px;

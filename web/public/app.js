@@ -864,6 +864,45 @@ async function refreshRemoteStatus() {
   }
 }
 
+// ── Trading (Myfxbook), core/myfxbook.py — dashboard finanziaria, "solo
+// trading per ora" (richiesta esplicita di Alessandro, 2026-09-16): unica
+// fonte dati realmente strutturata oggi, AURA/WhiteSoul/AP Systems restano
+// fuori finche' non hanno un posto strutturato da cui prendere i numeri.
+// Pannello nascosto del tutto se Myfxbook non e' configurato lato bridge
+// (nessuna riga mai scritta su Turso, non solo vuota).
+async function refreshTradingStatus() {
+  try {
+    const { trading } = await api("trading_status_data");
+    const heading = $("#trading-subheading");
+    const container = $("#trading-cards");
+    if (!container || !heading) return;
+    if (!trading || !trading.length) {
+      heading.hidden = true;
+      container.hidden = true;
+      return;
+    }
+    heading.hidden = false;
+    container.hidden = false;
+    container.innerHTML = trading
+      .map((a) => {
+        const total = (a.won_trades || 0) + (a.lost_trades || 0);
+        const winrate = total ? `${Math.round((a.won_trades / total) * 100)}%` : "n/d";
+        const gainColor = a.gain >= 0 ? "var(--good)" : "var(--critical)";
+        return `
+          <div class="project-card">
+            <div class="project-card-title">${_escHtml(a.name)}</div>
+            <div class="project-card-row"><span>Equity</span><strong>${Number(a.equity).toFixed(2)}</strong></div>
+            <div class="project-card-row"><span>Gain</span><strong style="color:${gainColor}">${Number(a.gain).toFixed(2)}%</strong></div>
+            <div class="project-card-row"><span>Drawdown</span><strong>${Number(a.drawdown).toFixed(2)}%</strong></div>
+            <div class="project-card-row"><span>Winrate</span><strong>${winrate} (${total} trade)</strong></div>
+          </div>`;
+      })
+      .join("");
+  } catch {
+    // rete assente/blip transitorio: lascia il pannello com'era
+  }
+}
+
 // ── Second brain — grafo animato (canvas, nessuna libreria) ──────────
 // Un solo brain, senza piu' distinzione per progetto (richiesta esplicita
 // di Alessandro, 2026-09-16: "non mi piace avere tutti quei contesti
@@ -1287,6 +1326,10 @@ async function boot() {
   _bootStep("remote-status", () => {
     refreshRemoteStatus();
     setInterval(refreshRemoteStatus, 3 * 60 * 1000); // il bridge locale pubblica ogni 15min
+  });
+  _bootStep("trading-status", () => {
+    refreshTradingStatus();
+    setInterval(refreshTradingStatus, 3 * 60 * 1000); // il bridge locale pubblica ogni 15min
   });
   _bootStep("speaking-poll", () => {
     pollSpeakingStatus();
