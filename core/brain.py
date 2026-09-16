@@ -138,6 +138,44 @@ def fetch_context(workspace: str, limit: int = CONTEXT_LIMIT) -> str:
         return ""
 
 
+def search(query: str, limit: int = 5) -> str:
+    """Ricerca on-demand nel second brain, oltre i CONTEXT_LIMIT nodi gia'
+    iniettati automaticamente in ogni turno (fetch_context) — spunto preso
+    da Mark LIII (github.com/FatihMakes/Mark-LIII, richiesta esplicita di
+    Alessandro 2026-09-16): "la memoria non ha limiti" perche' solo i fatti
+    piu' rilevanti/recenti stanno nel prompt, il resto si cerca a richiesta
+    invece di iniettare sempre tutto. Qui: un nodo con hits alti ma
+    irrilevante per il turno corrente puo' spingere fuori dal top-15 un
+    fatto piu' vecchio ma ancora vero — senza questa ricerca, quel fatto
+    sarebbe perso per sempre (mai piu' visto da Claude). LIKE semplice
+    (non full-text/FTS5): sufficiente per un second brain di questa scala,
+    niente indice aggiuntivo da mantenere. Esclude i nodi "interazione"
+    come fetch_context, stesso motivo (log per-giorno, non fatti)."""
+    q = (query or "").strip()
+    if not q:
+        return ""
+    try:
+        _bootstrap()
+        like = f"%{q}%"
+        rows = turso.execute(
+            "SELECT label, summary, workspace FROM brain_nodes "
+            "WHERE (tags IS NULL OR tags NOT LIKE '%interazione%') "
+            "AND (label LIKE ? OR summary LIKE ? OR tags LIKE ?) "
+            "ORDER BY hits DESC, updated_at DESC LIMIT ?",
+            [like, like, like, limit],
+        )
+    except Exception:  # noqa: BLE001 — stesso degrado di fetch_context, mai bloccare la risposta
+        return ""
+    if not rows:
+        return ""
+    lines = [f'Risultati per "{q}":']
+    for r in rows:
+        tag = f" [{r['workspace']}]" if r.get("workspace") else ""
+        summary = f" — {r['summary']}" if r.get("summary") else ""
+        lines.append(f"- {r['label']}{tag}{summary}")
+    return "\n".join(lines)
+
+
 def _mirror_node_to_vault(vault: ObsidianVault, label: str, summary: str | None, workspace: str, tags: list) -> None:
     note_path = f"SecondBrain/{_slug(label)}"
     is_new = False

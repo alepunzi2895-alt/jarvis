@@ -607,3 +607,45 @@ modificare nulla") — nessuna scrittura reale (verificato `git status`
 invariato), notifica Telegram formattata correttamente. 284/284 test
 verdi. **Non ancora provato con un vero task di modifica codice** — la
 prima volta va guardata con attenzione.
+
+**Problema aperto, non risolto**: uso reale da dashboard riporta "errore
+launch codice 18" quando apre VS Code. Il log del vault conferma che
+`open_vscode()` (Popen) riesce sempre lato JARVIS — l'errore arriva DOPO,
+da VS Code/Windows/EDR, testo esatto non ancora noto. Vedi log
+2026-09-16 pomeriggio.
+
+## Fix pomeriggio (2026-09-16, branch fix/calendar-stop-outlook-browser, mergiato+pushato in main, commit e25226a)
+
+3 bug reali trovati analizzando `logs/bot.log` di uso vero (non test):
+- **Calendario "domani"**: `CALENDAR_INTENT_RE` troppo rigido (richiedeva
+  "ho"/"ci sono" letterali) cadeva su STT imperfetta -> la domanda finiva
+  su Claude (motore API diretto), che non ha NESSUN accesso al calendario
+  (solo `core/intents.py` lo interroga via COM) -> "non posso
+  collegarmi" anche se il calendario esiste dal mattino. Fix: regex piu'
+  permissivo + `outlook.get_events_for_day_sync()` (finestra sul giorno
+  solare, non piu' relativa a "ora").
+- **"Jarvis stop"**: non era un intent riconosciuto -> dopo l'interruzione
+  del TTS in corso (barge-in gia' esistente), "stop" veniva comunque
+  passato a Claude, che rispondeva e JARVIS ricominciava a parlare. Fix:
+  intent `"stop"` dedicato, mai spedito a Claude, mai pronunciata la sua
+  conferma.
+- **Outlook nel browser**: `browser.read()` = `inner_text("body")` su
+  Outlook Web tornava ribbon+cartelle+anteprime+corpo mail tutti
+  concatenati, letto ad alta voce parola per parola. Fix: lettura mirata
+  via ruoli ARIA `"document"`/`"option"` (indipendenti dalla lingua UI) +
+  nuova azione ```browser``` `{"action":"read_mail","count":N}` che apre
+  N mail in sequenza e ritorna solo il corpo di ciascuna.
+
+297/297 test verdi (12 nuovi). **Non verificato dal vivo**: la lettura
+mirata Outlook Web (nessuna sessione OWA reale raggiungibile da questa
+sessione — selettori ARIA testati solo con mock, da controllare alla
+prima "leggi le mail nel browser" reale dopo il riavvio del bridge).
+Bridge locale (bot.py/VoiceDaemon) va riavviato per caricare questo
+codice — in esecuzione dalle 13:10, precede il merge.
+
+**Ricerca (non implementata)**: guardato github.com/FatihMakes/Mark-LIII
+su richiesta di Alessandro per idee. Spunti concreti non ancora costruiti
+in JARVIS: memoria "on-demand" (solo core+fatti recenti nel prompt, resto
+cercato a richiesta, invece di iniettare sempre tutto il second brain) e
+undo reversibile per azioni distruttive (file/scritture). Chiesto ad
+Alessandro quale dei due priorizzare, non ancora risposto.

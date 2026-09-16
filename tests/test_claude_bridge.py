@@ -1,5 +1,5 @@
 import asyncio
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -91,6 +91,32 @@ def test_execute_tool_swallows_unexpected_exceptions(monkeypatch):
 
 def test_truncate_tool_result_leaves_short_text_untouched():
     assert claude_bridge._truncate_tool_result("breve") == "breve"
+
+
+def test_execute_tool_recall_memory_returns_search_results(monkeypatch):
+    monkeypatch.setattr(claude_bridge, "brain", MagicMock(search=lambda q: "trovato: AURA dominio"))
+    monkeypatch.setattr(claude_bridge.turso, "ENABLED", True)
+    text, is_error = claude_bridge._execute_tool("recall_memory", {"query": "dominio aura"}, "C:\\ws")
+    assert text == "trovato: AURA dominio"
+    assert is_error is False
+
+
+def test_execute_tool_recall_memory_no_results(monkeypatch):
+    monkeypatch.setattr(claude_bridge.turso, "ENABLED", True)
+    with patch("core.brain.search", return_value=""):
+        text, is_error = claude_bridge._execute_tool("recall_memory", {"query": "nulla"}, "C:\\ws")
+    assert "nessun risultato" in text.lower()
+    assert is_error is False
+
+
+def test_execute_tool_recall_memory_skips_query_when_turso_disabled(monkeypatch):
+    monkeypatch.setattr(claude_bridge.turso, "ENABLED", False)
+    search_mock = MagicMock()
+    monkeypatch.setattr(claude_bridge, "brain", MagicMock(search=search_mock))
+    text, is_error = claude_bridge._execute_tool("recall_memory", {"query": "dominio"}, "C:\\ws")
+    search_mock.assert_not_called()
+    assert "nessun risultato" in text.lower()
+    assert is_error is False
 
 
 def test_truncate_tool_result_truncates_long_text():
