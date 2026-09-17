@@ -687,3 +687,13 @@ in JARVIS: memoria "on-demand" (solo core+fatti recenti nel prompt, resto
 cercato a richiesta, invece di iniettare sempre tutto il second brain) e
 undo reversibile per azioni distruttive (file/scritture). Chiesto ad
 Alessandro quale dei due priorizzare, non ancora risposto.
+
+## Audit voce (2026-09-17)
+
+Ridotta la pausa post-parlato della registrazione da 1200 a 800 ms e
+configurato faster-whisper con `beam_size=1` e senza contesto del segmento
+precedente: ottimizzazione per comandi brevi sul fallback CPU. Tuning
+reversibile: `JARVIS_SILENCE_HANG_MS` e `JARVIS_WHISPER_BEAM_SIZE` nel
+`.env`. Test mirati: 60 verdi. Da verificare dal vivo dopo il riavvio di
+VoiceDaemon e bridge locale; se la precisione non basta, alzare il beam a 2
+o 5. GPU ancora non utilizzabile per driver NVIDIA incompatibile.
