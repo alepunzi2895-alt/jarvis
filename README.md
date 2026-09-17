@@ -1,5 +1,5 @@
 # JARVIS — fase 1
-
+stopp
 Telegram -> Claude Code sul tuo PC. Nessun tunnel, nessuna porta aperta.
 
 ## Setup (10 min)
