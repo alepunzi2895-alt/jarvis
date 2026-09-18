@@ -117,6 +117,31 @@ def test_claim_next_task_no_pending_returns_none(monkeypatch):
     assert asyncio.run(web_bridge._claim_next_task()) is None
 
 
+def test_recover_interrupted_tasks_marks_running_rows_as_error(monkeypatch):
+    calls: list[tuple[str, list | None]] = []
+
+    def fake_execute(query, params=None):
+        calls.append((query, params))
+        return [{"rows_affected": 3}]
+
+    monkeypatch.setattr(web_bridge.turso, "execute", fake_execute)
+
+    assert asyncio.run(web_bridge.recover_interrupted_tasks()) == 3
+    query, params = calls[0]
+    assert "status='error'" in query
+    assert "WHERE status='running'" in query
+    assert params == ["Interrotto: il bridge locale si e' riavviato. Invia di nuovo la richiesta."]
+
+
+def test_recover_interrupted_tasks_does_not_block_on_turso_error(monkeypatch):
+    def fake_execute(_query, _params=None):
+        raise OSError("rete assente")
+
+    monkeypatch.setattr(web_bridge.turso, "execute", fake_execute)
+
+    assert asyncio.run(web_bridge.recover_interrupted_tasks()) == 0
+
+
 def test_run_claude_timeout_keeps_queue_responsive(monkeypatch):
     """2026-09-16: un comando reale ("apri chrome e metti Battiato su
     YouTube") ha bloccato l'intero poller — nessuna nuova riga in bot.log,
