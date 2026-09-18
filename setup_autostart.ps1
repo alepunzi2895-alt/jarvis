@@ -15,7 +15,6 @@ $ErrorActionPreference = 'Stop'
 $RepoRoot   = Split-Path -Parent $MyInvocation.MyCommand.Path
 $VenvDir    = Join-Path $RepoRoot ".venv"
 $VenvPy     = Join-Path $VenvDir "Scripts\python.exe"
-$VenvPyw    = Join-Path $VenvDir "Scripts\pythonw.exe"
 $LogsDir    = Join-Path $RepoRoot "logs"
 $ScriptsDir = Join-Path $RepoRoot "scripts"
 
@@ -40,20 +39,15 @@ New-Item -ItemType Directory -Force -Path $ScriptsDir | Out-Null
 
 function New-HiddenLauncher {
     <#
-    Genera uno .vbs che lancia pythonw.exe (niente console) dentro un
+    Genera uno .vbs che lancia python.exe (finestra nascosta dal VBS) dentro un
     "cmd.exe /c" con stdout/stderr rediretti su file di log, e ASPETTA
     che il processo reale finisca prima di restituire il suo exit code.
 
     Due dettagli non ovvi, entrambi necessari:
 
-    1. pythonw.exe non alloca MAI una console: se lanciato diretto,
-       sys.stdout/sys.stderr sono None nel processo Python, e
-       core/voice/daemon.py chiama sys.stdout.reconfigure(...) al
-       caricamento del modulo -> crash immediato ad ogni avvio, silenzioso
-       (nessuna finestra, nessun log) perche' non c'e' nessuno stream su
-       cui scrivere l'errore. Il redirect "> log 2>&1" dentro cmd.exe da'
-       a Python degli handle di file veri (fixa il crash) E produce un
-       log leggibile.
+    1. python.exe e' deliberato: il VBS nasconde la finestra, mentre cmd.exe
+       resta agganciato al processo (pythonw.exe poteva restare orfano).
+       Il redirect conserva stdout/stderr validi e un log leggibile.
     2. objShell.Run(..., 0, True) con il terzo parametro a True aspetta
        che il comando finisca e propaga il suo exit code. Se fosse False,
        Task Scheduler vedrebbe solo wscript.exe uscire subito con successo
@@ -73,8 +67,8 @@ function New-HiddenLauncher {
     # Comando reale voluto (il doppio apice subito dopo "/c " e' il trucco
     # standard cmd.exe per far sopravvivere path quotati con redirection
     # nella stessa riga):
-    #   cmd.exe /c ""<pythonw>" <args> > "<log>" 2>&1"
-    $realCmd = "cmd.exe /c $Q$Q$VenvPyw$Q $PyArgs > $Q$logPath$Q 2>&1$Q"
+    #   cmd.exe /c ""<python>" <args> > "<log>" 2>&1"
+    $realCmd = "cmd.exe /c $Q$Q$VenvPy$Q $PyArgs > $Q$logPath$Q 2>&1$Q"
 
     # Dentro una stringa VBScript "...", ogni " letterale va raddoppiato.
     $vbsEscapedCmd = $realCmd.Replace([string]$Q, "$Q$Q")

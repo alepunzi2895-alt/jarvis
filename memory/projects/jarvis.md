@@ -704,5 +704,8 @@ Risolti i task dashboard abbandonati in stato `running` quando il bridge
 locale viene terminato o riavviato: `core/web_bridge.py::recover_interrupted_tasks()`
 li marca esplicitamente `error` all'avvio del poller, invece di lasciare la
 dashboard in polling per cinque minuti. Puliti anche tutti i task orfani gia'
-presenti in Turso. Il processo `bot.py` corrente e' quello precedente al fix:
-per caricarlo serve chiuderlo da Task Manager e rilanciare `\\JARVIS\\Bot`.
+presenti in Turso. Corretto anche `setup_autostart.ps1`: il VBS nascosto ora
+lancia `python.exe`, non `pythonw.exe`, perche' Task Scheduler resti agganciato
+al processo e applichi il restart-on-failure. Il processo `bot.py` corrente e'
+quello precedente al fix: per caricarlo serve chiuderlo da Task Manager e
+rilanciare `\\JARVIS\\Bot`.
