@@ -138,6 +138,39 @@ async def _claim_next_task() -> dict | None:
     return await asyncio.to_thread(work)
 
 
+async def recover_interrupted_tasks() -> int:
+    """Chiude i task rimasti ``running`` dopo un crash/riavvio del bridge.
+
+    Una riga ``running`` appartiene al processo che l'ha reclamata. Se quel
+    processo viene terminato (logoff, reboot, crash o aggiornamento), nessuno
+    potra' piu' scriverne l'esito: la dashboard continuava quindi a fare
+    polling per cinque minuti e mostrava un timeout fuorviante. Il bridge e'
+    l'unico consumatore della coda; all'avvio non puo' esistere un task
+    legittimamente in esecuzione, percio' lo riportiamo a un errore esplicito
+    e recuperabile.
+
+    Il valore ritornato serve solo al log di avvio. Un problema Turso non deve
+    impedire al normale polling di partire: il suo errore verra' gia' gestito
+    dal ciclo principale.
+    """
+
+    def work() -> int:
+        result = turso.execute(
+            "UPDATE tasks SET status='error', result=?, updated_at=CURRENT_TIMESTAMP "
+            "WHERE status='running'",
+            ["Interrotto: il bridge locale si e' riavviato. Invia di nuovo la richiesta."],
+        )
+        # libSQL puo' omettere rows_affected; in quel caso il numero e' solo
+        # diagnostico, non influenza il comportamento.
+        return int((result or [{}])[0].get("rows_affected") or 0)
+
+    try:
+        return await asyncio.to_thread(work)
+    except (OSError, RuntimeError) as e:
+        print(f"recupero task interrotti fallito (ignorato): {e}")
+        return 0
+
+
 async def _transcribe_audio(audio_b64: str) -> str:
     """Trascrive in locale (faster-whisper, stesso motore del daemon vocale
     nativo) l'audio registrato dal microfono del dashboard — il
@@ -232,6 +265,9 @@ async def _push_result(
 
 async def poll_web_queue() -> None:
     print(f"web bridge attivo -> Turso {turso.DB_URL}")
+    recovered = await recover_interrupted_tasks()
+    if recovered:
+        print(f"web bridge: chiusi {recovered} task interrotti dal processo precedente")
     while True:
         try:
             task = await _claim_next_task()

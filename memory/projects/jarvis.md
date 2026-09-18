@@ -697,3 +697,12 @@ reversibile: `JARVIS_SILENCE_HANG_MS` e `JARVIS_WHISPER_BEAM_SIZE` nel
 `.env`. Test mirati: 60 verdi. Da verificare dal vivo dopo il riavvio di
 VoiceDaemon e bridge locale; se la precisione non basta, alzare il beam a 2
 o 5. GPU ancora non utilizzabile per driver NVIDIA incompatibile.
+
+## Fix timeout bridge (2026-09-18)
+
+Risolti i task dashboard abbandonati in stato `running` quando il bridge
+locale viene terminato o riavviato: `core/web_bridge.py::recover_interrupted_tasks()`
+li marca esplicitamente `error` all'avvio del poller, invece di lasciare la
+dashboard in polling per cinque minuti. Puliti anche tutti i task orfani gia'
+presenti in Turso. Il processo `bot.py` corrente e' quello precedente al fix:
+per caricarlo serve chiuderlo da Task Manager e rilanciare `\\JARVIS\\Bot`.
