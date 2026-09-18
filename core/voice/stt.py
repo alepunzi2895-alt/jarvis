@@ -14,8 +14,31 @@ WHISPER_MODEL_NAME = os.getenv("JARVIS_WHISPER_MODEL", "small")
 SAMPLE_RATE = 16000
 CHUNK_SAMPLES = 1280
 SILENCE_RMS_THRESHOLD = float(os.getenv("JARVIS_SILENCE_RMS", "300"))
-SILENCE_HANG_MS = 1200  # pausa di silenzio che conclude la frase
+
+
+def _positive_int_env(name: str, default: int, minimum: int = 1) -> int:
+    """Legge un tuning opzionale senza rendere il daemon indisponibile se
+    il .env contiene un valore non numerico."""
+    try:
+        return max(minimum, int(os.getenv(name, str(default))))
+    except ValueError:
+        return default
+
+
+# La voce viene usata soprattutto per comandi brevi. 1,2 secondi di attesa
+# dopo l'ultima parola si sentivano come un ritardo artificiale prima ancora
+# della trascrizione; 800 ms lasciano margine per una pausa naturale ma
+# accorciano il giro comando -> risposta di ~400 ms. Resta configurabile se
+# un microfono/ambiente richiede una soglia più conservativa.
+SILENCE_HANG_MS = _positive_int_env("JARVIS_SILENCE_HANG_MS", 800, minimum=300)
 MAX_RECORD_SECONDS = 15
+
+# I comandi di JARVIS sono frasi italiane corte: il beam search predefinito
+# di Whisper privilegia qualità da dettatura, non il tempo di risposta. Un
+# solo candidato riduce il decoding sul fallback CPU senza cambiare modello,
+# lingua, VAD o initial prompt. Chi privilegia trascrizioni lunghe può
+# riportarlo a 5 dal .env.
+WHISPER_BEAM_SIZE = _positive_int_env("JARVIS_WHISPER_BEAM_SIZE", 1)
 
 _model: WhisperModel | None = None
 
@@ -106,7 +129,8 @@ _VAD_PARAMS = {"min_silence_duration_ms": 500}
 def transcribe(audio: np.ndarray, language: str = "it") -> str:
     segments, _ = _get_model().transcribe(
         audio, language=language, initial_prompt=_WAKE_WORD_PROMPT,
-        vad_filter=True, vad_parameters=_VAD_PARAMS,
+        vad_filter=True, vad_parameters=_VAD_PARAMS, beam_size=WHISPER_BEAM_SIZE,
+        condition_on_previous_text=False,
     )
     return " ".join(s.text for s in segments).strip()
 
@@ -121,6 +145,7 @@ def transcribe_file(path: str, language: str = "it") -> str:
     convertire prima in PCM."""
     segments, _ = _get_model().transcribe(
         path, language=language, initial_prompt=_WAKE_WORD_PROMPT,
-        vad_filter=True, vad_parameters=_VAD_PARAMS,
+        vad_filter=True, vad_parameters=_VAD_PARAMS, beam_size=WHISPER_BEAM_SIZE,
+        condition_on_previous_text=False,
     )
     return " ".join(s.text for s in segments).strip()
