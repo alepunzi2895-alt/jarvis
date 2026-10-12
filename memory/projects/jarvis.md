@@ -722,3 +722,13 @@ Audio in Turso: puliti i 1,26 GB storici, il bridge tiene solo gli ultimi
 5 (`JARVIS_AUDIO_KEEP`) a ogni task chiuso; indici `idx_tasks_status_created`
 e parziale `idx_tasks_audio` creati all'avvio. Dettaglio in log 2026-10-12.
 Non verificato dal vivo: serve riavvio di bot.py e VoiceDaemon.
+
+## Latenza risposte (2026-10-12, branch perf/faster-replies, mergiato)
+
+Claude via API diretta risponde in 1,2-1,6 s: non e' il collo di bottiglia.
+Il tempo va in whisper su CPU (4-5 s a frase, small), poll coda, contesto
+meteo+brain (1,4 s) e TTS. Applicati: whisper 8 thread + beam 5, poll 1 s,
+prompt caching (input -68%), retry edge-tts sul 403 casuale (workaround).
+Blocco principale rimasto: GPU T1200 inutilizzabile con driver 517.13
+(CUDA 11.7, serve >= 527 per CUDA 12) — con GPU large-v3-turbo darebbe
+precisione ~0,4% WER in meno di un secondo invece di 17 s su CPU.
