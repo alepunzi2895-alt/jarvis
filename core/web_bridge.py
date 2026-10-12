@@ -12,6 +12,7 @@ import re
 import asyncio
 import base64
 import tempfile
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from core import turso, intents, screen_context, telegram
@@ -89,6 +90,19 @@ _HALLUCINATION_PHRASES = {
 # dalla soglia precedente.
 _WAKE_WORD_MAX_START = 40
 
+# "Jarvis." da solo, pausa, poi il comando: la pausa supera la soglia di
+# silenzio del browser e la frase arriva in DUE segmenti — il primo e' solo
+# la wake word (scartato perche' senza comando), il secondo non contiene la
+# wake word (scartato anche lui). Visto dal vivo il 2026-10-12 (task
+# "Jarvis." ignorato, nessun seguito eseguito). Il segmento successivo che
+# arriva entro questa finestra viene trattato come il comando.
+WAKE_FOLLOWUP_SEC = float(os.getenv("JARVIS_WAKE_FOLLOWUP_SEC", "10"))
+
+# Un segmento audio non ancora trascritto dopo questo tempo e' stantio:
+# eseguirlo adesso sorprenderebbe piu' di quanto aiuti. Tiene limitata la
+# coda quando il mic a mani libere capta molto parlato di fondo.
+AUDIO_TASK_MAX_AGE_SEC = int(os.getenv("JARVIS_AUDIO_TASK_MAX_AGE_SEC", "30"))
+
 
 def _strip_wake_word(text: str) -> str | None:
     """None se manca la parola d'attivazione vicino all'inizio (o resta
@@ -106,36 +120,107 @@ def _strip_wake_word(text: str) -> str | None:
     return command
 
 
+def _is_wake_only(text: str) -> bool:
+    """True se l'enunciato e' solo la wake word ("Jarvis.", "ehi Jarvis")."""
+    match = _WAKE_WORD_RE.search(text)
+    if not match or match.start() > _WAKE_WORD_MAX_START:
+        return False
+    rest = text[match.end():].strip(" ,.!?\t\n").lower()
+    return len(rest) < 4 or rest in _NOISE_WORDS
+
+
+def _parse_created_at(value: str | None) -> datetime | None:
+    try:
+        return datetime.strptime(str(value), "%Y-%m-%d %H:%M:%S")
+    except (TypeError, ValueError):
+        return None
+
+
+# created_at (orario Turso) dell'ultimo segmento composto solo dalla wake
+# word. Si confrontano gli orari di creazione dei segmenti, non quello di
+# elaborazione: la trascrizione su CPU puo' impiegare diversi secondi.
+_wake_armed_at: datetime | None = None
+
+
+def _resolve_voice_command(text: str, created_at: str | None) -> str | None:
+    """Comando da eseguire per un segmento trascritto, o None se va ignorato.
+    Come _strip_wake_word, piu' il caso "Jarvis" + pausa + comando."""
+    global _wake_armed_at
+    command = _strip_wake_word(text)
+    if command is not None:
+        _wake_armed_at = None
+        return command
+    ts = _parse_created_at(created_at)
+    if _is_wake_only(text):
+        _wake_armed_at = ts
+        return None
+    if ts is None or _wake_armed_at is None:
+        return None
+    if not timedelta(0) <= ts - _wake_armed_at <= timedelta(seconds=WAKE_FOLLOWUP_SEC):
+        return None
+    followup = text.strip(" ,.\t\n")
+    normalized = followup.lower().strip(" ,.!?")
+    if len(followup) < 4 or normalized in _NOISE_WORDS or normalized in _HALLUCINATION_PHRASES:
+        return None
+    _wake_armed_at = None
+    return followup
+
+
 async def _claim_next_task() -> dict | None:
-    """Reclama SOLO il task piu' recente in coda — se il mic a mani libere
-    (o piu' messaggi testuali di fila) ne hanno accumulati altri piu'
-    vecchi ancora "pending" mentre il precedente era in elaborazione, li
-    marca 'superseded' invece di rispondere anche a quelli in ordine.
-    Richiesta esplicita di Alessandro (2026-09-16): "ogni tanto prosegue a
-    rispondere con vecchie domande" -> "ad ogni domanda nuova killa tutti
-    i vecchi processi". Non e' una cancellazione vera di un task GIA' in
-    elaborazione (questo loop e' seriale, non c'e' mai piu' di un task
-    "running" alla volta) — riguarda solo il backlog non ancora iniziato."""
+    """Reclama il prossimo task: prima i comandi certi (scritti, pulsanti,
+    camera — il piu' recente), poi i segmenti audio in ordine di arrivo.
+
+    Fino al 2026-10-12 reclamava sempre il piu' recente e marcava subito
+    "superseded" tutto il resto. Con il mic a mani libere il piu' recente era
+    quasi sempre parlato di fondo: verificato in Turso che "come vanno i
+    progetti?" (pulsante) e "ciao jarvis" (scritto) venivano superati da
+    segmenti audio poi ignorati. Ora un task supera gli altri solo quando
+    risulta un comando vero (_supersede_older), e l'audio va in ordine
+    cronologico, cosi' "Jarvis" + pausa + comando arriva nella sequenza
+    giusta. L'audio troppo vecchio scade (AUDIO_TASK_MAX_AGE_SEC)."""
     def work():
-        rows = turso.execute(
-            "SELECT id, channel, workspace, prompt, image_b64, audio_b64 FROM tasks "
-            "WHERE status='pending' ORDER BY created_at DESC LIMIT 1"
-        )
-        if not rows:
-            return None
-        task = rows[0]
-        turso.execute(
-            "UPDATE tasks SET status='superseded', updated_at=CURRENT_TIMESTAMP "
-            "WHERE status='pending' AND id != ?",
-            [task["id"]],
-        )
-        turso.execute(
-            "UPDATE tasks SET status='running', updated_at=CURRENT_TIMESTAMP WHERE id=?",
-            [task["id"]],
-        )
-        return task
+        for _ in range(3):
+            rows = turso.execute(
+                "SELECT id, channel, workspace, prompt, image_b64, audio_b64, created_at, "
+                "CAST(strftime('%s','now') - strftime('%s', created_at) AS INTEGER) AS age_sec "
+                "FROM tasks WHERE status='pending' "
+                "ORDER BY (audio_b64 IS NOT NULL), "
+                "CASE WHEN audio_b64 IS NULL THEN created_at END DESC, created_at ASC LIMIT 1"
+            )
+            if not rows:
+                return None
+            task = rows[0]
+            if task.get("audio_b64") and int(task.get("age_sec") or 0) > AUDIO_TASK_MAX_AGE_SEC:
+                turso.execute(
+                    "UPDATE tasks SET status='superseded', updated_at=CURRENT_TIMESTAMP "
+                    "WHERE status='pending' AND audio_b64 IS NOT NULL AND created_at < datetime('now', ?)",
+                    [f"-{AUDIO_TASK_MAX_AGE_SEC} seconds"],
+                )
+                continue
+            turso.execute(
+                "UPDATE tasks SET status='running', updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                [task["id"]],
+            )
+            return task
+        return None
 
     return await asyncio.to_thread(work)
+
+
+async def _supersede_older(task: dict) -> None:
+    """"Ad ogni domanda nuova killa tutti i vecchi processi" (Alessandro,
+    2026-09-16) — ma solo quando ``task`` e' un comando vero, mai per
+    rumore. ``<=`` sul secondo copre anche il doppione dello stesso audio
+    inviato da una seconda dashboard aperta."""
+
+    def work():
+        turso.execute(
+            "UPDATE tasks SET status='superseded', updated_at=CURRENT_TIMESTAMP "
+            "WHERE status='pending' AND id != ? AND created_at <= ?",
+            [task["id"], task.get("created_at")],
+        )
+
+    await asyncio.to_thread(work)
 
 
 async def recover_interrupted_tasks() -> int:
@@ -298,7 +383,7 @@ async def poll_web_queue() -> None:
                     continue
                 await _update_prompt(task["id"], text)  # mostra sempre cosa ha sentito, anche se poi lo ignora
 
-                command = _strip_wake_word(text)
+                command = _resolve_voice_command(text, task.get("created_at"))
                 if command is None:
                     await _push_result(task["id"], "ignored", "", None, 0.0)
                     continue
@@ -311,6 +396,7 @@ async def poll_web_queue() -> None:
                 # parlando (tts.stop_current_speech() e' innocuo in quel caso).
                 tts.stop_current_speech()
 
+            await _supersede_older(task)
             print(f"> [web] {task['prompt'][:80]}")
             image_b64 = task.get("image_b64")
             # Progetto rilevato dal testo, non piu' scelto a mano dalla

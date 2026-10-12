@@ -75,23 +75,22 @@ def test_wake_word_survives_longer_noise_prefix_from_stt():
     assert result == "che tempo farà domani?"
 
 
-# ── _claim_next_task: "ad ogni domanda nuova killa tutti i vecchi
-# processi" (Alessandro, 2026-09-16) — reclama solo il piu' recente
-# "pending", marca gli altri "superseded" invece di rispondere in ordine
-# a domande ormai superate.
+# ── _claim_next_task / _supersede_older: "ad ogni domanda nuova killa
+# tutti i vecchi processi" (Alessandro, 2026-09-16) — ma solo un comando
+# vero supera gli altri, mai il rumore captato dal mic a mani libere
+# (2026-10-12: pulsanti e testo scritto venivano superati da rumore).
 
 
-def test_claim_next_task_supersedes_older_pending_tasks(monkeypatch):
-    select_calls = {"n": 0}
+def test_claim_next_task_prefers_certain_commands_and_never_supersedes(monkeypatch):
     executed: list[tuple[str, list | None]] = []
 
     def fake_execute(query, params=None):
         executed.append((query, params))
         if query.startswith("SELECT"):
-            select_calls["n"] += 1
             return [{
-                "id": "newest", "channel": "web", "workspace": "jarvis",
-                "prompt": "il più recente", "image_b64": None, "audio_b64": None,
+                "id": "button", "channel": "web", "workspace": "jarvis",
+                "prompt": "come vanno i progetti?", "image_b64": None, "audio_b64": None,
+                "created_at": "2026-10-12 20:07:04", "age_sec": "2",
             }]
         return []
 
@@ -99,14 +98,130 @@ def test_claim_next_task_supersedes_older_pending_tasks(monkeypatch):
 
     task = asyncio.run(web_bridge._claim_next_task())
 
-    assert task["id"] == "newest"
-    # SELECT ordina DESC (il piu' recente prima), non ASC come prima del fix.
-    assert "ORDER BY created_at DESC" in executed[0][0]
-    supersede_calls = [q for q, _p in executed if "superseded" in q]
-    assert len(supersede_calls) == 1
-    assert supersede_calls[0].startswith("UPDATE") and "id != ?" in supersede_calls[0]
-    running_calls = [q for q, p in executed if "'running'" in q]
-    assert len(running_calls) == 1
+    assert task["id"] == "button"
+    select = executed[0][0]
+    # Prima i task senza audio (i piu' recenti), poi l'audio in ordine di arrivo.
+    assert "ORDER BY (audio_b64 IS NOT NULL)" in select
+    assert "created_at ASC" in select
+    assert not [q for q, _p in executed if "superseded" in q]
+    assert len([q for q, _p in executed if "'running'" in q]) == 1
+
+
+def test_claim_next_task_expires_stale_audio_then_claims_next(monkeypatch):
+    executed: list[tuple[str, list | None]] = []
+    rows = [
+        [{"id": "old", "audio_b64": "AAAA", "created_at": "2026-10-12 20:00:00", "age_sec": "300"}],
+        [{"id": "fresh", "audio_b64": "AAAA", "created_at": "2026-10-12 20:04:58", "age_sec": "2"}],
+    ]
+
+    def fake_execute(query, params=None):
+        executed.append((query, params))
+        if query.startswith("SELECT"):
+            return rows.pop(0)
+        return []
+
+    monkeypatch.setattr(web_bridge.turso, "execute", fake_execute)
+
+    task = asyncio.run(web_bridge._claim_next_task())
+
+    assert task["id"] == "fresh"
+    expire = [(q, p) for q, p in executed if "superseded" in q]
+    assert len(expire) == 1
+    assert "audio_b64 IS NOT NULL" in expire[0][0]
+    assert expire[0][1] == [f"-{web_bridge.AUDIO_TASK_MAX_AGE_SEC} seconds"]
+
+
+def test_supersede_older_only_touches_older_pending_rows(monkeypatch):
+    executed: list[tuple[str, list | None]] = []
+    monkeypatch.setattr(web_bridge.turso, "execute", lambda q, p=None: executed.append((q, p)))
+
+    asyncio.run(web_bridge._supersede_older({"id": "t9", "created_at": "2026-10-12 20:07:30"}))
+
+    query, params = executed[0]
+    assert "status='pending'" in query and "created_at <= ?" in query
+    assert params == ["t9", "2026-10-12 20:07:30"]
+
+
+def _run_one_audio_task(monkeypatch, transcript: str) -> list[tuple[str, list | None]]:
+    calls = {"select": 0}
+    updates: list[tuple[str, list | None]] = []
+
+    def fake_execute(query, params=None):
+        if query.startswith("SELECT"):
+            calls["select"] += 1
+            if calls["select"] > 1:
+                raise _StopLoop()
+            return [{
+                "id": "a1", "channel": "transcribe", "workspace": "jarvis", "prompt": "",
+                "image_b64": None, "audio_b64": "AAAA", "created_at": "2026-10-12 20:08:57",
+            }]
+        updates.append((query, params))
+        return []
+
+    async def fake_transcribe(_audio_b64: str) -> str:
+        return transcript
+
+    monkeypatch.setattr(web_bridge.turso, "execute", fake_execute)
+    monkeypatch.setattr(web_bridge, "_transcribe_audio", fake_transcribe)
+    monkeypatch.setattr(web_bridge.asyncio, "sleep", lambda _s: asyncio.sleep(0))
+    monkeypatch.setattr(web_bridge.tts, "stop_current_speech", lambda: None)
+    monkeypatch.setattr(web_bridge.tts, "speak_if_enabled", lambda _text: None)
+    monkeypatch.setattr(web_bridge, "_notify_telegram", lambda *a, **k: None)
+    monkeypatch.setattr(web_bridge.intents, "parse_intent", lambda _text: {"type": "time"})
+    monkeypatch.setattr(web_bridge.intents, "execute_intent", lambda *a, **k: "Sono le 22:08.")
+    monkeypatch.setattr(web_bridge, "_wake_armed_at", None)
+
+    with pytest.raises(_StopLoop):
+        asyncio.run(web_bridge.poll_web_queue())
+    return updates
+
+
+def test_background_speech_does_not_supersede_pending_commands(monkeypatch):
+    updates = _run_one_audio_task(monkeypatch, "Ma va via, non ho sentito.")
+
+    assert not [q for q, _p in updates if "superseded" in q]
+    assert [p[0] for q, p in updates if "status=?" in q] == ["ignored"]
+
+
+def test_real_voice_command_supersedes_older_pending(monkeypatch):
+    updates = _run_one_audio_task(monkeypatch, "Jarvis, che ore sono?")
+
+    assert [p for q, p in updates if "superseded" in q] == [["a1", "2026-10-12 20:08:57"]]
+    assert [p[0] for q, p in updates if "status=?" in q] == ["done"]
+
+
+# ── "Jarvis" + pausa + comando: arriva in due segmenti separati.
+
+
+def test_wake_word_then_pause_then_command(monkeypatch):
+    monkeypatch.setattr(web_bridge, "_wake_armed_at", None)
+
+    assert web_bridge._resolve_voice_command("Jarvis.", "2026-10-12 20:08:43") is None
+    assert web_bridge._resolve_voice_command("Apri la fotocamera.", "2026-10-12 20:08:48") == "Apri la fotocamera"
+    # Consumata: la frase dopo non e' piu' un comando.
+    assert web_bridge._resolve_voice_command("E poi chiudi tutto.", "2026-10-12 20:08:50") is None
+
+
+def test_wake_word_followup_expires(monkeypatch):
+    monkeypatch.setattr(web_bridge, "_wake_armed_at", None)
+
+    assert web_bridge._resolve_voice_command("Jarvis.", "2026-10-12 20:08:43") is None
+    late = "2026-10-12 20:09:30"
+    assert web_bridge._resolve_voice_command("apri la fotocamera", late) is None
+
+
+def test_wake_word_followup_still_drops_hallucinations(monkeypatch):
+    monkeypatch.setattr(web_bridge, "_wake_armed_at", None)
+
+    web_bridge._resolve_voice_command("ehi Jarvis", "2026-10-12 20:08:43")
+    assert web_bridge._resolve_voice_command("Sottotitoli e revisione a cura di QTSS.", "2026-10-12 20:08:45") is None
+    assert web_bridge._resolve_voice_command("che tempo fa domani", "2026-10-12 20:08:47") == "che tempo fa domani"
+
+
+def test_ordinary_background_speech_is_never_a_command(monkeypatch):
+    monkeypatch.setattr(web_bridge, "_wake_armed_at", None)
+
+    assert web_bridge._resolve_voice_command("La pubblicata poco. Sì?", "2026-10-12 20:08:57") is None
 
 
 def test_claim_next_task_no_pending_returns_none(monkeypatch):

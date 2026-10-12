@@ -127,6 +127,13 @@ _VAD_PARAMS = {"min_silence_duration_ms": 500}
 
 
 def transcribe(audio: np.ndarray, language: str = "it") -> str:
+    # record_until_silence() restituisce PCM int16 grezzo, ma faster-whisper
+    # vuole float32 in [-1, 1]: da quando vad_filter=True (2026-09-15) il VAD
+    # silero rifiutava l'int16 con "[ONNXRuntimeError] ... Unexpected input
+    # data type. Actual: (tensor(int16)) , expected: (tensor(float))" —
+    # ogni attivazione via hotkey falliva (logs/voice.log, 2026-10-12).
+    if audio.dtype != np.float32:
+        audio = audio.astype(np.float32) / 32768.0
     segments, _ = _get_model().transcribe(
         audio, language=language, initial_prompt=_WAKE_WORD_PROMPT,
         vad_filter=True, vad_parameters=_VAD_PARAMS, beam_size=WHISPER_BEAM_SIZE,

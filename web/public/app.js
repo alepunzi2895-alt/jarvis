@@ -436,13 +436,42 @@ function setupVoice() {
     handleRecordedAudio(_encodeWav(samples, audioCtx.sampleRate));
   }
 
+  // Una sola scheda JARVIS per browser tiene il microfono. Con due schede
+  // aperte ogni frase arrivava al bridge due volte (verificato in Turso il
+  // 2026-10-12: segmenti audio a coppie, stesso secondo): doppio lavoro per
+  // whisper su CPU e coda piu' lenta. Le altre schede aspettano il turno e
+  // subentrano da sole quando quella attiva si chiude o silenzia il mic.
+  let arming = false;
+  let releaseMicLock = null;
+
+  function acquireMicLock() {
+    if (!navigator.locks) return Promise.resolve();
+    return new Promise((resolve) => {
+      navigator.locks.request("jarvis-mic", () => {
+        resolve();
+        return new Promise((release) => { releaseMicLock = release; });
+      });
+    });
+  }
+
+  function freeMicLock() {
+    releaseMicLock?.();
+    releaseMicLock = null;
+  }
+
   async function arm() {
-    if (armed) return;
+    if (armed || arming) return;
+    arming = true;
+    micBtn.title = "In attesa: il microfono e' gia' in ascolto in un'altra scheda JARVIS";
     try {
+      await acquireMicLock();
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     } catch {
+      freeMicLock();
       micBtn.title = "Microfono non autorizzato dal browser";
       return;
+    } finally {
+      arming = false;
     }
 
     armed = true;
@@ -549,6 +578,7 @@ function setupVoice() {
     audioCtx = null;
     processor = null;
     silentSink = null;
+    freeMicLock();
     micBtn.classList.remove("listening");
     micBtn.title = OFF_TITLE;
   }
