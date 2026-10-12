@@ -717,7 +717,8 @@ Coda web: comandi certi prima, audio in ordine di arrivo, solo un comando
 vero supera gli altri (prima il rumore uccideva pulsanti e testo scritto);
 audio stantio scade dopo 30 s; "Jarvis" + pausa + comando ora funziona.
 Una sola scheda dashboard tiene il mic (Web Locks). API non manda piu'
-audio/immagini al browser, bridge azzera `audio_b64` a fine task —
-cronologia da 31,5 s/12 MB a 0,38 s/20 KB. Restano in Turso 1,26 GB di
-audio vecchi (pulizia da confermare). Dettaglio in log 2026-10-12.
+audio/immagini al browser — cronologia da 31,5 s/12 MB a 0,38 s/20 KB.
+Audio in Turso: puliti i 1,26 GB storici, il bridge tiene solo gli ultimi
+5 (`JARVIS_AUDIO_KEEP`) a ogni task chiuso; indici `idx_tasks_status_created`
+e parziale `idx_tasks_audio` creati all'avvio. Dettaglio in log 2026-10-12.
 Non verificato dal vivo: serve riavvio di bot.py e VoiceDaemon.
