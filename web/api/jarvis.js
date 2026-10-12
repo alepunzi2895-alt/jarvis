@@ -127,10 +127,15 @@ async function taskPush(db, req, body) {
   return { ok: true, task_id: id };
 }
 
+// Mai audio_b64/image_b64 verso il browser: la dashboard non li usa, e con
+// l'ascolto a mani libere ogni riga ne ha uno da 0,3-0,8 MB. Misurato il
+// 2026-10-12: "SELECT * ... LIMIT 30" impiegava 31 s e restituiva 12 MB.
+const TASK_COLUMNS = "id, channel, workspace, prompt, status, result, session_id, cost_usd, created_at, updated_at";
+
 async function taskPoll(db, req, body) {
   requireBrowserAuth(req);
   const { task_id } = body;
-  const r = await db.execute({ sql: "SELECT * FROM tasks WHERE id=?", args: [task_id] });
+  const r = await db.execute({ sql: `SELECT ${TASK_COLUMNS} FROM tasks WHERE id=?`, args: [task_id] });
   if (!r.rows.length) throw new Error("task non trovato");
   return { ok: true, task: r.rows[0] };
 }
@@ -138,7 +143,11 @@ async function taskPoll(db, req, body) {
 async function tasksRecent(db, req, body) {
   requireBrowserAuth(req);
   const limit = body.limit || 30;
-  const r = await db.execute({ sql: "SELECT * FROM tasks ORDER BY created_at DESC LIMIT ?", args: [limit] });
+  // Rumore scartato dal filtro "Jarvis" o domande superate: non sono storia.
+  const r = await db.execute({
+    sql: `SELECT ${TASK_COLUMNS} FROM tasks WHERE status NOT IN ('ignored', 'superseded') ORDER BY created_at DESC LIMIT ?`,
+    args: [limit],
+  });
   return { ok: true, tasks: r.rows };
 }
 
