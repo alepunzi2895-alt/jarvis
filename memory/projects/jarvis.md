@@ -709,3 +709,15 @@ lancia `python.exe`, non `pythonw.exe`, perche' Task Scheduler resti agganciato
 al processo e applichi il restart-on-failure. Il processo `bot.py` corrente e'
 quello precedente al fix: per caricarlo serve chiuderlo da Task Manager e
 rilanciare `\\JARVIS\\Bot`.
+
+## Fix voce/coda/dashboard (2026-10-12, branch fix/voice-queue-and-stt, mergiato in main)
+
+Hotkey Ctrl+Alt+J rotta dal 2026-09-15 (int16 al VAD silero, ora float32).
+Coda web: comandi certi prima, audio in ordine di arrivo, solo un comando
+vero supera gli altri (prima il rumore uccideva pulsanti e testo scritto);
+audio stantio scade dopo 30 s; "Jarvis" + pausa + comando ora funziona.
+Una sola scheda dashboard tiene il mic (Web Locks). API non manda piu'
+audio/immagini al browser, bridge azzera `audio_b64` a fine task —
+cronologia da 31,5 s/12 MB a 0,38 s/20 KB. Restano in Turso 1,26 GB di
+audio vecchi (pulizia da confermare). Dettaglio in log 2026-10-12.
+Non verificato dal vivo: serve riavvio di bot.py e VoiceDaemon.
