@@ -240,6 +240,9 @@ class _FakeUsage:
     def __init__(self, input_tokens=10, output_tokens=5):
         self.input_tokens = input_tokens
         self.output_tokens = output_tokens
+        # Come anthropic.types.Usage: None quando la cache non e' coinvolta.
+        self.cache_creation_input_tokens = None
+        self.cache_read_input_tokens = None
 
 
 class _FakeBlock:
@@ -391,3 +394,15 @@ def test_run_claude_respects_cli_fallback_toggle(monkeypatch):
     asyncio.run(claude_bridge.run_claude("qualsiasi", ws="jarvis"))
 
     assert called["engine"] == "cli"
+
+
+def test_cached_system_blocks_put_volatile_context_after_the_breakpoint():
+    """Ora/meteo/second brain cambiano a ogni richiesta: devono stare dopo il
+    blocco SYSTEM in cache, altrimenti nessuna richiesta riusa la cache."""
+    prompt = f"{claude_bridge.SYSTEM}\n\nData e ora attuali: 2026-10-12 22:30. Meteo attuale: sereno."
+
+    blocks = claude_bridge._cached_system_blocks(prompt)
+
+    assert blocks[0] == {"type": "text", "text": claude_bridge.SYSTEM, "cache_control": {"type": "ephemeral"}}
+    assert blocks[1] == {"type": "text", "text": "Data e ora attuali: 2026-10-12 22:30. Meteo attuale: sereno."}
+    assert claude_bridge._cached_system_blocks("altro prompt") == [{"type": "text", "text": "altro prompt"}]

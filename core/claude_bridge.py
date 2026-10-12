@@ -658,6 +658,20 @@ def _trim_history(history: list[dict]) -> list[dict]:
     return history[-(MAX_HISTORY_TURNS * 2):]
 
 
+def _cached_system_blocks(system_prompt: str) -> list[dict]:
+    """TOOLS + SYSTEM sono identici a ogni richiesta e finiscono in prompt
+    cache; ora, meteo e second brain cambiano a ogni richiesta e vanno dopo
+    il breakpoint. Prima l'orario al minuto in testa al system prompt
+    impediva qualunque cache: ~8.800 token pagati per intero ogni volta."""
+    if not system_prompt.startswith(SYSTEM):
+        return [{"type": "text", "text": system_prompt}]
+    blocks = [{"type": "text", "text": SYSTEM, "cache_control": {"type": "ephemeral"}}]
+    rest = system_prompt[len(SYSTEM):].strip()
+    if rest:
+        blocks.append({"type": "text", "text": rest})
+    return blocks
+
+
 async def _run_claude_api(
     prompt: str, ws: str, cwd: str, image_b64: str | None, channel: str
 ) -> tuple[str, None, float]:
@@ -679,12 +693,19 @@ async def _run_claude_api(
     in_tokens = out_tokens = 0
     final_text = "(nessun output)"
 
+    system_blocks = _cached_system_blocks(system_prompt)
     for _ in range(MAX_TOOL_TURNS):
         response = await client.messages.create(
-            model=API_MODEL, max_tokens=8000, system=system_prompt, tools=TOOLS, messages=messages,
+            model=API_MODEL, max_tokens=8000, system=system_blocks, tools=TOOLS, messages=messages,
         )
-        in_tokens += response.usage.input_tokens
-        out_tokens += response.usage.output_tokens
+        usage = response.usage
+        # Token equivalenti a prezzo pieno: scrittura cache 1,25x, lettura 0,1x.
+        in_tokens += (
+            usage.input_tokens
+            + 1.25 * (usage.cache_creation_input_tokens or 0)
+            + 0.1 * (usage.cache_read_input_tokens or 0)
+        )
+        out_tokens += usage.output_tokens
         messages.append({"role": "assistant", "content": [b.model_dump() for b in response.content]})
 
         if response.stop_reason != "tool_use":

@@ -20,7 +20,10 @@ from core.claude_bridge import run_claude, detect_workspace
 from core.executor_singleton import executor
 from core.voice import camera, tts
 
-POLL_SEC = float(os.getenv("JARVIS_WEB_POLL_SEC", "3"))
+# 1 s invece di 3: in media ~1 s di attesa in meno prima che un comando
+# venga preso in carico. Ora il poll legge solo le righe 'pending' tramite
+# idx_tasks_status_created, non piu' l'intera tabella.
+POLL_SEC = float(os.getenv("JARVIS_WEB_POLL_SEC", "1"))
 
 # 2026-09-16: "apri chrome e metti Battiato su YouTube" ha impiegato il loop
 # intero (CPU ferma, nessuna nuova riga in bot.log per minuti, nessuna
