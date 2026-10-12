@@ -192,7 +192,7 @@ async def _claim_next_task() -> dict | None:
             task = rows[0]
             if task.get("audio_b64") and int(task.get("age_sec") or 0) > AUDIO_TASK_MAX_AGE_SEC:
                 turso.execute(
-                    "UPDATE tasks SET status='superseded', updated_at=CURRENT_TIMESTAMP "
+                    "UPDATE tasks SET status='superseded', audio_b64=NULL, updated_at=CURRENT_TIMESTAMP "
                     "WHERE status='pending' AND audio_b64 IS NOT NULL AND created_at < datetime('now', ?)",
                     [f"-{AUDIO_TASK_MAX_AGE_SEC} seconds"],
                 )
@@ -215,7 +215,7 @@ async def _supersede_older(task: dict) -> None:
 
     def work():
         turso.execute(
-            "UPDATE tasks SET status='superseded', updated_at=CURRENT_TIMESTAMP "
+            "UPDATE tasks SET status='superseded', audio_b64=NULL, updated_at=CURRENT_TIMESTAMP "
             "WHERE status='pending' AND id != ? AND created_at <= ?",
             [task["id"], task.get("created_at")],
         )
@@ -241,7 +241,7 @@ async def recover_interrupted_tasks() -> int:
 
     def work() -> int:
         result = turso.execute(
-            "UPDATE tasks SET status='error', result=?, updated_at=CURRENT_TIMESTAMP "
+            "UPDATE tasks SET status='error', result=?, audio_b64=NULL, updated_at=CURRENT_TIMESTAMP "
             "WHERE status='running'",
             ["Interrotto: il bridge locale si e' riavviato. Invia di nuovo la richiesta."],
         )
@@ -328,19 +328,22 @@ def _notify_telegram(prompt: str, response: str) -> None:
 async def _push_result(
     task_id: str, status: str, result: str, session_id: str | None, cost_usd: float, workspace: str | None = None
 ) -> None:
+    # audio_b64=NULL: l'audio serve solo per la trascrizione. Tenerlo aveva
+    # accumulato 2.837 registrazioni (1,26 GB) in Turso entro il 2026-10-12,
+    # rendendo lenta ogni lettura della cronologia dashboard.
     def work():
         if workspace:
             # Scrive indietro il progetto rilevato automaticamente (vedi
             # detect_workspace) — la dashboard non lo sceglie piu' a mano
             # (niente pill), ma lo mostra ancora nell'HUD/cronologia task.
             turso.execute(
-                "UPDATE tasks SET status=?, result=?, session_id=?, cost_usd=?, workspace=?, "
+                "UPDATE tasks SET status=?, result=?, session_id=?, cost_usd=?, workspace=?, audio_b64=NULL, "
                 "updated_at=CURRENT_TIMESTAMP WHERE id=?",
                 [status, result, session_id, cost_usd, workspace, task_id],
             )
         else:
             turso.execute(
-                "UPDATE tasks SET status=?, result=?, session_id=?, cost_usd=?, "
+                "UPDATE tasks SET status=?, result=?, session_id=?, cost_usd=?, audio_b64=NULL, "
                 "updated_at=CURRENT_TIMESTAMP WHERE id=?",
                 [status, result, session_id, cost_usd, task_id],
             )

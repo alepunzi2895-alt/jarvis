@@ -191,6 +191,12 @@ async function pollTask(taskId, el) {
         fillEntry(el, { status: "done", result: "Sostituita da una domanda più recente." });
         return;
       }
+      // Rumore scartato dal filtro "Jarvis": prima non era gestito qui e
+      // dopo 200 tentativi mostrava un falso "Timeout" (es. "Alla prossima!").
+      if (task.status === "ignored") {
+        el.remove();
+        return;
+      }
       if (task.status === "done" || task.status === "error") {
         fillEntry(el, task);
         return;
@@ -231,6 +237,7 @@ async function loadHistory() {
     const { tasks } = await api("tasks_recent", { limit: 20 });
     $("#hud-taskcount").textContent = tasks.length;
     for (const t of tasks.reverse()) {
+      if (t.status === "ignored" || t.status === "superseded") continue; // rumore/superate: non sono storia
       const el = appendEntry(t.prompt);
       if (t.status === "done" || t.status === "error") fillEntry(el, t);
       else pollTask(t.id, el);
