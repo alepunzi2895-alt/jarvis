@@ -435,14 +435,43 @@ def test_intent_result_is_tagged_with_auto_detected_workspace(monkeypatch):
     assert workspace == "aura"
 
 
-def test_finished_and_superseded_tasks_drop_their_audio(monkeypatch):
-    """Gli audio restavano in Turso per sempre (1,26 GB al 2026-10-12)."""
-    executed: list[str] = []
-    monkeypatch.setattr(web_bridge.turso, "execute", lambda q, p=None: executed.append(q))
+def test_every_finished_task_prunes_audio_to_the_latest_few(monkeypatch):
+    """Gli audio restavano in Turso per sempre (1,26 GB al 2026-10-12):
+    ora restano solo gli ultimi AUDIO_KEEP, mai quelli ancora in coda."""
+    executed: list[tuple[str, list | None]] = []
+    monkeypatch.setattr(web_bridge.turso, "execute", lambda q, p=None: executed.append((q, p)))
 
     asyncio.run(web_bridge._push_result("t1", "ignored", "", None, 0.0))
     asyncio.run(web_bridge._push_result("t2", "done", "ok", None, 0.0, workspace="jarvis"))
-    asyncio.run(web_bridge._supersede_older({"id": "t3", "created_at": "2026-10-12 20:07:30"}))
 
-    assert len(executed) == 3
-    assert all("audio_b64=NULL" in q for q in executed)
+    prunes = [(q, p) for q, p in executed if "audio_b64=NULL" in q]
+    assert len(prunes) == 2
+    query, params = prunes[0]
+    assert "status NOT IN ('pending', 'running')" in query
+    assert "ORDER BY created_at DESC LIMIT ?" in query
+    assert params == [web_bridge.AUDIO_KEEP] == [5]
+
+
+def test_prune_failure_does_not_block_result_delivery(monkeypatch):
+    statuses = []
+
+    def fake_execute(query, params=None):
+        if "audio_b64=NULL" in query:
+            raise OSError("rete assente")
+        statuses.append(params[0])
+
+    monkeypatch.setattr(web_bridge.turso, "execute", fake_execute)
+
+    asyncio.run(web_bridge._push_result("t1", "done", "ok", None, 0.0))
+
+    assert statuses == ["done"]
+
+
+def test_ensure_indexes_creates_queue_and_audio_indexes(monkeypatch):
+    executed: list[str] = []
+    monkeypatch.setattr(web_bridge.turso, "execute", lambda q, p=None: executed.append(q))
+
+    asyncio.run(web_bridge.ensure_indexes())
+
+    assert any("ON tasks(status, created_at)" in q for q in executed)
+    assert any("WHERE audio_b64 IS NOT NULL" in q for q in executed)

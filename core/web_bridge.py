@@ -103,6 +103,12 @@ WAKE_FOLLOWUP_SEC = float(os.getenv("JARVIS_WAKE_FOLLOWUP_SEC", "10"))
 # coda quando il mic a mani libere capta molto parlato di fondo.
 AUDIO_TASK_MAX_AGE_SEC = int(os.getenv("JARVIS_AUDIO_TASK_MAX_AGE_SEC", "30"))
 
+# Audio conservati in Turso dopo la trascrizione: solo gli ultimi N, utili
+# per riascoltare una trascrizione sbagliata. Senza limite si erano
+# accumulate 2.837 registrazioni (1,26 GB) entro il 2026-10-12, e la
+# cronologia della dashboard impiegava 31 s a caricarsi.
+AUDIO_KEEP = int(os.getenv("JARVIS_AUDIO_KEEP", "5"))
+
 
 def _strip_wake_word(text: str) -> str | None:
     """None se manca la parola d'attivazione vicino all'inizio (o resta
@@ -192,7 +198,7 @@ async def _claim_next_task() -> dict | None:
             task = rows[0]
             if task.get("audio_b64") and int(task.get("age_sec") or 0) > AUDIO_TASK_MAX_AGE_SEC:
                 turso.execute(
-                    "UPDATE tasks SET status='superseded', audio_b64=NULL, updated_at=CURRENT_TIMESTAMP "
+                    "UPDATE tasks SET status='superseded', updated_at=CURRENT_TIMESTAMP "
                     "WHERE status='pending' AND audio_b64 IS NOT NULL AND created_at < datetime('now', ?)",
                     [f"-{AUDIO_TASK_MAX_AGE_SEC} seconds"],
                 )
@@ -215,7 +221,7 @@ async def _supersede_older(task: dict) -> None:
 
     def work():
         turso.execute(
-            "UPDATE tasks SET status='superseded', audio_b64=NULL, updated_at=CURRENT_TIMESTAMP "
+            "UPDATE tasks SET status='superseded', updated_at=CURRENT_TIMESTAMP "
             "WHERE status='pending' AND id != ? AND created_at <= ?",
             [task["id"], task.get("created_at")],
         )
@@ -241,7 +247,7 @@ async def recover_interrupted_tasks() -> int:
 
     def work() -> int:
         result = turso.execute(
-            "UPDATE tasks SET status='error', result=?, audio_b64=NULL, updated_at=CURRENT_TIMESTAMP "
+            "UPDATE tasks SET status='error', result=?, updated_at=CURRENT_TIMESTAMP "
             "WHERE status='running'",
             ["Interrotto: il bridge locale si e' riavviato. Invia di nuovo la richiesta."],
         )
@@ -328,31 +334,62 @@ def _notify_telegram(prompt: str, response: str) -> None:
 async def _push_result(
     task_id: str, status: str, result: str, session_id: str | None, cost_usd: float, workspace: str | None = None
 ) -> None:
-    # audio_b64=NULL: l'audio serve solo per la trascrizione. Tenerlo aveva
-    # accumulato 2.837 registrazioni (1,26 GB) in Turso entro il 2026-10-12,
-    # rendendo lenta ogni lettura della cronologia dashboard.
     def work():
         if workspace:
             # Scrive indietro il progetto rilevato automaticamente (vedi
             # detect_workspace) — la dashboard non lo sceglie piu' a mano
             # (niente pill), ma lo mostra ancora nell'HUD/cronologia task.
             turso.execute(
-                "UPDATE tasks SET status=?, result=?, session_id=?, cost_usd=?, workspace=?, audio_b64=NULL, "
+                "UPDATE tasks SET status=?, result=?, session_id=?, cost_usd=?, workspace=?, "
                 "updated_at=CURRENT_TIMESTAMP WHERE id=?",
                 [status, result, session_id, cost_usd, workspace, task_id],
             )
         else:
             turso.execute(
-                "UPDATE tasks SET status=?, result=?, session_id=?, cost_usd=?, audio_b64=NULL, "
+                "UPDATE tasks SET status=?, result=?, session_id=?, cost_usd=?, "
                 "updated_at=CURRENT_TIMESTAMP WHERE id=?",
                 [status, result, session_id, cost_usd, task_id],
             )
+        _prune_audio()
 
     await asyncio.to_thread(work)
 
 
+def _prune_audio() -> None:
+    """Tiene in Turso solo gli ultimi AUDIO_KEEP audio, azzera gli altri.
+    Mai quelli ancora in coda o in elaborazione. Un errore qui non deve far
+    fallire la consegna del risultato: riprova al prossimo task."""
+    try:
+        turso.execute(
+            "UPDATE tasks SET audio_b64=NULL WHERE audio_b64 IS NOT NULL "
+            "AND status NOT IN ('pending', 'running') AND id NOT IN ("
+            "SELECT id FROM tasks WHERE audio_b64 IS NOT NULL ORDER BY created_at DESC LIMIT ?)",
+            [AUDIO_KEEP],
+        )
+    except (OSError, RuntimeError) as e:
+        print(f"pulizia audio fallita (ignorata): {e}")
+
+
+async def ensure_indexes() -> None:
+    """Indici per la coda: senza, ogni poll (ogni 3 s) leggeva l'intera
+    tabella tasks. L'indice parziale sugli audio rende economica
+    _prune_audio(), che gira a ogni task chiuso."""
+
+    def work() -> None:
+        turso.execute("CREATE INDEX IF NOT EXISTS idx_tasks_status_created ON tasks(status, created_at)")
+        turso.execute(
+            "CREATE INDEX IF NOT EXISTS idx_tasks_audio ON tasks(created_at) WHERE audio_b64 IS NOT NULL"
+        )
+
+    try:
+        await asyncio.to_thread(work)
+    except (OSError, RuntimeError) as e:
+        print(f"creazione indici tasks fallita (ignorata): {e}")
+
+
 async def poll_web_queue() -> None:
     print(f"web bridge attivo -> Turso {turso.DB_URL}")
+    await ensure_indexes()
     recovered = await recover_interrupted_tasks()
     if recovered:
         print(f"web bridge: chiusi {recovered} task interrotti dal processo precedente")
