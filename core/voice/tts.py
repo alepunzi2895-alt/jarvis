@@ -16,6 +16,7 @@ from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import BinaryIO
 
+import aiohttp
 import av
 import numpy as np
 import sounddevice as sd
@@ -36,6 +37,27 @@ from core.voice import resolve_output_device
 # uniche alternative reali sono Diego (gia' provato, scartato) o una voce
 # femminile (Elsa/Isabella, mai provate).
 VOICE = os.getenv("JARVIS_TTS_VOICE", "it-IT-GiuseppeMultilingualNeural")
+
+# Il servizio edge-tts risponde 403 a caso: misurato il 2026-10-12, 1 richiesta
+# su 8 (le altre ok in 0,3-0,6 s), e JARVIS restava muto per quella risposta.
+# Causa non isolata: l'orologio del PC e' avanti di ~114 s, ma correggere lo
+# skew del token non ha cambiato l'esito. Ritentare subito basta — workaround,
+# non fix della causa.
+_EDGE_TTS_ATTEMPTS = 3
+
+
+async def _edge_tts_audio(text: str) -> bytes:
+    for attempt in range(_EDGE_TTS_ATTEMPTS):
+        try:
+            buf = io.BytesIO()
+            async for chunk in edge_tts.Communicate(text, VOICE).stream():
+                if chunk["type"] == "audio":
+                    buf.write(chunk["data"])
+            return buf.getvalue()
+        except aiohttp.WSServerHandshakeError as e:
+            if e.status != 403 or attempt == _EDGE_TTS_ATTEMPTS - 1:
+                raise
+            await asyncio.sleep(0.2)
 
 # --------------------------------------------------------------------------- stato "sto parlando" (dashboard)
 #
@@ -175,22 +197,14 @@ class EdgeTTSEngine(TTSEngine):
         text = text.strip()
         if not text:
             return None
-        buf = io.BytesIO()
-        async for chunk in edge_tts.Communicate(text, VOICE).stream():
-            if chunk["type"] == "audio":
-                buf.write(chunk["data"])
-        buf.seek(0)
+        buf = io.BytesIO(await _edge_tts_audio(text))
         return await asyncio.to_thread(self._decode, buf)
 
     def _synthesize(self, text: str) -> Path:
         fd, tmp_path = tempfile.mkstemp(suffix=".mp3")
         os.close(fd)
         path = Path(tmp_path)
-
-        async def _run():
-            await edge_tts.Communicate(text, VOICE).save(str(path))
-
-        asyncio.run(_run())
+        path.write_bytes(asyncio.run(_edge_tts_audio(text)))
         return path
 
     @staticmethod

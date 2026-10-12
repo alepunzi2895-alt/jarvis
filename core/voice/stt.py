@@ -33,12 +33,12 @@ def _positive_int_env(name: str, default: int, minimum: int = 1) -> int:
 SILENCE_HANG_MS = _positive_int_env("JARVIS_SILENCE_HANG_MS", 800, minimum=300)
 MAX_RECORD_SECONDS = 15
 
-# I comandi di JARVIS sono frasi italiane corte: il beam search predefinito
-# di Whisper privilegia qualità da dettatura, non il tempo di risposta. Un
-# solo candidato riduce il decoding sul fallback CPU senza cambiare modello,
-# lingua, VAD o initial prompt. Chi privilegia trascrizioni lunghe può
-# riportarlo a 5 dal .env.
-WHISPER_BEAM_SIZE = _positive_int_env("JARVIS_WHISPER_BEAM_SIZE", 1)
+# Benchmark 2026-10-12 su questa CPU (comandi italiani sintetici, modello
+# small): beam 1 + thread di default (4) = WER 11,6% e 4,0 s a frase; beam 5 +
+# 8 thread = WER 8,9% e 3,5 s. Il collo di bottiglia erano i thread, non il
+# beam: con piu' thread si guadagna sia precisione sia tempo.
+WHISPER_BEAM_SIZE = _positive_int_env("JARVIS_WHISPER_BEAM_SIZE", 5)
+WHISPER_CPU_THREADS = _positive_int_env("JARVIS_WHISPER_THREADS", min(8, os.cpu_count() or 4))
 
 _model: WhisperModel | None = None
 
@@ -56,7 +56,9 @@ def _get_model() -> WhisperModel:
         print("whisper: GPU (CUDA) in uso")
     except Exception as e:  # noqa: BLE001 — qualunque problema CUDA/cuDNN, degrado a CPU
         print(f"whisper: GPU non disponibile ({e}) — uso CPU")
-        _model = WhisperModel(WHISPER_MODEL_NAME, device="cpu", compute_type="int8")
+        _model = WhisperModel(
+            WHISPER_MODEL_NAME, device="cpu", compute_type="int8", cpu_threads=WHISPER_CPU_THREADS
+        )
     return _model
 
 
