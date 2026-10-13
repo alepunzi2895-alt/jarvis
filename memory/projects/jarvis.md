@@ -837,3 +837,9 @@ Prova reale Sonnet/tool corretta in 4,47 s senza log nel second brain. Suite
 login/logout e UI senza errori; microfono fisico iPhone non verificabile qui.
 Al momento della chiusura del codice il vecchio LiveBridge e' ancora in RAM:
 serve una sola chiusura manuale da parte dell'utente, poi avvio e verifica.
+
+Codice `c9d51d1` pushato e verificato su `origin/codex/unified-assistant`.
+Richiesta chiusura manuale del solo python.exe PID 14968 per caricare tutte
+le modifiche in un unico riavvio. Finche' non confermata, backend nuovo non
+ancora attivo; UI statica gia' visibile al reload. Test panoramica Outlook
+reale (inclusione eventi iniziati prima del giorno) riuscito senza errori.
