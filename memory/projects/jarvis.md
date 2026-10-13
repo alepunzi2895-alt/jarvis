@@ -871,3 +871,12 @@ separati: niente promessa di risposta vocale istantanea.
 413 test della suite completa e 42 mirati finali passati. Backend precedente
 ancora PID 26352 alla chiusura del codice: nuova sintesi/cache richiedono
 chiusura manuale e riavvio dopo commit/push; Rete/meteo disponibili al reload.
+
+Attivazione completata il 2026-10-13 alle 17:12 (Europe/Rome): utente chiude
+PID 26352, porta libera, LiveBridge avviato con PID 43472 e codice `effa55d`.
+HTTPS e STT locale CPU pronti, 16 progetti. Panoramica reale produce 2 frasi,
+26 parole e zero chiamate LLM; primo testo 63-78 ms con snapshot recente.
+Meteo e Rete online riconfermati in WebKit mobile/desktop, nessun errore JS.
+TTS ancora variabile: prima prova 4,5 s al primo audio e una frase fallita;
+seconda prova completa senza avvisi, primo audio 2,797 s. Non confondere il
+tempo testo con risposta vocale completa: STT e microfono iPhone esclusi.
