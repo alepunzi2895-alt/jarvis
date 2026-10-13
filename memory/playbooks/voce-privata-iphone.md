@@ -5,7 +5,7 @@
    sono piu' utili del link login temporaneo. Un 403 sul link di associazione
    non dimostra un guasto della dashboard.
    Dopo un riavvio Windows `tailscaled` puo' restare in `NoState` finche' non
-   parte la GUI `C:\Program Files\Tailscale	ailscale-ipn.exe`: avviarla,
+   parte la GUI `C:\Program Files\Tailscale\tailscale-ipn.exe`: avviarla,
    attendere `BackendState` Running e controllare `tailscale serve status`.
 2. `setup_live.ps1 -Start`: riserva HTTPS 8443 senza sovrascrivere un servizio
    diverso, proxy su loopback 8765, registra LiveBridge e AudioCleanup.
