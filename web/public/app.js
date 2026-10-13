@@ -358,8 +358,8 @@ function handleVoiceUiCommand(text) {
     if (wants(closeVerb)) { closeWindow("win-brain"); return true; }
   }
   if (wants(/\b(tradeflow|trading)\b/)) {
-    if (wants(verb)) { openWindow("win-tradeflow"); return true; }
-    if (wants(closeVerb)) { closeWindow("win-tradeflow"); return true; }
+    if (wants(verb)) { openWindow("win-projects"); return true; }
+    if (wants(closeVerb)) { closeWindow("win-projects"); return true; }
   }
   // Meteo/progetti: si aprono anche solo chiedendo ("che tempo fa", "come
   // siamo messi con i progetti") senza dover dire esplicitamente "apri" —
@@ -788,34 +788,6 @@ function timeAgo(iso) {
   return `${Math.floor(s / 3600)}h fa`;
 }
 
-async function refreshTradeflow() {
-  try {
-    const res = await fetch("/api/tradeflow", { method: "POST" });
-    const json = await res.json();
-    const data = json.data;
-    const stats = $("#tradeflow-stats");
-    if (!data) {
-      stats.innerHTML = `<div class="stat-tile"><div class="label">Equity</div><div class="value">—</div></div>
-        <div class="stat-tile"><div class="label">Posizioni</div><div class="value">—</div></div>`;
-      $("#tradeflow-status").innerHTML = "";
-      $("#tradeflow-sync").textContent = "Bot non ancora connesso.";
-      setConn("online");
-      return;
-    }
-    const eq = data.account?.equity;
-    const cur = data.account?.currency || "";
-    stats.innerHTML = `
-      <div class="stat-tile"><div class="label">Equity</div><div class="value">${eq != null ? eq.toFixed(2) + " " + cur : "—"}</div></div>
-      <div class="stat-tile"><div class="label">Posizioni</div><div class="value">${data.positions?.length ?? 0}</div></div>`;
-    $("#tradeflow-status").innerHTML = statusPill(data.bot_status);
-    $("#tradeflow-sync").textContent = "Ultimo sync: " + timeAgo(json.updated_at || data.synced_at);
-    setConn("online");
-  } catch {
-    $("#tradeflow-sync").textContent = "Errore di connessione.";
-    setConn("warning");
-  }
-}
-
 // ── Meteo settimanale animato ("come il vero JARVIS di Iron Man") ──────
 // Dati scritti da bot.py::weather_forecast_loop() su Turso (il browser non
 // puo' chiamare Open-Meteo con la posizione configurata in .env — quella
@@ -890,21 +862,22 @@ async function refreshProjectStatus() {
       .map((p) => {
         if (!p.configured) {
           return `<div class="project-card disabled">
-            <div class="project-card-title">${p.label}</div>
-            <p class="panel-footnote">Workspace non configurato.</p>
+            <div class="project-card-title">${_escHtml(p.label)}</div>
+            <p class="panel-footnote">Disponibile in memoria o nel registro; percorso locale non configurato.</p>
           </div>`;
         }
         if (p.error) {
           return `<div class="project-card">
-            <div class="project-card-title">${p.label}</div>
-            <p class="panel-footnote">Errore git: ${p.error.slice(0, 80)}</p>
+            <div class="project-card-title">${_escHtml(p.label)}</div>
+            <p class="panel-footnote">Errore git: ${_escHtml(p.error.slice(0, 80))}</p>
           </div>`;
         }
+        if (!p.branch) return `<div class="project-card"><div class="project-card-title">${_escHtml(p.label)}</div><p class="panel-footnote">Cartella locale senza Git.</p></div>`;
         return `
           <div class="project-card">
-            <div class="project-card-title">${p.label} <span class="project-branch">${p.branch || ""}</span></div>
+            <div class="project-card-title">${_escHtml(p.label)} <span class="project-branch">${_escHtml(p.branch || "")}</span></div>
             <div class="project-card-row"><span>Modifiche in sospeso</span><strong>${p.dirty_files}</strong></div>
-            <div class="project-card-row"><span>Ultimo commit</span><strong>${_lastCommitShort(p.last_commit)}</strong></div>
+            <div class="project-card-row"><span>Ultimo commit</span><strong>${_escHtml(_lastCommitShort(p.last_commit))}</strong></div>
           </div>`;
       })
       .join("");
@@ -1442,10 +1415,6 @@ async function boot() {
   } catch (e) {
     console.error('boot: "history" fallito (ignorato)', e);
   }
-  _bootStep("tradeflow", () => {
-    refreshTradeflow();
-    setInterval(refreshTradeflow, 5000);
-  });
   _bootStep("weather", () => {
     refreshWeatherForecast();
     setInterval(refreshWeatherForecast, 5 * 60 * 1000); // il bridge locale pubblica ogni 30min, basta controllare ogni 5
@@ -1477,3 +1446,8 @@ async function boot() {
     // resta sulla schermata di login
   }
 })();
+
+// Stessi messaggi nella conversazione unica, anche su iPhone.
+document.querySelectorAll("[data-prompt]").forEach(button => {
+  button.addEventListener("click", () => submitTask(button.dataset.prompt));
+});

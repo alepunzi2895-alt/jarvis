@@ -132,6 +132,62 @@ Test isolati del servizio e del browser:
 .venv/Scripts/python.exe -m pytest -q tests/test_live_server.py tests/test_claude_bridge.py tests/test_dashboard_mobile.py
 ```
 
+## Conversazione unica, lavoro e progetti
+
+Nella dashboard privata la conversazione mantiene gli ultimi 8 scambi anche
+quando cambia progetto. I comandi rapidi entrano nella stessa cronologia.
+Analisi, confronti, pianificazione e coaching usano `JARVIS_TEXT_MODEL`;
+le altre richieste mantengono `JARVIS_VOICE_MODEL`. TradingView esplicito
+conserva il CLI/MCP. I canali Telegram/voce desktop mantengono il proprio
+instradamento: la cronologia unica riguarda la dashboard privata.
+
+Il catalogo unisce `memory/projects/*.md`, variabili `WS_*` e repository
+nelle cartelle immediatamente sotto la cartella padre di JARVIS. Si aggiorna
+senza riavviare; la panoramica privata conserva una cache di 30 secondi.
+Nessuna scansione ricorsiva del disco. Per altre radici/cartelle senza Git,
+copia `project-catalog.example.json` in `.project-catalog.json` e adatta i
+percorsi. Questo file personale resta fuori da Git. Un progetto remoto
+registrato solo per nome non rende accessibili i suoi contenuti.
+
+Gli strumenti permettono di leggere note e file testuali locali (256 KB
+massimi, estratto fino a 16.000 caratteri), elencare cartelle e verificare
+Git. PDF, Excel e allegati Outlook non vengono automaticamente indicizzati.
+La scoperta **non aggiunge permessi di scrittura**: per modifiche/CLI resta
+necessaria la whitelist esistente `JARVIS_ALLOWED_DIRS`.
+
+Esempi nella stessa conversazione:
+
+- «Organizza oggi usando agenda e obiettivi: dammi tre priorita'.»
+- «Confronta lo stato di EYRA, VMScout e Aura.»
+- «Analizza i job Databricks QAS degli ultimi sette giorni.»
+- «Leggi la definizione di questa dashboard e spiegami le query.»
+- «Aiutami a scegliere cosa finire prima questa settimana.»
+- «Registra l'obiettivo: chiudere il report entro il 16 ottobre.»
+
+`get_work_overview` legge Outlook locale, stato Git attuale e obiettivi
+espliciti. Il tempo occupato usa l'unione degli intervalli, include eventi
+iniziati il giorno precedente e non equivale a ore lavorate. I dati mancanti
+sono segnalati come non disponibili, non come zero. `focus_items` conserva
+obiettivi/scadenze e completamenti confermati in `.focus.sqlite3` locale,
+escluso da Git. Non crea notifiche, impegni o obiettivi autonomamente.
+
+`inspect_databricks` usa l'OAuth QAS gia' configurato: job, run, dashboard
+AI/BI (Lakeview), definizioni/query delle dashboard, cartelle e sorgenti
+notebook richiesti. Nessun avvio o modifica di job. Risultati limitati ai
+permessi del service principal; gli elenchi restituiscono conteggio della
+pagina, `next_page_token` e `partial`. Le statistiche dei run riguardano la
+pagina mostrata (25 run), dichiarano il periodo e il denominatore degli
+esiti conosciuti. Non sono statistiche dell'intero workspace se `partial`
+e' vero. Il modello puo' richiedere altre pagine. `query_databricks` riusa
+SQL QAS sola lettura; per totali reali usa aggregazioni SQL, non il conteggio
+delle righe del campione (massimo 100, visualizzate fino a 50).
+PRD mantiene il percorso di conferma esistente. Genie richiede uno Space ID
+separato: non serve per questo inventario e non viene configurato da solo.
+
+Riferimenti API: [job e run](https://docs.databricks.com/api/jobs/v2/list-runs),
+[dashboard AI/BI](https://docs.databricks.com/api/lakeview/v1/list-dashboards),
+[lettura notebook](https://docs.databricks.com/api/workspace-objects/v1/export).
+
 ## Come impara
 Ogni task scrive in `memory/log/`. Le procedure riuscite finiscono in
 `memory/playbooks/`. La sessione dopo li rilegge (regola in `CLAUDE.md`).

@@ -12,10 +12,12 @@ chiamanti restano chiamate sottili.
 from __future__ import annotations
 
 import os
+import subprocess
 from dataclasses import dataclass, asdict
 from pathlib import Path
 
 from core.system_executor import SystemExecutor
+from core import projects
 
 _NOTES_DIR = Path(__file__).resolve().parent.parent / "memory" / "projects"
 _NOTES_EXCERPT_CHARS = 500
@@ -29,14 +31,13 @@ class ProjectConfig:
     notes_file: str
 
 
-# Isabela/Vino non hanno ancora un path locale in .env (WS_ISABELA/WS_VINO
-# assenti) — non li includo qui finche' non lo sono: riportarli sempre come
-# "non configurato" non aggiungerebbe informazione.
-PROJECTS: list[ProjectConfig] = [
-    ProjectConfig("aura", "Aura Ibiza", "WS_AURA", "aura-ibiza.md"),
-    ProjectConfig("trading", "TradeFlow AI", "WS_TRADING", "tradeflow-ai.md"),
-    ProjectConfig("whitesoul", "Whitesoul Ibiza", "WS_WHITESOUL", "whitesoulibiza.md"),
-]
+# Vista aggiornata a ogni lettura, anche per chiamanti storici.
+class ProjectCatalog:
+    def __iter__(self):
+        return iter(projects.catalog())
+
+
+PROJECTS = ProjectCatalog()
 
 
 @dataclass
@@ -57,7 +58,7 @@ def _read_notes_excerpt(notes_file: str) -> str | None:
         text = (_NOTES_DIR / notes_file).read_text(encoding="utf-8")
     except OSError:
         return None
-    idx = text.find("## Stato")
+    idx = text.rfind("## Stato")
     if idx == -1:
         return None
     excerpt = text[idx:]
@@ -71,16 +72,29 @@ def _read_notes_excerpt(notes_file: str) -> str | None:
 
 
 def _check_one(cfg: ProjectConfig, executor: SystemExecutor) -> ProjectStatus:
-    raw_path = os.getenv(cfg.env_var, "").strip()
+    raw_path = getattr(cfg, "path", None) or os.getenv(cfg.env_var, "").strip()
     if not raw_path or not Path(raw_path).is_dir():
-        return ProjectStatus(cfg.key, cfg.label, raw_path or None, configured=False)
+        return ProjectStatus(cfg.key, cfg.label, raw_path or None, configured=False,
+                             notes=_read_notes_excerpt(cfg.notes_file))
 
     status = ProjectStatus(
         cfg.key, cfg.label, raw_path, configured=True,
         notes=_read_notes_excerpt(cfg.notes_file),
     )
 
-    r = executor.git("status --short --branch", raw_path)
+    # La scoperta concede solo lettura di metadati Git, mai nuovi permessi
+    # al SystemExecutor per scrivere/eseguire comandi in questi progetti.
+    if isinstance(cfg, projects.Project):
+        if not (Path(raw_path) / ".git").exists():
+            return status
+        try:
+            r = projects.git_read(raw_path, "status", "--short", "--branch")
+            r.ok = r.returncode == 0
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            status.error = str(exc)
+            return status
+    else:
+        r = executor.git("status --short --branch", raw_path)
     if not r.ok:
         status.error = (r.stderr or "git status fallito").strip()
         return status
@@ -91,7 +105,14 @@ def _check_one(cfg: ProjectConfig, executor: SystemExecutor) -> ProjectStatus:
         lines = lines[1:]
     status.dirty_files = len([line for line in lines if line.strip()])
 
-    log = executor.git('log -1 --format="%h %s (%cr)"', raw_path)
+    if isinstance(cfg, projects.Project):
+        try:
+            log = projects.git_read(raw_path, "log", "-1", "--format=%h %s (%cr)")
+            log.ok = log.returncode == 0
+        except (OSError, subprocess.TimeoutExpired):
+            return status
+    else:
+        log = executor.git('log -1 --format="%h %s (%cr)"', raw_path)
     if log.ok and log.stdout.strip():
         status.last_commit = log.stdout.strip()
 
@@ -103,11 +124,8 @@ def check_all(executor: SystemExecutor) -> list[ProjectStatus]:
 
 
 def check_one_by_key(key: str, executor: SystemExecutor) -> ProjectStatus | None:
-    """Per il tool Claude "get_project_status" (core/claude_bridge.py,
-    2026-09-16): "quando chiedo lo stato mi deve chiedere di quale
-    progetto" — un solo git status/log invece dei 3 di check_all(), None se
-    la chiave non e' tra i progetti noti (aura/trading/whitesoul)."""
-    key = (key or "").strip().lower()
+    """Stato di una chiave/alias del catalogo, None se sconosciuta."""
+    key = projects.canonical(key or "")
     cfg = next((c for c in PROJECTS if c.key == key), None)
     return _check_one(cfg, executor) if cfg else None
 
@@ -128,7 +146,8 @@ def format_report(statuses: list[ProjectStatus], voice: bool) -> str:
             if s.error:
                 parts.append(f"{s.label}: errore")
                 continue
-            state = "pulito" if s.dirty_files == 0 else f"{s.dirty_files} modifiche in sospeso"
+            state = ("cartella senza Git" if not s.branch else
+                     "pulito" if s.dirty_files == 0 else f"{s.dirty_files} modifiche in sospeso")
             flag = " — problema noto" if s.notes and "\U0001F534" in s.notes else ""
             parts.append(f"{s.label}: {state}{flag}")
         if not parts:
@@ -138,14 +157,15 @@ def format_report(statuses: list[ProjectStatus], voice: bool) -> str:
     lines = ["Stato progetti:", ""]
     for s in statuses:
         if not s.configured:
-            lines.append(f"• {s.label}: workspace non configurato.")
+            lines.append(f"• {s.label}: percorso locale non configurato; disponibile in memoria/registro.")
             lines.append("")
             continue
         if s.error:
             lines.append(f"• {s.label}: errore git ({s.error[:120]})")
             lines.append("")
             continue
-        dirty = "pulito" if s.dirty_files == 0 else f"{s.dirty_files} modifiche non committate"
+        dirty = ("cartella senza Git" if not s.branch else
+                 "pulito" if s.dirty_files == 0 else f"{s.dirty_files} modifiche non committate")
         branch = f" [{s.branch}]" if s.branch else ""
         lines.append(f"• {s.label}{branch}: {dirty}")
         if s.last_commit:

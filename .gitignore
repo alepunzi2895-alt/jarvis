@@ -1,6 +1,8 @@
 .env
 .live-password
 .live-config.json
+.project-catalog.json
+.focus.sqlite3*
 .venv/
 state.json
 __pycache__/

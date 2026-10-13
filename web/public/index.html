@@ -30,7 +30,7 @@
     </header>
 
     <div class="hud-mini corner-frame" id="hud-mini">
-      <div class="hud-mini-row"><span>Progetto</span><strong id="hud-ws">—</strong></div>
+      <div class="hud-mini-row"><span>Contesto</span><strong id="hud-ws">—</strong></div>
       <div class="hud-mini-row"><span>Sessione</span><strong id="hud-uptime">00:00:00</strong></div>
       <div class="hud-mini-row"><span>Task</span><strong id="hud-taskcount">0</strong></div>
       <div class="hud-mini-row"><span>Rete</span><strong id="hud-conn"><span class="status-pill warning"><span class="dot"></span>attesa</span></strong></div>
@@ -56,11 +56,16 @@
 
       <section class="floating-window open" id="win-chat" style="--x:-320px; --y:20px;">
         <header class="fw-header">
-          <span class="fw-title">Console</span>
+          <span class="fw-title">Conversazione</span>
           <button type="button" class="fw-close" data-close="win-chat">✕</button>
         </header>
         <div class="fw-body fw-body--console">
           <div class="console-log" id="console-log"></div>
+          <div class="conversation-starters" aria-label="Suggerimenti">
+            <button type="button" data-prompt="Organizza la mia giornata usando agenda, progetti e obiettivi: proponi tre priorità concrete.">Organizza oggi</button>
+            <button type="button" data-prompt="Analizza gli ultimi sette giorni su Databricks QAS: job falliti, durate, periodo e copertura dei dati.">Analizza i job</button>
+            <button type="button" data-prompt="Aiutami a scegliere su cosa concentrarmi tra lavoro, progetti e vita personale. Parti dai miei obiettivi e fammi una domanda utile.">Trova il focus</button>
+          </div>
           <form class="console-input" id="console-form">
             <input type="text" id="console-text" placeholder="Chiedi a JARVIS…" aria-label="Messaggio per JARVIS" autocomplete="off" enterkeyhint="send" />
             <button type="submit" class="send-btn" title="Invia" aria-label="Invia messaggio">➤</button>
@@ -96,21 +101,6 @@
         </div>
       </section>
 
-      <section class="floating-window" id="win-tradeflow" style="--x:320px; --y:120px;">
-        <header class="fw-header">
-          <span class="fw-title">TradeFlow AI · XAU/USD</span>
-          <button type="button" class="fw-close" data-close="win-tradeflow">✕</button>
-        </header>
-        <div class="fw-body">
-          <div class="stat-grid" id="tradeflow-stats">
-            <div class="stat-tile"><div class="label">Equity</div><div class="value">—</div></div>
-            <div class="stat-tile"><div class="label">Posizioni</div><div class="value">—</div></div>
-          </div>
-          <div id="tradeflow-status"></div>
-          <p class="panel-footnote" id="tradeflow-sync">In attesa di dati…</p>
-        </div>
-      </section>
-
       <section class="floating-window" id="win-weather" style="--x:0px; --y:-260px;">
         <header class="fw-header">
           <span class="fw-title">Meteo · <span id="weather-place">—</span></span>
@@ -125,7 +115,7 @@
 
       <section class="floating-window" id="win-projects" style="--x:320px; --y:-260px;">
         <header class="fw-header">
-          <span class="fw-title">Stato progetti</span>
+          <span class="fw-title">Panoramica</span>
           <button type="button" class="fw-close" data-close="win-projects">✕</button>
         </header>
         <div class="fw-body">
@@ -141,22 +131,6 @@
         </div>
       </section>
 
-      <section class="floating-window" id="win-social" style="--x:-320px; --y:260px;">
-        <header class="fw-header">
-          <span class="fw-title">Social</span>
-          <button type="button" class="fw-close" data-close="win-social">✕</button>
-        </header>
-        <div class="fw-body">
-          <div class="panel disabled">
-            <p class="panel-title">Social AURA</p>
-            <p class="panel-footnote">In attesa di credenziali Meta.</p>
-          </div>
-          <div class="panel disabled">
-            <p class="panel-title">WhatsApp Business</p>
-            <p class="panel-footnote">In attesa di credenziali Meta.</p>
-          </div>
-        </div>
-      </section>
     </div>
 
     <p class="voice-status" id="voice-status" role="status" aria-live="polite">Tocca il microfono per parlare</p>
@@ -165,10 +139,8 @@
       <button type="button" class="dock-btn open" data-toggle="win-chat" title="Console">💬</button>
       <button type="button" class="dock-btn" data-toggle="win-camera" title="Camera">📷</button>
       <button type="button" class="dock-btn" data-toggle="win-brain" title="Second brain">🧠</button>
-      <button type="button" class="dock-btn" data-toggle="win-tradeflow" title="TradeFlow">📈</button>
       <button type="button" class="dock-btn" data-toggle="win-weather" title="Meteo">⛅</button>
-      <button type="button" class="dock-btn" data-toggle="win-projects" title="Stato progetti">🗂️</button>
-      <button type="button" class="dock-btn" data-toggle="win-social" title="Social">📡</button>
+      <button type="button" class="dock-btn" data-toggle="win-projects" title="Panoramica">🗂️</button>
     </div>
   </div>
 

@@ -803,3 +803,37 @@ login HTTPS/WebSocket con STT pronto verificati nuovamente. Codice commit
 WebKit sul vero URL HTTPS: login, stato voce pronta e logout verificati senza
 errori JavaScript; il microfono hardware non e' disponibile nell'emulatore
 Windows e resta da provare sull'iPhone fisico.
+
+## Assistente unico e fonti operative (2026-10-13)
+
+Alessandro vuole una conversazione unica, progetti riconosciuti automaticamente,
+analisi/statistiche e aiuto con priorita' lavorative e personali. Fonti indicate:
+Outlook, file, progetti sul PC, Databricks (dashboard/notebook/job).
+
+Branch `codex/unified-assistant`: core/projects.py scopre repo immediatamente
+sotto la radice, note e WS_*. .project-catalog.json permette altre radici e
+cartelle non Git (IVGAgent registrato). Trovati 16 progetti, senza concedere
+nuovi permessi di scrittura; lettura file testuali protetta entro la cartella.
+Panoramica privata aggiornata dal PC, cache 30 s. UI senza pannelli fissi per
+TradeFlow/social; tre suggerimenti nella conversazione, mobile verificato.
+
+Sessione privata condivisa tra progetti (8 scambi), contesto precedente per
+follow-up e comandi rapidi. Sonnet per analisi/coaching/pianificazione, Haiku
+per richieste brevi; TradingView esplicito usa CLI. Outlook offre agenda e
+conteggi reali. Focus personali/lavorativi solo su richiesta esplicita, SQLite
+locale ignorato da Git. Tempo calendario calcolato senza sovrapposizioni,
+inclusi eventi gia' iniziati, mai presentato come produttivita'.
+
+Databricks QAS: 31 job e 16 dashboard AI/BI visibili nella verifica; strumenti
+GET per inventario, definizioni dashboard, notebook richiesti e run. Pagine
+run da 25, metriche esplicitamente parziali e con denominatore. SQL nativo
+consente interpretazione dopo lettura dei risultati, con guardia anche su
+WITH seguito da DML. PRD resta sul percorso di conferma preesistente.
+Genie Space ID assente: non necessario per questi tool. Niente indice globale
+PDF/Excel/mail o accesso automatico al contenuto dei progetti cloud.
+
+Prova reale Sonnet/tool corretta in 4,47 s senza log nel second brain. Suite
+398/398 e successivi 55 test mirati SQL/tool passati. WebKit HTTPS reale
+login/logout e UI senza errori; microfono fisico iPhone non verificabile qui.
+Al momento della chiusura del codice il vecchio LiveBridge e' ancora in RAM:
+serve una sola chiusura manuale da parte dell'utente, poi avvio e verifica.

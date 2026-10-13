@@ -58,7 +58,7 @@ def test_execute_tool_error_result_is_flagged(monkeypatch):
         ("controlla lo stato di aura", "aura"),
         ("come va White Soul Ibiza oggi", "whitesoul"),
         ("controlla il bot tradeflow", "trading"),
-        ("che succede sul forex", "trading"),
+        ("che succede sul forex", "jarvis"),
         ("genera il catalogo vinitalimport", "vino"),
         ("isabela ha nuovi contenuti?", "isabela"),
         ("che ore sono", "jarvis"),
@@ -367,6 +367,24 @@ def test_run_claude_api_persists_clean_history_across_calls(monkeypatch):
         {"role": "user", "content": "primo messaggio"},
         {"role": "assistant", "content": "Prima risposta."},
     ]
+
+
+def test_shared_history_sent_to_model_after_project_change(monkeypatch):
+    from unittest.mock import AsyncMock
+    response = _FakeResponse([_FakeBlock("text", text="Risposta")], "end_turn")
+    _patch_common(monkeypatch, [response])
+    client = MagicMock()
+    client.messages.create = AsyncMock(return_value=response)
+    monkeypatch.setattr(claude_bridge, "_get_api_client", lambda: client)
+    histories = {}
+    async def run():
+        await claude_bridge._run_claude_api("Parliamo di Aura", "aura", "C:\\ws", None, "text", history_store=histories, history_key="all")
+        await claude_bridge._run_claude_api("Confrontala con EYRA", "eyra", "C:\\ws", None, "text", history_store=histories, history_key="all")
+    asyncio.run(run())
+    messages = client.messages.create.call_args.kwargs["messages"]
+    assert messages[0]["content"] == "Parliamo di Aura"
+    assert len(histories["all"]) == 4
+    assert claude_bridge.state["api_sessions"] == {}
 
 
 def test_run_claude_api_gives_up_after_max_tool_turns(monkeypatch):

@@ -59,6 +59,21 @@ async def login(client):
     return response
 
 
+def test_project_widget_reads_live_dynamic_catalog_and_caches(monkeypatch):
+    from core import project_status
+    check = Mock(return_value=[project_status.ProjectStatus("new", "Nuovo", None, False)])
+    monkeypatch.setattr(project_status, "check_all", check)
+    async def run():
+        client, server = await client_for()
+        async with client:
+            await login(client)
+            for _ in range(2):
+                response = await client.post("/api/jarvis", json={"action": "project_status_data"})
+                assert (await response.json())["projects"][0]["key"] == "new"
+            assert check.call_count == 1
+    asyncio.run(run())
+
+
 async def until(socket, kind, rid=None):
     messages = []
     for _ in range(25):

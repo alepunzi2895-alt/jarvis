@@ -43,6 +43,7 @@ def _fake_response(json_data, status=200):
         "EXPLAIN SELECT 1",
         "WITH cte AS (SELECT 1) SELECT * FROM cte",
         "SELECT 1;",
+        "WITH x AS (SELECT 'DELETE' AS `update`) SELECT * FROM x -- INSERT",
     ],
 )
 def test_is_read_only_sql_accepts_reads(sql):
@@ -60,6 +61,9 @@ def test_is_read_only_sql_accepts_reads(sql):
         "ALTER TABLE x ADD COLUMN y INT",
         "MERGE INTO x USING y ON ...",
         "SELECT 1; DROP TABLE tabella",  # doppia istruzione, anche se la prima è una SELECT
+        "WITH x AS (SELECT 1) INSERT INTO tabella SELECT * FROM x",
+        "WITH x AS (SELECT 1) DELETE FROM tabella WHERE id IN (SELECT * FROM x)",
+        "WITH x AS (SELECT 1) MERGE INTO tabella USING x ON true WHEN MATCHED THEN DELETE",
         "",
     ],
 )

@@ -131,6 +131,25 @@ def test_mobile_panels_and_controls_stay_inside_viewport(mobile_page):
         assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
 
 
+def test_direct_unified_starters_and_dynamic_project_labels(mobile_page):
+    page = mobile_page
+    assert page.locator('[data-toggle="win-tradeflow"]').count() == 0
+    page.get_by_role("button", name="Organizza oggi", exact=True).click()
+    page.wait_for_function("liveMessages.some(m => m.type === 'text')")
+    assert "Organizza" in page.evaluate("liveMessages.find(m => m.type === 'text').prompt")
+    page.evaluate("""async () => {
+      const original = api;
+      api = async (action) => action === 'project_status_data' ? {projects:[
+        {label:'<img src=x onerror=alert(1)>',configured:true,branch:'<main>',dirty_files:1,last_commit:'a (<script>)'},
+        {label:'Nuovo progetto',configured:false}
+      ]} : original(action);
+      await refreshProjectStatus();
+      api = original;
+    }""")
+    assert page.locator("#project-cards img, #project-cards script").count() == 0
+    assert "Nuovo progetto" in page.locator("#project-cards").inner_text()
+
+
 def test_mobile_mic_waits_for_tap_and_releases_on_interruption(mobile_page):
     page = mobile_page
     assert page.evaluate("mediaCalls") == []

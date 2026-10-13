@@ -1,6 +1,17 @@
 from unittest.mock import MagicMock
+import pytest
 
 from core import project_status
+
+
+@pytest.fixture(autouse=True)
+def isolated_catalog(monkeypatch):
+    # Questi test verificano il parser Git/compatibilita' WS_; la scoperta
+    # dinamica ha test separati e non deve scandire il PC durante la suite.
+    monkeypatch.setattr(project_status, "PROJECTS", [
+        project_status.ProjectConfig("aura", "Aura Ibiza", "WS_AURA", "aura-ibiza.md"),
+        project_status.ProjectConfig("trading", "TradeFlow AI", "WS_TRADING", "tradeflow-ai.md"),
+    ])
 
 
 def _ok(stdout="", stderr=""):

@@ -154,9 +154,7 @@ def parse_intent(text: str) -> dict | None:
     if _SCREENSHOT_RE.search(t):
         return {"type": "screenshot"}
 
-    # "stato progetti" (2026-09-16): non e' piu' un fast-path — Claude deve
-    # chiedere PRIMA quale progetto (tool get_project_status), non buttare
-    # giu' il report di tutti e 3 senza che nessuno l'abbia chiesto.
+    # Le panoramiche passano al modello con il catalogo dinamico e i tool reali.
     if _BRIEFING_RE.search(t):
         return {"type": "briefing"}
     if _TRADING_PNL_RE.search(t):
