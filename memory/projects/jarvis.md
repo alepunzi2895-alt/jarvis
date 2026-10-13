@@ -797,7 +797,9 @@ Verifica: 380 test della suite completa, piu' regressione aggiuntiva dello
 Stop mentre un comando sostitutivo attende la fine di un'azione OS (suite
 servizio 10/10). La cancellazione del chiamante non deve essere inghiottita
 dal cleanup del vecchio turno, altrimenti la sostituzione puo' partire dopo
-Stop. Richiesta chiusura manuale PID 13276 per caricare anche questa correzione.
+Stop. Alessandro ha chiuso anche il PID 13276: servizio finale riavviato e
+login HTTPS/WebSocket con STT pronto verificati nuovamente. Codice commit
+`206876b`, push su `codex/ios-local-voice`, SHA locale/remoto uguali.
 WebKit sul vero URL HTTPS: login, stato voce pronta e logout verificati senza
 errori JavaScript; il microfono hardware non e' disponibile nell'emulatore
 Windows e resta da provare sull'iPhone fisico.
