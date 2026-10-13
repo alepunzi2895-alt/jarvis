@@ -19,6 +19,11 @@
   metadato SDK non accettato dall'API. Escludere `__api_exclude__` prima di
   reinviare la risposta dopo un tool; altrimenti HTTP 400 al secondo passaggio.
 
+- Testo e pulsanti non aspettano la trascrizione di un audio sullo stesso
+  socket: l'audio in corso viene scartato (ignored) e il comando parte subito.
+  Prima del 2026-10-13 rispondevano "Sto trascrivendo il comando precedente."
+  e sembravano bloccati, soprattutto a batteria (STT ~16 s) con VAD 0.012.
+
 ## Telegram
 - Bot configurato: https://t.me/zerodayzz_bot. Task `\JARVIS\Bot`.
 - Testo e note vocali solo dall'owner configurato. Le note non richiedono

@@ -7,7 +7,17 @@ Ha anche un second brain: memoria a lungo termine che Claude stesso consulta e
 alimenta task dopo task (`core/brain.py`), visualizzata come grafo animato nella
 dashboard.
 
-## Stato attuale (2026-07-14)
+## Stato attuale (2026-10-13)
+`main` (merge `10b25cd`) contiene tutto `codex/unified-assistant`: voce privata
+iPhone-PC via Tailscale (LiveBridge, porta 8765, HTTPS 8443), conversazione unica
+tra progetti, memoria persistente, TradePilot/Azure DevOps in sola lettura,
+Telegram testo/note, lavori Codex/Claude Code tracciati. Deploy Vercel
+automatico riuscito, pagina cloud senza errori JS. Suite 461 test.
+- Dopo reboot Tailscale resta `NoState` finche' non parte `tailscale-ipn.exe`
+  (GUI): senza, il nome *.ts.net non risolve e la dashboard iPhone e' muta.
+- A batteria whisper small CPU impiega ~16 s per segmento (contro ~2 s in carica).
+
+## Stato precedente (2026-07-14)
 `main` è aggiornato e **deploya correttamente in produzione**, verificato in
 browser (dati TradeFlow live, non mock). Contiene fix del bridge web, restyle HUD
 e second brain insieme.
