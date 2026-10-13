@@ -76,3 +76,8 @@ Non ci sono record Azure Environments/classic releases al controllo: leggere
 la timeline per lo stato delle fasi. Questa e un'osservazione datata; usare
 get_iveco_deploys per rispondere sullo stato attuale. Nessun deploy avviato,
 approvato o modificato. Backend JARVIS aggiornato ancora da riavviare.
+
+Attivazione completata alle 18:05 Europe/Rome: il servizio Windows JARVIS
+legge correttamente DevOps con la sessione Microsoft collegata. API e
+dashboard private mostrano PROD riuscito, QAS non eseguito e l'avviso del job;
+nessun errore di fonte o copertura parziale al controllo.

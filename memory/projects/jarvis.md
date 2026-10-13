@@ -913,3 +913,11 @@ JS syntax e diff check superati. Limite: iPhone fisico non provato dall'agente.
 Backend nuovo da attivare con un solo riavvio dopo commit/push: vecchio
 processo LiveBridge PID 43472 ancora attivo. Sfera/CSS disponibili al reload.
 Procedura e configurazioni: `memory/playbooks/connected-memory-and-data.md`.
+
+Attivato il 2026-10-13 alle 18:05 Europe/Rome: dopo chiusura PID 43472,
+LiveBridge riavviato con PID 20396, codice `b841540`. HTTPS/login, WS/STT CPU,
+API memorie, TradePilot e DevOps verificati sul servizio reale senza errori
+delle fonti. TradePilot ora espone 25 esperimenti e 8 righe statistiche;
+conto demo e curva con campioni reali. WebKit mobile sul vero HTTPS: sfera
+visibile/animata, grafico equity, fasi PROD/QAS e pannello memorie disponibili,
+nessun errore JS. Nessuna modifica al codice dopo il riavvio.

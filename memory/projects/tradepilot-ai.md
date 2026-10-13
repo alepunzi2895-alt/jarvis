@@ -8,3 +8,8 @@
 - Sono dati datati: usare get_tradepilot per stato attuale e specificare demo/shadow/counterfactual, numero operazioni e fonte. Niente ordini reali o promozioni automatiche.
 - Dashboard JARVIS: Panoramica -> Equity e deploy, dettagli Ricerche e strategie; una sola conversazione. Attivazione backend dopo riavvio LiveBridge.
 - Procedura: `memory/playbooks/connected-memory-and-data.md`.
+
+Attivazione JARVIS completata alle 18:05 Europe/Rome: API private e grafico
+equity verificati sul servizio Windows e in WebKit mobile. Il registro VPS
+espone ora 25 esperimenti, 8 righe statistiche, conto demo; dati aggiornati
+rispetto alla prima verifica. Raccolta campioni attiva in LiveBridge.
