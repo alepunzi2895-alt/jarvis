@@ -3,6 +3,11 @@
 .live-config.json
 .project-catalog.json
 .focus.sqlite3*
+.memory.sqlite3*
+.tradepilot.json
+.tradepilot.sqlite3*
+.azure-devops.json
+/.azure-auth/
 .venv/
 state.json
 __pycache__/

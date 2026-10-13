@@ -7,6 +7,7 @@ const touchDevice = window.matchMedia("(pointer: coarse)").matches;
 function setupViewport() {
   const resize = () => {
     const viewport = window.visualViewport;
+    document.body.classList.toggle("short-viewport", compactLayout.matches && (viewport?.height || window.innerHeight) < 640);
     // Non contrastare lo zoom di accessibilita'. La tastiera iOS riduce
     // visualViewport, ma non necessariamente 100vh.
     if (!viewport || viewport.scale === 1) {
@@ -18,7 +19,7 @@ function setupViewport() {
   window.visualViewport?.addEventListener("resize", resize);
   window.addEventListener("resize", resize);
   const syncAnimation = () => {
-    if (document.hidden || compactLayout.matches) window.JarvisOrb?.stop();
+    if (document.hidden) window.JarvisOrb?.stop();
     else window.JarvisOrb?.start();
   };
   compactLayout.addEventListener("change", syncAnimation);
@@ -47,6 +48,109 @@ async function api(action, body = {}) {
 // ── Finestre fluttuanti ────────────────────────────────────────────────
 
 let topZ = 10;
+const dataEscape = (value) => String(value ?? "").replace(/[&<>"']/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[ch]));
+const dataNumber = (value, digits = 2) => typeof value === "number" && Number.isFinite(value) ? value.toLocaleString("it-IT", {maximumFractionDigits:digits}) : "N/A";
+const dataDate = value => value && Number.isFinite(Date.parse(value)) ? new Date(value).toLocaleString("it-IT") : "N/A";
+
+async function refreshMemories() {
+  if (!window.JarvisDirect) return;
+  const target = $("#memory-items");
+  try {
+    const {memories = []} = await api("memories_list");
+    target.replaceChildren();
+    if (!memories.length) { target.textContent = "Nessuna memoria appresa. Puoi dire: ricorda che…"; return; }
+    for (const item of memories) {
+      const row = document.createElement("article"); row.className = "memory-item";
+      const text = document.createElement("p"); text.textContent = item.kind === "avoid_mention" ? `Argomento escluso: ${item.topic}` : item.content;
+      const source = document.createElement("small"); source.textContent = `${item.source} · ${dataDate(item.updated_at)}`;
+      const button = document.createElement("button"); button.type = "button"; button.textContent = "Dimentica";
+      button.onclick = async () => {
+        button.disabled = true;
+        try { await api("memory_forget", {id:item.id}); await refreshMemories(); }
+        catch { button.disabled = false; source.textContent = "Operazione non riuscita. Riprova."; }
+      };
+      row.append(text, source, button); target.append(row);
+    }
+  } catch { target.textContent = "Memoria non disponibile. Riprova."; }
+}
+
+function equityGraph(points) {
+  const rows = (points || []).filter(p => Number.isFinite(p.equity) && Number.isFinite(Date.parse(p.at)));
+  if (rows.length < 2) return '<p class="panel-footnote">Il grafico apparirà dopo due campioni reali. Nessuno storico ricostruito.</p>';
+  const low = Math.min(...rows.map(p=>p.equity)), high = Math.max(...rows.map(p=>p.equity));
+  const start = Date.parse(rows[0].at), span = Math.max(1, Date.parse(rows.at(-1).at) - start);
+  const coords = rows.map(p => `${(10 + (Date.parse(p.at)-start)/span*480).toFixed(1)},${(130-(p.equity-low)/(high-low||1)*110).toFixed(1)}`).join(" ");
+  return `<svg class="equity-chart" viewBox="0 0 500 150" role="img" aria-label="Equity osservata del conto, asse orizzontale tempo"><polyline points="${coords}" fill="none" stroke="currentColor" stroke-width="2"/></svg><p class="panel-footnote">Min ${dataNumber(low)} · max ${dataNumber(high)} · ${rows.length} campioni<br>${dataDate(rows[0].at)} → ${dataDate(rows.at(-1).at)}</p>`;
+}
+
+function renderTradePilot(data) {
+  const target = $("#tradepilot-data");
+  if (!data.connected) { target.textContent = data.error || "TradePilot non raggiungibile. I dati del conto non sono disponibili."; return; }
+  const account = data.account || {}, research = data.research || {};
+  const healthy = account.status === "ok";
+  const money = value => healthy ? `${dataNumber(value)} ${dataEscape(account.currency)}` : "N/A";
+  const metric = (label, value) => `<div><small>${label}</small><strong>${value}</strong></div>`;
+  const stats = data.strategy_stats || [];
+  target.innerHTML = `<p class="panel-subheading">TradePilot · ${dataEscape(account.mode)} · sola lettura</p>
+    <p class="panel-footnote">VPS · ${dataDate(data.observed_at)}${healthy ? "" : " · conto non disponibile"}</p>
+    <div class="data-metrics">${metric("Equity conto", money(account.equity))}${metric("Saldo", money(account.balance))}${metric("Variazione giorno", dataNumber(account.guard?.day_pct)+"%")}${metric("Drawdown dal picco", dataNumber(account.guard?.drawdown_pct)+"%")}</div>
+    ${equityGraph(data.curve)}<p class="panel-footnote">${dataEscape(data.curve_note)}</p>
+    <details><summary>Ricerche e strategie</summary>
+      <p class="panel-footnote">Registro VPS aggiornato: ${dataEscape(research.updated || "N/A")}. Può differire dal lavoro ancora sul PC.</p>
+      <div class="data-metrics">${metric("Tentativi registrati",dataNumber(research.total_trials,0))}${metric("Strategie eligible",dataNumber(research.eligible_strategies,0))}</div>
+      ${(data.experiments || []).slice(-6).reverse().map(e=>`<article class="data-note"><strong>${dataEscape(e.id)} · ${dataEscape(e.title)}</strong><p>${dataEscape(e.verdict)} · ${dataEscape(e.headline)}</p></article>`).join("")}
+      <p class="panel-footnote">Statistiche distinte per modalità. R = rischio iniziale; N = operazioni. Prime ${Math.min(stats.length,30)} di ${stats.length} righe.</p>
+      <div class="data-table"><table><thead><tr><th>Strategia / modalità</th><th>N</th><th>Win %</th><th>PF</th><th>Media R</th></tr></thead><tbody>${stats.slice(0,30).map(s=>`<tr><td>${dataEscape(s.strategy_id)}<br><b>${dataEscape(s.mode)}</b></td><td>${dataNumber(s.trades,0)}</td><td>${dataNumber(typeof s.win_rate==='number'?s.win_rate*100:null,1)}</td><td>${dataNumber(s.profit_factor)}</td><td>${dataNumber(s.expectancy_r,3)}</td></tr>`).join("")}</tbody></table></div>
+    </details><p class="panel-footnote">${dataEscape(data.notice)}${Object.keys(data.errors || {}).length ? " Fonti parziali: "+dataEscape(Object.keys(data.errors).join(", ")) : ""}</p>`;
+}
+
+let connectedDataBusy = false;
+async function refreshConnectedData() {
+  if (!window.JarvisDirect || connectedDataBusy) return;
+  connectedDataBusy = true;
+  try {
+    await Promise.all([
+      api("tradepilot_data").then(renderTradePilot).catch(() => { $("#tradepilot-data").textContent = "TradePilot non disponibile. Riprova."; }),
+      api("devops_data").then(renderDevOps).catch(() => { $("#devops-data").textContent = "Azure DevOps non disponibile."; })
+    ]);
+  } finally { connectedDataBusy = false; }
+}
+
+function renderDevOps(data) {
+  const target = $("#devops-data");
+  target.replaceChildren();
+  const title = document.createElement("p"); title.className = "panel-subheading"; title.textContent = "Iveco · Deploy Azure DevOps";
+  target.append(title);
+  const note = document.createElement("p"); note.className = "panel-footnote";
+  note.textContent = data.error || `Controllato: ${dataDate(data.observed_at)}. ${data.notice || ""}${data.partial ? " Copertura parziale." : ""}${Object.keys(data.errors || {}).length ? " Fonti non disponibili: " + Object.keys(data.errors).join(", ") : ""}`;
+  target.append(note);
+  for (const row of data.stages || []) {
+    const item = document.createElement("article"); item.className = "data-note";
+    const status = ({succeeded:"riuscita", skipped:"non eseguita", failed:"fallita", canceled:"annullata", inProgress:"in corso", pending:"in attesa", succeededWithIssues:"riuscita con problemi"})[row.status] || row.status;
+    item.textContent = `Fase: ${row.name} · ${status} · ${dataDate(row.at)} · run ${row.build_number}`;
+    target.append(item);
+  }
+  for (const row of data.job_attention || []) {
+    const item = document.createElement("p"); item.className = "panel-footnote";
+    item.textContent = `Da verificare: job ${row.name}, run ${row.build_number} · ${row.errors} errori · ${row.warnings} avvisi`;
+    target.append(item);
+  }
+  if (data.connected && !(data.stages || []).length && !(data.deployments || []).length) {
+    const empty = document.createElement("p"); empty.className = "panel-footnote";
+    empty.textContent = "Nessun record di deploy o fase disponibile nelle fonti consultate."; target.append(empty);
+  }
+  for (const row of data.deployments || []) {
+    const item = document.createElement("article"); item.className = "data-note";
+    item.textContent = `${row.name} · ${row.environment || "ambiente non dichiarato"} · ${row.status} · ${dataDate(row.at)}`;
+    target.append(item);
+  }
+  if ((data.builds || []).length) {
+    const detail = document.createElement("details"), heading = document.createElement("summary");
+    heading.textContent = "Build recenti (non equivalgono a deploy)"; detail.append(heading);
+    for (const row of data.builds) { const p = document.createElement("p"); p.textContent = `${row.name} · ${row.branch} · ${row.result || row.status} · ${dataDate(row.at)}`; detail.append(p); }
+    target.append(detail);
+  }
+}
 
 function bringToFront(win) {
   topZ += 1;
@@ -70,7 +174,8 @@ function openWindow(id) {
   bringToFront(win);
   dockBtnFor(id)?.classList.add("open");
   dockBtnFor(id)?.setAttribute("aria-pressed", "true");
-  if (id === "win-brain") startBrainGraph();
+  if (id === "win-brain") { startBrainGraph(); refreshMemories(); }
+  if (id === "win-projects") refreshConnectedData();
   if (id === "win-camera") startCamera();
   if (id === "win-weather") {
     fitWeatherWindow();
@@ -1429,10 +1534,19 @@ async function boot() {
   _bootStep("direct-voice", () => window.JarvisDirect?.start());
   _bootStep("orb", () => {
     window.JarvisOrb = window.createJarvisOrb($("#orb-canvas"));
-    if (!compactLayout.matches && !document.hidden) window.JarvisOrb.start();
+    if (!document.hidden) window.JarvisOrb.start();
   });
   _bootStep("voice", setupVoice);
   _bootStep("windows", setupWindows);
+  _bootStep("connected-data", () => {
+    if (!window.JarvisDirect) return;
+    $("#show-data-btn").hidden = false;
+    $("#connected-data").hidden = false;
+    $("#learned-memory").hidden = false;
+    $("#show-data-btn").onclick = () => { openWindow("win-projects"); $("#connected-data").scrollIntoView({block:"start"}); };
+    $("#refresh-data-btn").onclick = refreshConnectedData;
+    setInterval(() => { if (!document.hidden && $("#win-projects").classList.contains("open")) refreshConnectedData(); }, 60000);
+  });
   _bootStep("weather-window", () => { if (!compactLayout.matches) openWindow("win-weather"); });
   _bootStep("camera", setupCamera);
   _bootStep("clock", () => {

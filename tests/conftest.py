@@ -2,6 +2,16 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
+def _isolate_personal_memory_and_tradepilot(monkeypatch, tmp_path):
+    monkeypatch.setattr('core.conversation_memory.DB', tmp_path / 'memory.sqlite3')
+    monkeypatch.setattr('core.tradepilot.DB', tmp_path / 'tradepilot.sqlite3')
+    monkeypatch.setattr('core.tradepilot.CONFIG', tmp_path / 'tradepilot.json')
+    monkeypatch.setattr('core.tradepilot._cache', {'at': 0, 'value': None, 'key': ''})
+    monkeypatch.setattr('core.azure_devops.CONFIG', tmp_path / 'azure-devops.json')
+    monkeypatch.setattr('core.azure_devops._cache', {'at': 0, 'value': None, 'key': ''})
+
+
+@pytest.fixture(autouse=True)
 def _disable_real_turso(monkeypatch):
     """Nessun test deve toccare la Turso vera — questa macchina di sviluppo ha
     credenziali reali in .env, quindi senza questo i test che passano da

@@ -369,3 +369,67 @@ def test_direct_mobile_controls_fit_and_stale_audio_is_discarded(mobile_page):
     before = page.evaluate("playedSources.length")
     page.evaluate("liveSocket.emit({type:'audio', id:liveMessages.find(m=>m.type==='text').id, data:btoa('stale')})")
     assert page.evaluate("playedSources.length") == before
+
+
+def test_direct_connected_data_memory_and_chart_are_mobile_safe(mobile_page):
+    page = mobile_page
+    page.evaluate("""() => {
+      api = async (action) => {
+        if (action === 'tradepilot_data') return {connected:true,observed_at:'2026-10-13T12:00:00Z',
+          account:{status:'ok',mode:'demo',currency:'EUR',equity:102,balance:100,guard:{day_pct:2,drawdown_pct:0}},
+          curve:[{at:'2026-10-13T12:00:00Z',equity:100},{at:'2026-10-13T12:01:00Z',equity:102}],
+          research:{updated:'2026-10-13',total_trials:20,eligible_strategies:0},
+          experiments:[{id:'EXP-1',title:'<img src=x onerror=alert(1)>',verdict:'research-only',headline:'non validato'}],
+          strategy_stats:[{mode:'shadow',strategy_id:'test',trades:20,win_rate:.5,profit_factor:1,expectancy_r:0}]};
+        if (action === 'devops_data') return {connected:false,error:'Accesso Microsoft richiesto',builds:[],deployments:[]};
+        if (action === 'memories_list') return {memories:window.forgot ? [] : [{id:'abc',kind:'fact',content:'<img src=x>',source:'utente',updated_at:'2026-10-13T12:00:00Z'}]};
+        if (action === 'memory_forget') { window.forgot=true; return {status:'disattivata'}; }
+        return {ok:true,nodes:[],edges:[],projects:[]};
+      };
+    }""")
+    page.get_by_role('button',name='Equity e deploy',exact=True).click()
+    page.locator('.equity-chart').wait_for()
+    assert 'demo' in page.locator('#tradepilot-data').inner_text().casefold()
+    assert 'Accesso Microsoft richiesto' in page.locator('#devops-data').inner_text()
+    page.evaluate("""renderDevOps({connected:true,stages:[
+      {name:'Deploy to PROD',status:'succeeded',build_number:'20261013.11',at:'2026-10-13T14:21:57Z'},
+      {name:'Deploy to QAS',status:'skipped',build_number:'20261013.11'}],
+      job_attention:[{name:'deploy',build_number:'20261013.11',errors:0,warnings:1}]})""")
+    assert 'Deploy to PROD · riuscita' in page.locator('#devops-data').inner_text()
+    assert 'Deploy to QAS · non eseguita' in page.locator('#devops-data').inner_text()
+    assert '1 avvisi' in page.locator('#devops-data').inner_text()
+    assert page.locator('#tradepilot-data img, #tradepilot-data script').count() == 0
+    bounds=page.locator('#win-projects').bounding_box()
+    assert bounds['x'] >= 0 and bounds['x']+bounds['width'] <= 391
+    assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
+    page.locator('[data-toggle="win-brain"]').click()
+    page.locator('#learned-memory summary').click()
+    page.get_by_role('button',name='Dimentica',exact=True).click()
+    page.wait_for_function('window.forgot === true')
+    assert page.locator('#memory-items img').count() == 0
+
+
+def test_direct_mobile_orb_visible_animated_and_paused_in_background(mobile_page):
+    page = mobile_page
+    page.wait_for_function("document.querySelector('#orb-canvas').width > 0")
+    orb = page.locator('#jarvis-orb').bounding_box()
+    chat = page.locator('#win-chat').bounding_box()
+    assert orb['y'] + orb['height'] <= chat['y']
+    assert page.evaluate("""() => {
+      const r = document.querySelector('#orb-canvas').getBoundingClientRect();
+      return document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)?.id === 'orb-canvas';
+    }""")
+    page.evaluate("window.orbBefore = document.querySelector('#orb-canvas').toDataURL()")
+    page.wait_for_function("document.querySelector('#orb-canvas').toDataURL() !== orbBefore")
+    page.evaluate("""() => {
+      Object.defineProperty(document,'hidden',{value:true,configurable:true});
+      document.dispatchEvent(new Event('visibilitychange'));
+      window.orbBefore = document.querySelector('#orb-canvas').toDataURL();
+    }""")
+    page.wait_for_timeout(150)
+    assert page.evaluate("document.querySelector('#orb-canvas').toDataURL() === orbBefore")
+    page.evaluate("""() => {
+      Object.defineProperty(document,'hidden',{value:false,configurable:true});
+      document.dispatchEvent(new Event('visibilitychange'));
+    }""")
+    page.wait_for_function("document.querySelector('#orb-canvas').toDataURL() !== orbBefore")

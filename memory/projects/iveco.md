@@ -62,3 +62,17 @@ un'estrazione diretta via API Snow Atlas (Flexera).
 - **Snapshot periodici** (es. `user_model`, `mobile_model`): usare un
   fallback `MAX(Day) <= run_day`, mai un match esatto sulla data — in
   SQL, un CTE `user_day_map` con non-equi join + `GROUP BY`.
+
+## Deploy collegati a JARVIS (2026-10-13)
+
+Progetto Azure DevOps `IVG-IT-Infrastructures-and-Cloud-Operations / PRKPIREP-FOUNDATION-Data Room`.
+Accesso Microsoft aziendale completato tramite selezione account Windows;
+device-code non completava il client locale. Cache Azure CLI isolata nel
+repo JARVIS, esclusa da Git. Configurazione nel playbook connected-memory-and-data.
+
+Verifica API reale: run `20261013.11` su main, fase `Deploy to PROD` riuscita
+alle 16:21 Europe/Rome, `Deploy to QAS` skipped, 1 warning nel job deploy.
+Non ci sono record Azure Environments/classic releases al controllo: leggere
+la timeline per lo stato delle fasi. Questa e un'osservazione datata; usare
+get_iveco_deploys per rispondere sullo stato attuale. Nessun deploy avviato,
+approvato o modificato. Backend JARVIS aggiornato ancora da riavviare.

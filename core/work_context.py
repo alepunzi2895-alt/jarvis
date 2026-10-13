@@ -108,7 +108,7 @@ def read_project_file(project, path="."):
     relative = target.relative_to(root)
     blocked = {".git", ".venv", "node_modules", ".browser_profile", ".face_data"}
     def private(part):
-        return part in blocked or part.startswith((".env", ".live-", ".focus", ".project-catalog")) or part.endswith((".secret", ".pem", ".key"))
+        return part in blocked or part.startswith((".env", ".live-", ".focus", ".memory", ".tradepilot", ".azure", ".project-catalog")) or part.endswith((".secret", ".pem", ".key"))
     if any(private(part.casefold()) for part in relative.parts):
         raise ValueError("Percorso riservato")
     if target.is_dir():

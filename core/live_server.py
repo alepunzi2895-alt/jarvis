@@ -25,6 +25,7 @@ from aiohttp import web, WSMsgType, ClientSession, ClientTimeout
 ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(ROOT / ".env")
 from core.voice.streaming import finish_thread
+from core import conversation_memory as memory, tradepilot, azure_devops
 
 LOG = logging.getLogger(__name__)
 COOKIE = "jarvis_live"
@@ -69,6 +70,15 @@ class Engine:
         from core import claude_bridge as bridge, intents, project_status
         from core.executor_singleton import executor
         ws = bridge.detect_workspace(prompt, histories.get("_focus", "jarvis"))
+        speak = sentence
+        async def sentence(text):
+            cleaned = memory.clean_output(text)
+            if cleaned:
+                await speak(cleaned)
+        immediate = memory.handle_command(prompt, ws) if not image else None
+        if immediate is not None:
+            await sentence(immediate)
+            return dict(result=immediate, workspace=ws, cost_usd=0)
         analysis = bridge.needs_analysis(prompt) or bool(
             histories.get("_analysis") and re.match(r"^(e |perch[eé]|approfondisci|s[iì]\b)", prompt.casefold()))
         intent = intents.parse_intent(prompt) if not image and not analysis else None
@@ -82,13 +92,14 @@ class Engine:
             report = project_status.attention_report(statuses)
             for line in report["sentences"]:
                 await sentence(line)
-            result = " ".join(report["sentences"])
+            result = memory.clean_output(" ".join(report["sentences"])) or "Nessun altro punto da segnalare."
             remember(result)
-            return dict(result=result, workspace=ws, cost_usd=0)
+            return dict(result=memory.clean_output(result), workspace=ws, cost_usd=0)
         if intent:
             # Stop sul telefono non aziona gli altoparlanti del daemon PC.
             result = "Silenzio." if intent["type"] == "stop" else await finish_thread(
                 intents.execute_intent, intent, executor, True, ws, prompt)
+            result = memory.clean_output(result) or "Mi concentro sugli altri aspetti."
             if intent["type"] != "stop":
                 await sentence(result)
                 remember(result)
@@ -118,7 +129,7 @@ class Engine:
                 history_key="_conversation",
                 model=bridge.API_MODEL if analysis else bridge.API_MODEL_ALIASES.get(bridge.VOICE_MODEL, bridge.VOICE_MODEL))
             histories.update(_focus=ws, _analysis=analysis)
-        return dict(result=result, workspace=ws, cost_usd=cost)
+        return dict(result=memory.clean_output(result) or "Mi concentro sugli altri aspetti.", workspace=ws, cost_usd=cost)
 
 
 class LiveServer:
@@ -201,6 +212,17 @@ class LiveServer:
             return web.json_response({"tasks": list(reversed(session["history"]))})
         if action == "runtime_status":
             return web.json_response({"speaking": False})
+        if action == "memories_list":
+            return web.json_response({"memories": await asyncio.to_thread(memory.entries)})
+        if action == "memory_forget":
+            try:
+                return web.json_response(await finish_thread(memory.forget, body.get('id', '')))
+            except ValueError as error:
+                raise web.HTTPBadRequest(text=json.dumps({'error': str(error)}), content_type='application/json')
+        if action == "tradepilot_data":
+            return web.json_response(await asyncio.to_thread(tradepilot.snapshot))
+        if action == "devops_data":
+            return web.json_response(await asyncio.to_thread(azure_devops.snapshot))
         if action == "project_status_data":
             from core import project_status
             from core.executor_singleton import executor
@@ -412,6 +434,15 @@ def create_app(password, origins, engine=None, warm=True):
 
     async def lifecycle(app):
         tasks = [asyncio.create_task(server.engine.warm()), asyncio.create_task(server.engine.refresh_context())] if warm else []
+        async def collect_equity():
+            while True:
+                try:
+                    await asyncio.to_thread(tradepilot.sample_account)
+                except Exception:
+                    LOG.warning('Campione TradePilot non disponibile')
+                await asyncio.sleep(60)
+        if warm:
+            tasks.append(asyncio.create_task(collect_equity()))
         yield
         await asyncio.gather(*(s.close(code=1001) for s, _ in list(server.sockets)))
         for task in tasks:

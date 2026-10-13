@@ -15,6 +15,7 @@ CONFIG = ROOT / ".project-catalog.json"
 NOTES = ROOT / "memory" / "projects"
 # Compatibilita' con memoria e comandi esistenti, non elenco dei progetti.
 ALIASES = {
+    "tradepilot-ai": ("tradepilot", "trade pilot"),
     "aura": ("auraibiza", "aura-ibiza", "aura ibiza"),
     "whitesoul": ("whitesoulibiza", "white soul", "white-soul"),
     "trading": ("tradeflow-ai", "tradeflow", "tradeflow ai"),

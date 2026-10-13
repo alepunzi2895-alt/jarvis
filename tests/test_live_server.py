@@ -59,6 +59,26 @@ async def login(client):
     return response
 
 
+def test_memory_and_connected_data_require_login_and_forget_persists(monkeypatch):
+    from core import conversation_memory as memory, tradepilot, azure_devops
+    memory.handle_command('ricorda che preferisco i dettagli scritti')
+    monkeypatch.setattr(tradepilot, 'snapshot', lambda: {'connected': True, 'curve': []})
+    monkeypatch.setattr(azure_devops, 'snapshot', lambda: {'connected': False, 'error': 'Accesso richiesto'})
+    async def run():
+        client, server = await client_for()
+        async with client:
+            for action in ('memories_list','tradepilot_data','devops_data'):
+                assert (await client.post('/api/jarvis',json={'action':action})).status == 401
+            await login(client)
+            rows = await (await client.post('/api/jarvis',json={'action':'memories_list'})).json()
+            assert len(rows['memories']) == 1
+            assert (await (await client.post('/api/jarvis',json={'action':'tradepilot_data'})).json())['connected']
+            assert not (await (await client.post('/api/jarvis',json={'action':'devops_data'})).json())['connected']
+            await client.post('/api/jarvis',json={'action':'memory_forget','id':rows['memories'][0]['id']})
+            assert not memory.entries()
+    asyncio.run(run())
+
+
 def test_project_widget_reads_live_dynamic_catalog_and_caches(monkeypatch):
     from core import project_status
     check = Mock(return_value=[project_status.ProjectStatus("new", "Nuovo", None, False)])

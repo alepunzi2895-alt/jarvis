@@ -65,6 +65,7 @@
             <button type="button" data-prompt="Organizza la mia giornata usando agenda, progetti e obiettivi: proponi tre priorità concrete.">Organizza oggi</button>
             <button type="button" data-prompt="Analizza gli ultimi sette giorni su Databricks QAS: job falliti, durate, periodo e copertura dei dati.">Analizza i job</button>
             <button type="button" data-prompt="Aiutami a scegliere su cosa concentrarmi tra lavoro, progetti e vita personale. Parti dai miei obiettivi e fammi una domanda utile.">Trova il focus</button>
+            <button type="button" id="show-data-btn" hidden>Equity e deploy</button>
           </div>
           <form class="console-input" id="console-form">
             <input type="text" id="console-text" placeholder="Chiedi a JARVIS…" aria-label="Messaggio per JARVIS" autocomplete="off" enterkeyhint="send" />
@@ -97,6 +98,10 @@
           <button type="button" class="fw-close" data-close="win-brain">✕</button>
         </header>
         <div class="fw-body fw-body--brain">
+          <details id="learned-memory" hidden>
+            <summary>Memorie apprese e preferenze</summary>
+            <div id="memory-items"></div>
+          </details>
           <canvas id="brain-canvas"></canvas>
         </div>
       </section>
@@ -113,12 +118,17 @@
         </div>
       </section>
 
-      <section class="floating-window" id="win-projects" style="--x:320px; --y:-260px;">
+      <section class="floating-window" id="win-projects" style="--x:200px; --y:20px;">
         <header class="fw-header">
           <span class="fw-title">Panoramica</span>
           <button type="button" class="fw-close" data-close="win-projects">✕</button>
         </header>
         <div class="fw-body">
+          <div id="connected-data" hidden>
+            <p class="panel-subheading">Dati collegati <button type="button" id="refresh-data-btn">Aggiorna</button></p>
+            <div id="tradepilot-data" aria-live="polite">Caricamento TradePilot…</div>
+            <div id="devops-data" aria-live="polite"></div>
+          </div>
           <div class="project-cards" id="project-cards">
             <p class="panel-footnote">In attesa di dati…</p>
           </div>

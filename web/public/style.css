@@ -457,6 +457,21 @@ header::after {
 
 .fw-body--console { padding: 0; display: flex; flex-direction: column; min-height: 260px; }
 .fw-body--brain { padding: 8px; }
+.data-metrics { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; margin: 12px 0; }
+.data-metrics small, .data-metrics strong { display: block; }
+.data-metrics strong { margin-top: 4px; font-size: 17px; }
+.data-note, .memory-item { padding: 12px 0; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
+.data-note p, .memory-item p { margin: 6px 0; }
+.memory-item small { display: block; opacity: .7; }
+#connected-data details, #learned-memory { margin: 12px 0; font-size: 12px; line-height: 1.5; }
+#connected-data summary, #learned-memory summary { min-height: 44px; cursor: pointer; padding: 10px 0; }
+#connected-data button, #learned-memory button { min-height: 44px; padding: 8px 12px; color: inherit; background: transparent; border: 1px solid var(--border); border-radius: 6px; cursor: pointer; }
+.equity-chart { width: 100%; height: auto; color: #68d9cd; }
+.data-table { overflow-x: auto; }
+.data-table table { width: 100%; border-collapse: collapse; font-size: 11px; }
+.data-table th, .data-table td { text-align: left; padding: 8px 5px; border-bottom: 1px solid var(--border); }
+.data-table td:first-child { overflow-wrap: anywhere; max-width: 155px; }
+@media (min-width: 861px) { #win-projects { width: min(540px, 88vw); max-height: calc(var(--app-height,100vh) - 190px); } }
 
 @media (max-width: 640px) {
   .floating-window { width: 92vw; }
@@ -840,13 +855,16 @@ header::after {
   .logout-btn { min-width: 44px; min-height: 44px; }
   .hud-mini, .hud-dots, .hud-stage::before, .hud-stage::after { display: none; }
   body::after { display: none; }
-  .hud-stage { margin: 8px 12px 0; }
+  .hud-stage { margin: 8px 12px 0; --mobile-orb-size: clamp(48px, calc(var(--app-height, 100dvh) - 620px), 140px); }
+  .jarvis-orb { top: 0; width: var(--mobile-orb-size); height: var(--mobile-orb-size); margin: 0; transform: translateX(-50%); }
+  .orb-core { display: none; }
+  .short-viewport .conversation-starters { display: none; }
   .floating-window, .floating-window.open {
-    top: 0;
+    top: calc(var(--mobile-orb-size) + 8px);
     left: 0;
     transform: none;
     width: 100% !important; /* prevale anche sulle dimensioni trascinate da desktop */
-    height: 100% !important;
+    height: calc(100% - var(--mobile-orb-size) - 8px) !important;
     min-width: 0;
     min-height: 0;
     max-width: none;

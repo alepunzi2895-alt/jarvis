@@ -880,3 +880,36 @@ Meteo e Rete online riconfermati in WebKit mobile/desktop, nessun errore JS.
 TTS ancora variabile: prima prova 4,5 s al primo audio e una frase fallita;
 seconda prova completa senza avvisi, primo audio 2,797 s. Non confondere il
 tempo testo con risposta vocale completa: STT e microfono iPhone esclusi.
+
+## Memoria, TradePilot, DevOps e sfera mobile (2026-10-13)
+
+Branch `codex/unified-assistant`. Memoria SQLite locale: comandi diretti senza
+LLM, apprendimento selettivo con citazioni/fonte/data, correzioni prioritarie,
+esclusioni prima di testo/TTS e lista disattivabile nel Second brain. Test
+reale Haiku: fatto appreso dal messaggio e ricordato in conversazione nuova.
+Esempi ipotetici dell'utente non applicati alla memoria reale.
+
+Panoramica unica: equity TradePilot da VPS privata, saldo/drawdown, campioni
+reali raccolti ogni minuto mentre LiveBridge e attivo, ricerche/statistiche
+separate per modalita. Storico precedente non disponibile. 24 esperimenti
+e 8 righe statistiche osservati; conto demo. Registro VPS distinto dal PC.
+
+Azure DevOps collegato con Microsoft aziendale e Azure CLI, cache isolata.
+Build, fasi pipeline, avvisi dei job, release e ambienti letti via GET. Prova
+reale: run 20261013.11, Deploy to PROD succeeded (16:21 Roma), QAS skipped,
+un warning nel job deploy. Nessun record ambienti/classic release: le fasi
+della timeline sono necessarie. Non confondere succeeded build con deploy.
+
+Sfera mobile: rimossa disattivazione su schermi piccoli; spazio sopra chat,
+140px in verticale e 48px con viewport ridotta, 30fps e DPR massimo 1.5.
+Pausa in background, immagine statica se il sistema richiede meno movimento.
+In viewport ridotta nasconde i suggerimenti per lasciare spazio all'input.
+
+Validazione: suite completa 441 test passati; dopo fix mobile 36 test UI
+Chromium/WebKit passati, inclusa regressione riprodotta prima del fix.
+WebKit sul vero HTTPS: sfera visibile, voce locale pronta, nessun errore JS.
+JS syntax e diff check superati. Limite: iPhone fisico non provato dall'agente.
+
+Backend nuovo da attivare con un solo riavvio dopo commit/push: vecchio
+processo LiveBridge PID 43472 ancora attivo. Sfera/CSS disponibili al reload.
+Procedura e configurazioni: `memory/playbooks/connected-memory-and-data.md`.
