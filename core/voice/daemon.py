@@ -1,14 +1,10 @@
 """
 JARVIS — daemon vocale nativo. Processo separato da bot.py.
 
-Wake word -> registra -> trascrive -> esegue -> risponde a voce. Da
-2026-07-15 le richieste "vere" (non intercettate da core/intents.py)
-passano dall'API Anthropic diretta (core/claude_api.py), NON piu' dalla
-coda Turso + claude -p di core/web_bridge.py — scelta esplicita di
-Alessandro per abbattere la latenza (niente processo CLI da avviare per
-messaggio). Resta comunque una riga per attivazione nella tabella
-`tasks` di Turso (stato gia' 'done', mai 'pending') solo per visibilita'
-nella dashboard — non e' piu' una coda, e' un log.
+Wake word -> registra -> trascrive -> esegue -> risponde a voce.
+Condivide Engine, memoria e strumenti con la dashboard: API Anthropic
+diretta, nessun processo CLI per le normali conversazioni.
+Turso mantiene soltanto uno storico delle attivazioni, non una coda.
 
 Ripetere la wake word MENTRE JARVIS sta parlando interrompe la voce e torna
 subito in ascolto di un nuovo comando (niente secondo modello per "stop").
@@ -23,10 +19,10 @@ import uuid
 import anthropic
 import keyboard
 
-from core import turso, intents, claude_api, screen_context, telegram
+from core import turso, intents, screen_context, telegram, conversation_memory
 from core.claude_bridge import load_state
 from core.executor_singleton import executor
-from core.voice import camera, stt, tts
+from core.voice import camera, stt, tts, agent
 from core.voice.wake_word import WakeWordListener
 
 # Su Windows, stdout/stderr reindirizzati su file usano di default la
@@ -74,7 +70,7 @@ def _notify_telegram(prompt: str, response: str) -> None:
 
 def _log_task(prompt: str, workspace: str, image_b64: str | None, result: str, cost: float, status: str) -> None:
     """Registra l'interazione in Turso per visibilita' nella dashboard — non
-    e' piu' una coda (il lavoro vero e' gia' stato fatto da claude_api), solo
+    e' piu' una coda (il lavoro vero e' gia' stato fatto da Engine), solo
     uno storico. Se Turso non e' raggiungibile, non blocca la risposta vocale."""
     if not turso.ENABLED:
         return
@@ -112,13 +108,13 @@ async def _run_voice_turn(
 ) -> tuple[str, float]:
     """Come _speak_with_interrupt(), ma per la risposta streaming: Claude
     genera e JARVIS inizia a parlare dalla prima frase pronta, invece di
-    aspettare tutta la risposta (core/claude_api.py::run_voice_streaming +
+    aspettare tutta la risposta (core/voice/agent.py::sentences +
     core/voice/tts.py::speak_stream). Stesso pattern watcher/evento di
     _speak_with_interrupt, solo piu' granulare (l'interruzione puo' fermare
     la voce fra una frase e l'altra, non solo a fine risposta) — la
     generazione/estrazione blocchi (```brain```/```browser```/```system```)
     prosegue comunque fino in fondo anche se l'utente interrompe l'audio."""
-    result = claude_api.VoiceStreamResult()
+    result = agent.VoiceResult()
     stop_watching = threading.Event()
     interrupted = threading.Event()
 
@@ -130,7 +126,7 @@ async def _run_voice_turn(
     watcher = threading.Thread(target=watch, daemon=True)
     watcher.start()
     try:
-        sentences = claude_api.run_voice_streaming(prompt, workspace, image_b64, result)
+        sentences = agent.sentences(prompt, workspace, image_b64, result)
         await engine.speak_stream(sentences, interrupted)
     finally:
         stop_watching.set()
@@ -144,13 +140,14 @@ def main() -> None:
     engine = tts.get_engine()
     stt.warm_up()  # forza il caricamento ora, non alla prima trascrizione reale
 
+    hotkey_pressed = threading.Event()
+    keyboard.add_hotkey(HOTKEY, hotkey_pressed.set)
+    # Mantiene lo stesso loop per i client async tra i turni vocali.
+    voice_loop = asyncio.new_event_loop()
     print(
         f'daemon vocale attivo — di\' "hey jarvis" oppure premi {HOTKEY} '
         f"(modello: {WakeWordListener.__module__})"
     )
-
-    hotkey_pressed = threading.Event()
-    keyboard.add_hotkey(HOTKEY, hotkey_pressed.set)
 
     while True:
         try:
@@ -175,6 +172,7 @@ def main() -> None:
                 response = intents.execute_intent(
                     intent, executor, voice=True, workspace=_current_workspace(), raw_text=text
                 )
+                response = conversation_memory.clean_output(response) or 'Mi concentro sugli altri aspetti.'
                 print(f"< {response}")
                 _notify_telegram(text, response)
                 _speak_with_interrupt(engine, listener, response)
@@ -199,7 +197,7 @@ def main() -> None:
             status = "done"
             spoken = False  # _run_voice_turn parla gia' in streaming se arriva fin li' senza eccezioni
             try:
-                response, cost = asyncio.run(_run_voice_turn(engine, listener, text, workspace, image_b64))
+                response, cost = voice_loop.run_until_complete(_run_voice_turn(engine, listener, text, workspace, image_b64))
                 spoken = True
             except anthropic.AuthenticationError:
                 response = (

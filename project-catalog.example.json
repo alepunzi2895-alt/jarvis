@@ -1,0 +1,7 @@
+{
+  "roots": ["C:\\Progetti"],
+  "projects": [
+    {"name": "Progetto senza Git", "path": "C:\\Lavoro\\Progetto"},
+    {"name": "Progetto remoto (solo nome)"}
+  ]
+}

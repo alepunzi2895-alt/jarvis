@@ -154,9 +154,7 @@ def parse_intent(text: str) -> dict | None:
     if _SCREENSHOT_RE.search(t):
         return {"type": "screenshot"}
 
-    # "stato progetti" (2026-09-16): non e' piu' un fast-path — Claude deve
-    # chiedere PRIMA quale progetto (tool get_project_status), non buttare
-    # giu' il report di tutti e 3 senza che nessuno l'abbia chiesto.
+    # Le panoramiche passano al modello con il catalogo dinamico e i tool reali.
     if _BRIEFING_RE.search(t):
         return {"type": "briefing"}
     if _TRADING_PNL_RE.search(t):
@@ -187,6 +185,11 @@ def parse_intent(text: str) -> dict | None:
         return {"type": "calendar", "day": "domani" if _TOMORROW_RE.search(t) else "oggi"}
 
     low = t.lower()
+    # Il nome progetto e l'eventuale prompt vanno al router dei tool coding,
+    # non al fast-path che aprirebbe solo l'eseguibile senza contesto.
+    if (re.search(r'\b(codex|claude|vs ?code|vs studio|visual studio)\b', low)
+            and not re.search(rf'\b({_CLOSE_VERBS})\b', low)):
+        return None
     for app in _APP_NAMES:
         if re.search(rf"\b{re.escape(app)}\b", low):
             if re.search(rf"\b({_CLOSE_VERBS})\b", low):

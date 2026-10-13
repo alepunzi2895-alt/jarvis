@@ -88,3 +88,14 @@ Meta Ads, Twilio, Stripe, Google Places API.
   come un'estranea).
 - **Alvaro** — il cane. Combina qualche guaio ma e' un bravo cane, e
   Alessandro lo difende sempre.
+
+## Assistente quotidiano — preferenze confermate 2026-10-13
+- Una conversazione unica, senza sezioni separate per ogni progetto; riconoscere anche i nuovi progetti locali.
+- Fonti operative: Outlook, file/progetti sul PC e Databricks (dashboard, notebook, job). Aiuto su analisi/statistiche, priorita' di lavoro e obiettivi personali.
+- Audio e trascrizione sul PC; questa preferenza non cambia con le nuove funzioni.
+
+- Voce sui progetti: riportare solo cose salienti e che richiedono attenzione; non leggere l'elenco completo salvo richiesta. Risposte brevi e rapide, dettagli quando richiesti (2026-10-13).
+
+- Vuole apprendimento persistente dalle conversazioni, correzioni e fatti dei progetti, con consigli basati sui dati. La frase sui nomi da non citare era un esempio del comportamento richiesto, non una nuova esclusione da applicare (2026-10-13).
+- Vuole equity/statistiche TradePilot e stato deploy Iveco nella stessa conversazione/dashboard. Accesso DevOps scelto: Microsoft aziendale. Sfera JARVIS visibile e animata anche su mobile (2026-10-13).
+- Vuole impartire comandi scritti e note vocali anche da Telegram, e delegare prompt sui progetti a Codex o VS Code con Claude Code, ottenendo poi un riassunto delle risposte reali (2026-10-13).

@@ -202,7 +202,15 @@ def _is_read_only_sql(sql: str) -> bool:
     if not _READ_ONLY_SQL_RE.match(stripped):
         return False
     body = stripped[:-1].rstrip() if stripped.endswith(";") else stripped
-    return ";" not in body  # una sola istruzione: niente statement nascosti dopo il primo
+    if ";" in body:
+        return False  # una sola istruzione
+    # WITH puo' precedere anche INSERT/MERGE: il solo prefisso non basta.
+    # Escludi commenti/literal/identificatori quotati prima del controllo
+    # conservativo; nessuna query di scrittura parte dai tool di analisi.
+    tokens = re.sub(r"'(?:''|[^'])*'|\"(?:\"\"|[^\"])*\"|`(?:``|[^`])*`|--[^\n]*|/\*.*?\*/", " ", body, flags=re.DOTALL)
+    return not re.search(
+        r"\b(INSERT|UPDATE|DELETE|MERGE|CREATE|ALTER|DROP|TRUNCATE|COPY|GRANT|REVOKE|"
+        r"OPTIMIZE|VACUUM|RESTORE|REFRESH|REPAIR|ANALYZE|SET|LOAD|CALL|EXECUTE)\b", tokens, re.IGNORECASE)
 
 
 class SqlError(Exception):

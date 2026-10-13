@@ -53,6 +53,7 @@ from datetime import datetime
 import anthropic
 
 from core import browser, databricks, mail_actions, persona, system_actions, turso, vscode_actions, weather
+from core import conversation_memory as memory
 from core.claude_bridge import SYSTEM, _detect_image_media_type
 from core.executor_singleton import executor as _system_executor
 from core.voice import face_id
@@ -227,8 +228,14 @@ async def run_voice_streaming(
     completo per l'estrazione blocchi prosegue invariato, identico a prima.
     Mai il rischio di far leggere JSON grezzo dal TTS (bug reale gia'
     successo una volta — vedi la cronologia in cima al modulo)."""
+    immediate = memory.handle_command(prompt, ws) if not image_b64 else None
+    if immediate is not None:
+        result.text, result.cost = immediate, 0
+        yield immediate
+        return
     client = _get_client()
     system_prompt, history, messages = await _build_messages(prompt, ws, image_b64)
+    system_prompt = memory.redact_context(system_prompt) + memory.context(ws, prompt)
 
     full_text = ""
     buf = ""
@@ -249,14 +256,17 @@ async def run_voice_streaming(
                 complete, _leftover = _split_sentences(pre)  # frammento prima del fence: scartato, mai pronunciato
                 for s in complete:
                     if s.strip():
-                        yield s.strip()
+                        if cleaned := memory.clean_output(s.strip()):
+                            yield cleaned
                 continue
             complete, buf = _split_sentences(buf)
             for s in complete:
                 if s.strip():
-                    yield s.strip()
+                    if cleaned := memory.clean_output(s.strip()):
+                        yield cleaned
         if not fence_seen and buf.strip():
-            yield buf.strip()
+            if cleaned := memory.clean_output(buf.strip()):
+                yield cleaned
         final_message = await stream.get_final_message()
         usage = final_message.usage
 
@@ -281,7 +291,7 @@ async def run_voice_streaming(
     new_history = [*history, {"role": "user", "content": prompt}, {"role": "assistant", "content": text}]
     _history[ws] = new_history[-MAX_HISTORY_MESSAGES:]
 
-    result.text = text
+    result.text = memory.clean_output(text) or "Mi concentro sugli altri aspetti."
     result.cost = _estimate_cost(usage) if usage else 0.0
 
 

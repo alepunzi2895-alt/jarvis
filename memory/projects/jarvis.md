@@ -729,6 +729,241 @@ Claude via API diretta risponde in 1,2-1,6 s: non e' il collo di bottiglia.
 Il tempo va in whisper su CPU (4-5 s a frase, small), poll coda, contesto
 meteo+brain (1,4 s) e TTS. Applicati: whisper 8 thread + beam 5, poll 1 s,
 prompt caching (input -68%), retry edge-tts sul 403 casuale (workaround).
-Blocco principale rimasto: GPU T1200 inutilizzabile con driver 517.13
-(CUDA 11.7, serve >= 527 per CUDA 12) — con GPU large-v3-turbo darebbe
-precisione ~0,4% WER, stimato sotto il secondo (non misurato) invece di 17 s su CPU.
+Blocco principale rimasto: GPU T1200 inutilizzabile con driver 517.13 e
+runtime attuale. Verificare insieme driver, CUDA/cuBLAS e cuDNN compatibili.
+Il WER riportato sopra riguarda un benchmark sintetico, non la voce reale
+di Alessandro. Latenza e precisione sulla T1200 non sono state misurate:
+non promettere large-v3-turbo sotto il secondo, soprattutto con 4 GB VRAM.
+
+## iPhone e percorso a bassa latenza (2026-10-13)
+
+Alessandro ha scelto la trascrizione locale sul PC, non un provider STT
+cloud. Attenzione: attualmente gli audio della dashboard passano comunque
+da Vercel/Turso; per mantenerli solo sui dispositivi serve un collegamento
+diretto autenticato e cifrato. Claude via API resta il motore delle risposte.
+
+Branch `codex/ios-local-voice`: layout mobile a pannello singolo, safe area,
+tastiera via visualViewport, controlli 44 px, dock scorrevole, microfono su
+tap, resume AudioContext nel gesto utente, annullamento permessi/interruzioni
+senza riaccensione tardiva. Silenzio browser ridotto da 1200 a 800 ms.
+Animazione orb fermata su mobile/background. 18 test Chromium/WebKit con
+API e media simulati passati; non verificato su iPhone fisico.
+
+Per il quasi immediato resta da implementare il percorso persistente
+iPhone-PC con trascrittore caldo/GPU compatibile, streaming Claude e audio
+per frasi sul dispositivo chiamante. Ora la dashboard usa messages.create
+e riproduce il TTS sul PC: lo streaming del daemon nativo non è quello web.
+Nessuna modifica a driver, STT provider o instradamento audio in questo branch.
+
+## Collegamento privato voce attivo (2026-10-13)
+
+Su «fai tutto committa e pusha», implementato `core/live_server.py` con
+WebSocket autenticato, STT locale gia' caldo e audio delle risposte sul
+dispositivo chiamante. Dashboard privata Tailscale Serve HTTPS, bind solo
+loopback 8765; porta privata 8443. Tailscale installato e PC collegato;
+Alessandro conferma di vedere `tl0352132` nell'app iPhone. Il link iniziale
+di login dava 403 sull'iPhone, ma la rete PC era gia' attiva: usare l'URL
+dashboard, non il link di associazione.
+
+URL locale a questa macchina: https://tl0352132.tail18e3c0.ts.net:8443/ .
+Password separata nel file ignorato `.live-password`; config ignorata
+`.live-config.json`. `setup_live.ps1 -Start` registra LiveBridge nascosto
+all'accesso Windows e AudioCleanup ogni 5 minuti. `uninstall_live.ps1`
+rimuove i due task senza terminare processi o eliminare dati.
+
+Audio in ingresso solo in RAM, nessun passaggio Vercel/Turso e nessun
+fallback cloud. Testo/immagini esplicite continuano verso Anthropic, testo
+della risposta verso edge-tts; second brain mantiene i log testuali esistenti.
+Haiku (`JARVIS_VOICE_MODEL`) con gli stessi tool, streaming per frasi, coda
+TTS limitata, Stop/disconnessione scartano audio obsoleto. Rumore non
+interrompe comandi validi. Contesto preparato ogni minuto, history privata
+in RAM, nessuna scrittura allo state.json del bot. Trading conserva il CLI.
+
+Login HTTPS/cookie Secure, WebSocket reale e STT caldo verificati sul PC.
+Prova sintetica CPU small: ~2,05-2,25 s di STT; Haiku su una domanda breve
+1,66 s al primo testo e 5,49 s al primo MP3 completo (TTS incluso, STT
+escluso). Non e' una misura su iPhone fisico e NON e' quasi istantaneo.
+Driver NVIDIA 517.13 ancora incompatibile con CUDA installato; nessun
+driver sostituito. Il fallback CPU funziona. Serve upgrade driver/runtime
+compatibile e misurazione con voce reale prima di promettere meno di 1 s.
+
+Gli audio Turso erano risaliti a 10 con il vecchio bridge ancora in memoria:
+ripuliti a 5 e verificato AudioCleanup con LastTaskResult=0. I pending/running
+sono preservati. LiveBridge riavviato dopo chiusura manuale del vecchio PID
+38936 da parte di Alessandro: Stop-ScheduledTask aveva lasciato il figlio
+Python vivo. Bot/VoiceDaemon precedenti non terminati.
+
+Verifica: 380 test della suite completa, piu' regressione aggiuntiva dello
+Stop mentre un comando sostitutivo attende la fine di un'azione OS (suite
+servizio 10/10). La cancellazione del chiamante non deve essere inghiottita
+dal cleanup del vecchio turno, altrimenti la sostituzione puo' partire dopo
+Stop. Alessandro ha chiuso anche il PID 13276: servizio finale riavviato e
+login HTTPS/WebSocket con STT pronto verificati nuovamente. Codice commit
+`206876b`, push su `codex/ios-local-voice`, SHA locale/remoto uguali.
+WebKit sul vero URL HTTPS: login, stato voce pronta e logout verificati senza
+errori JavaScript; il microfono hardware non e' disponibile nell'emulatore
+Windows e resta da provare sull'iPhone fisico.
+
+## Assistente unico e fonti operative (2026-10-13)
+
+Alessandro vuole una conversazione unica, progetti riconosciuti automaticamente,
+analisi/statistiche e aiuto con priorita' lavorative e personali. Fonti indicate:
+Outlook, file, progetti sul PC, Databricks (dashboard/notebook/job).
+
+Branch `codex/unified-assistant`: core/projects.py scopre repo immediatamente
+sotto la radice, note e WS_*. .project-catalog.json permette altre radici e
+cartelle non Git (IVGAgent registrato). Trovati 16 progetti, senza concedere
+nuovi permessi di scrittura; lettura file testuali protetta entro la cartella.
+Panoramica privata aggiornata dal PC, cache 30 s. UI senza pannelli fissi per
+TradeFlow/social; tre suggerimenti nella conversazione, mobile verificato.
+
+Sessione privata condivisa tra progetti (8 scambi), contesto precedente per
+follow-up e comandi rapidi. Sonnet per analisi/coaching/pianificazione, Haiku
+per richieste brevi; TradingView esplicito usa CLI. Outlook offre agenda e
+conteggi reali. Focus personali/lavorativi solo su richiesta esplicita, SQLite
+locale ignorato da Git. Tempo calendario calcolato senza sovrapposizioni,
+inclusi eventi gia' iniziati, mai presentato come produttivita'.
+
+Databricks QAS: 31 job e 16 dashboard AI/BI visibili nella verifica; strumenti
+GET per inventario, definizioni dashboard, notebook richiesti e run. Pagine
+run da 25, metriche esplicitamente parziali e con denominatore. SQL nativo
+consente interpretazione dopo lettura dei risultati, con guardia anche su
+WITH seguito da DML. PRD resta sul percorso di conferma preesistente.
+Genie Space ID assente: non necessario per questi tool. Niente indice globale
+PDF/Excel/mail o accesso automatico al contenuto dei progetti cloud.
+
+Prova reale Sonnet/tool corretta in 4,47 s senza log nel second brain. Suite
+398/398 e successivi 55 test mirati SQL/tool passati. WebKit HTTPS reale
+login/logout e UI senza errori; microfono fisico iPhone non verificabile qui.
+Al momento della chiusura del codice il vecchio LiveBridge e' ancora in RAM:
+serve una sola chiusura manuale da parte dell'utente, poi avvio e verifica.
+
+Codice `c9d51d1` pushato e verificato su `origin/codex/unified-assistant`.
+Richiesta chiusura manuale del solo python.exe PID 14968 per caricare tutte
+le modifiche in un unico riavvio. Finche' non confermata, backend nuovo non
+ancora attivo; UI statica gia' visibile al reload. Test panoramica Outlook
+reale (inclusione eventi iniziati prima del giorno) riuscito senza errori.
+
+Attivazione completata il 2026-10-13 alle 16:30 (Europe/Rome): dopo la
+conferma di chiusura del PID 14968, porta libera e LiveBridge avviato. Verifica
+reale HTTPS/login/WebSocket riuscita; STT pronto su CPU, catalogo dinamico
+16 progetti inclusi EYRA, IVGAgent, TradePilot e VMScout. Il backend aggiornato
+e' ora attivo; ricaricare la dashboard per usare la conversazione unica.
+
+## Correzioni Rete/meteo e voce essenziale (2026-10-13)
+
+Rete restava su attesa perche' setConn era chiamato solo dal widget TradeFlow
+rimosso. Ora WebSocket reale nel privato, API nel cloud; eventi di socket
+precedenti non possono riportare offline una connessione nuova. Meteo aveva
+7 giorni validi ma il titolo desktop finiva sotto l'header: pannello entro
+viewport, aperto di default desktop, dal dock su mobile. Modifiche statiche
+verificate sul vero HTTPS senza riavvio server.
+
+Richiesta di Alessandro: non elencare tutti i progetti a voce, solo punti
+salienti/attenzioni e meno attesa. Git parallelo e cache unica 30 s condivisa
+tra tool e widget. Panoramica generica senza LLM: massimo due punti da
+verificare, segnalazioni storiche esplicite e modifiche locali non confuse
+con guasti. Dettagli/analisi/elenco completo restano richiedibili. Misura:
+9,17 s prima, 1,59-2,22 s per scansione parallela, 31-47 ms snapshot, 63 ms
+risposta a caldo (2 frasi, esclusi STT/TTS). STT CPU e TTS restano fattori
+separati: niente promessa di risposta vocale istantanea.
+
+413 test della suite completa e 42 mirati finali passati. Backend precedente
+ancora PID 26352 alla chiusura del codice: nuova sintesi/cache richiedono
+chiusura manuale e riavvio dopo commit/push; Rete/meteo disponibili al reload.
+
+Attivazione completata il 2026-10-13 alle 17:12 (Europe/Rome): utente chiude
+PID 26352, porta libera, LiveBridge avviato con PID 43472 e codice `effa55d`.
+HTTPS e STT locale CPU pronti, 16 progetti. Panoramica reale produce 2 frasi,
+26 parole e zero chiamate LLM; primo testo 63-78 ms con snapshot recente.
+Meteo e Rete online riconfermati in WebKit mobile/desktop, nessun errore JS.
+TTS ancora variabile: prima prova 4,5 s al primo audio e una frase fallita;
+seconda prova completa senza avvisi, primo audio 2,797 s. Non confondere il
+tempo testo con risposta vocale completa: STT e microfono iPhone esclusi.
+
+## Memoria, TradePilot, DevOps e sfera mobile (2026-10-13)
+
+Branch `codex/unified-assistant`. Memoria SQLite locale: comandi diretti senza
+LLM, apprendimento selettivo con citazioni/fonte/data, correzioni prioritarie,
+esclusioni prima di testo/TTS e lista disattivabile nel Second brain. Test
+reale Haiku: fatto appreso dal messaggio e ricordato in conversazione nuova.
+Esempi ipotetici dell'utente non applicati alla memoria reale.
+
+Panoramica unica: equity TradePilot da VPS privata, saldo/drawdown, campioni
+reali raccolti ogni minuto mentre LiveBridge e attivo, ricerche/statistiche
+separate per modalita. Storico precedente non disponibile. 24 esperimenti
+e 8 righe statistiche osservati; conto demo. Registro VPS distinto dal PC.
+
+Azure DevOps collegato con Microsoft aziendale e Azure CLI, cache isolata.
+Build, fasi pipeline, avvisi dei job, release e ambienti letti via GET. Prova
+reale: run 20261013.11, Deploy to PROD succeeded (16:21 Roma), QAS skipped,
+un warning nel job deploy. Nessun record ambienti/classic release: le fasi
+della timeline sono necessarie. Non confondere succeeded build con deploy.
+
+Sfera mobile: rimossa disattivazione su schermi piccoli; spazio sopra chat,
+140px in verticale e 48px con viewport ridotta, 30fps e DPR massimo 1.5.
+Pausa in background, immagine statica se il sistema richiede meno movimento.
+In viewport ridotta nasconde i suggerimenti per lasciare spazio all'input.
+
+Validazione: suite completa 441 test passati; dopo fix mobile 36 test UI
+Chromium/WebKit passati, inclusa regressione riprodotta prima del fix.
+WebKit sul vero HTTPS: sfera visibile, voce locale pronta, nessun errore JS.
+JS syntax e diff check superati. Limite: iPhone fisico non provato dall'agente.
+
+Backend nuovo da attivare con un solo riavvio dopo commit/push: vecchio
+processo LiveBridge PID 43472 ancora attivo. Sfera/CSS disponibili al reload.
+Procedura e configurazioni: `memory/playbooks/connected-memory-and-data.md`.
+
+Attivato il 2026-10-13 alle 18:05 Europe/Rome: dopo chiusura PID 43472,
+LiveBridge riavviato con PID 20396, codice `b841540`. HTTPS/login, WS/STT CPU,
+API memorie, TradePilot e DevOps verificati sul servizio reale senza errori
+delle fonti. TradePilot ora espone 25 esperimenti e 8 righe statistiche;
+conto demo e curva con campioni reali. WebKit mobile sul vero HTTPS: sfera
+visibile/animata, grafico equity, fasi PROD/QAS e pannello memorie disponibili,
+nessun errore JS. Nessuna modifica al codice dopo il riavvio.
+
+## Ascolto PC, Telegram e agenti coding (2026-10-13, 18:42)
+
+Utente segnala entrambi i percorsi PC: dashboard "Ti ascolto" senza risposta,
+wake word/hotkey non funzionanti. Bot e VoiceDaemon erano fermi, LiveBridge
+attivo PID 20396. Microfono Windows apribile; modelli STT/wake word e hotkey
+inizializzati senza errori nel preflight. Causa precedente uscita non isolata.
+
+Dashboard privata: soglia RMS ridotta da .06 a .012, verificato inoltro voce
+bassa .025 e scarto rumore .005/clic. Audio ignorato ora spiega di dire Jarvis.
+Riprodotto inoltre HTTP 400 dopo tool streaming Anthropic: `parsed_output`
+era reinviato all'API. Metadati SDK esclusi; test di regressione e due turni
+API reali riusciti. Il daemon usa lo stesso Engine/memoria/tool della dashboard,
+con event loop persistente.
+
+Codex/Claude Code: apertura app sul progetto, prompt espliciti in background,
+registro SQLite privato, stato/risposta in Panoramica e su richiesta vocale,
+seguiti nella stessa sessione. Un lavoro per progetto; modifiche richieste e
+cartelle autorizzate, niente bypass sandbox o deploy/push. Risultati Telegram
+solo per lavori iniziati da Telegram. Non controlla automaticamente chat GUI
+gia esistenti: traccia le sessioni CLI avviate da JARVIS.
+
+Telegram: bot zerodayzz_bot verificato con getMe, senza webhook. Testo e note
+vocali solo owner, STT locale, massimo 3 minuti/20 MB e pulizia temporanei.
+Errori mascherati per non esporre il token; vecchi log bonificati. Credenziale
+precedentemente esposta nei log da rigenerare tramite BotFather.
+
+Validazione: 460 test completi passati, Chromium/WebKit inclusi; JS syntax e
+diff check ok. App Codex e VS Code aperte sul progetto reale. Entrambi i CLI
+verificati su fixture: lettura, scrittura di un solo file, ripresa sessione e
+risposta coerente. Claude ha segnalato onestamente un permesso negato sul
+profilo esterno alla fixture, pur completando il file richiesto.
+
+Attivazione da completare dopo commit/push: Bot e VoiceDaemon possono essere
+avviati direttamente perche fermi; LiveBridge richiede una sola chiusura
+manuale del PID 20396. Prova con parlato reale ancora dell'utente.
+Procedura: `memory/playbooks/voice-telegram-coding.md`.
+
+Codice `5d17754` committato e pushato. Bot e VoiceDaemon avviati dai task e
+verificati Running: processi effettivi 37196 (bot) e 8832 (voce), modelli
+caricati su CPU e hotkey registrata. getMe conferma zerodayzz_bot operativo.
+LiveBridge e ancora PID 20396: chiusura manuale richiesta una sola volta,
+in attesa del "fatto". Script di verifica dopo il riavvio:
+`.tmp/verify_voice_coding_ready.py` (API autenticata e audio sintetico completo),
+`.tmp/verify_connected_ready.py` (fonti collegate). Nessun codice modificato
+dopo l'avvio dei due servizi.

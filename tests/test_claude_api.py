@@ -113,6 +113,19 @@ def test_run_voice_streaming_speaks_every_complete_sentence(monkeypatch):
     assert result.cost > 0
 
 
+def test_voice_exclusion_filters_stream_and_final_even_if_model_ignores_it(monkeypatch):
+    from core import conversation_memory as memory
+    memory.handle_command('non mi nominare più Silvia e Alvaro')
+    _patch_common(monkeypatch, ['Sil', 'via sta bene. ', 'Il deploy è pronto. ', 'Alvaro arriva.'])
+    async def run():
+        result = claude_api.VoiceStreamResult()
+        spoken = [s async for s in claude_api.run_voice_streaming('come va?', 'jarvis', None, result)]
+        return spoken, result
+    spoken, result = asyncio.run(run())
+    assert spoken == ['Il deploy è pronto.']
+    assert result.text == 'Il deploy è pronto.'
+
+
 def test_run_voice_streaming_never_speaks_past_a_fence(monkeypatch):
     _patch_common(
         monkeypatch,

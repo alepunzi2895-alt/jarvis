@@ -21,12 +21,15 @@ const ORB_STATES = {
 
 function createJarvisOrb(canvas) {
   const cx = canvas.getContext("2d");
+  const mobile = matchMedia("(max-width: 860px)");
+  const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
   let W = 0, H = 0, dpr = Math.min(window.devicePixelRatio || 1, 2);
   let state = "idle", P = { ...ORB_STATES.idle };
   let hue = ORB_STATES.idle.hue;
   let level = 0, targetLevel = 0, lastLevelAt = 0;
   let rotY = 0, rotX = 0.35, t = 0;
   let running = false;
+  let frame = 0, lastDraw = 0;
 
   const N = 110, K = 3;
   const nodes = [];
@@ -34,11 +37,13 @@ function createJarvisOrb(canvas) {
   const pulses = [];
 
   function resize() {
+    dpr = Math.min(window.devicePixelRatio || 1, mobile.matches ? 1.5 : 2);
     const rect = canvas.parentElement.getBoundingClientRect();
     W = rect.width; H = rect.height;
     canvas.width = W * dpr; canvas.height = H * dpr;
     canvas.style.width = W + "px"; canvas.style.height = H + "px";
     cx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    if (nodes.length && reducedMotion.matches) draw();
   }
 
   function buildSphere() {
@@ -181,15 +186,20 @@ function createJarvisOrb(canvas) {
     });
   }
 
-  function loop() {
+  function loop(now = performance.now()) {
     if (!running) return;
-    step(); draw();
-    requestAnimationFrame(loop);
+    const interval = mobile.matches ? 1000 / 30 : 0;
+    if (!lastDraw || now - lastDraw >= interval) {
+      step(); draw();
+      lastDraw = now - ((now - lastDraw) % (interval || 1));
+    }
+    if (!reducedMotion.matches) frame = requestAnimationFrame(loop);
   }
 
   function setState(name) {
     if (!ORB_STATES[name]) return;
     state = name;
+    if (running && reducedMotion.matches) { hue = ORB_STATES[name].hue; draw(); }
   }
 
   function setLevel(v) {
@@ -200,6 +210,7 @@ function createJarvisOrb(canvas) {
   function start() {
     if (running) return;
     running = true;
+    lastDraw = 0;
     resize();
     if (!nodes.length) buildSphere();
     loop();
@@ -207,12 +218,11 @@ function createJarvisOrb(canvas) {
 
   function stop() {
     running = false;
+    cancelAnimationFrame(frame);
   }
 
-  window.addEventListener("resize", () => { if (running) resize(); });
-  if (matchMedia("(prefers-reduced-motion: reduce)").matches) {
-    ORB_STATES.idle.rot = 0.0006;
-  }
+  new ResizeObserver(() => { if (running) resize(); }).observe(canvas.parentElement);
+  reducedMotion.addEventListener("change", () => { if (running) { stop(); start(); } });
 
   return { start, stop, setState, setLevel };
 }

@@ -339,7 +339,7 @@ def _com_time_to_datetime(t) -> dt.datetime:
     return dt.datetime(t.year, t.month, t.day, t.hour, t.minute, t.second)
 
 
-def _fetch_events_in_window_sync(start: dt.datetime, end: dt.datetime) -> list[CalendarEvent]:
+def _fetch_events_in_window_sync(start: dt.datetime, end: dt.datetime, include_ongoing: bool = False) -> list[CalendarEvent]:
     """Come _fetch_recent_sync ma sul calendario, su una finestra [start, end]
     esplicita. IncludeRecurrences=True prima di Restrict e' obbligatorio:
     senza, una riunione ricorrente settimanale sparirebbe dal filtro dopo la
@@ -370,6 +370,8 @@ def _fetch_events_in_window_sync(start: dt.datetime, end: dt.datetime) -> list[C
                 # questa macchina (locale italiano) il 2026-09-16.
                 fmt = "%m/%d/%Y %I:%M %p"
                 restriction = f"[Start] >= '{start.strftime(fmt)}' AND [Start] <= '{end.strftime(fmt)}'"
+                if include_ongoing:
+                    restriction = f"[Start] < '{end.strftime(fmt)}' AND [End] > '{start.strftime(fmt)}'"
                 restricted = items.Restrict(restriction)
 
                 results: list[CalendarEvent] = []
@@ -420,7 +422,7 @@ def get_upcoming_events_sync(minutes_ahead: int = 20) -> list[CalendarEvent]:
     return _run_in_fresh_thread(_fetch_upcoming_sync, minutes_ahead)
 
 
-def get_events_for_day_sync(target: dt.date) -> list[CalendarEvent]:
+def get_events_for_day_sync(target: dt.date, *, include_ongoing: bool = False) -> list[CalendarEvent]:
     """Finestra sul giorno SOLARE (00:00–23:59) invece che relativa a ora —
     e' la finestra giusta per "che riunioni ho domani" (get_upcoming_events_sync
     con un minutes_ahead fisso non arriverebbe mai a coprire la giornata di
@@ -428,6 +430,8 @@ def get_events_for_day_sync(target: dt.date) -> list[CalendarEvent]:
     ora" per un giorno diverso da oggi)."""
     start = dt.datetime.combine(target, dt.time.min)
     end = dt.datetime.combine(target, dt.time.max)
+    if include_ongoing:
+        return _run_in_fresh_thread(_fetch_events_in_window_sync, start, start + dt.timedelta(days=1), True)
     return _run_in_fresh_thread(_fetch_events_in_window_sync, start, end)
 
 

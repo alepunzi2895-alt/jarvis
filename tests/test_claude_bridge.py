@@ -58,7 +58,7 @@ def test_execute_tool_error_result_is_flagged(monkeypatch):
         ("controlla lo stato di aura", "aura"),
         ("come va White Soul Ibiza oggi", "whitesoul"),
         ("controlla il bot tradeflow", "trading"),
-        ("che succede sul forex", "trading"),
+        ("che succede sul forex", "jarvis"),
         ("genera il catalogo vinitalimport", "vino"),
         ("isabela ha nuovi contenuti?", "isabela"),
         ("che ore sono", "jarvis"),
@@ -270,6 +270,22 @@ class _FakeMessages:
     async def create(self, **kwargs):
         return self._responses.pop(0)
 
+    def stream(self, **kwargs):
+        response = self._responses.pop(0)
+        class Stream:
+            async def __aenter__(self): return self
+            async def __aexit__(self, *args): pass
+            @property
+            def text_stream(self):
+                async def chunks():
+                    for block in response.content:
+                        if block.type == "text":
+                            for char in block.text:
+                                yield char
+                return chunks()
+            async def get_final_message(self): return response
+        return Stream()
+
 
 class _FakeClient:
     def __init__(self, responses):
@@ -298,6 +314,34 @@ def test_run_claude_api_answers_directly_without_tools(monkeypatch):
     assert cost > 0
 
 
+def test_streaming_preserves_tools_and_isolates_session_history(monkeypatch):
+    from unittest.mock import AsyncMock
+    tool = _FakeBlock("tool_use", id="read", name="read_file", input={"path": "readme.md"})
+    _patch_common(monkeypatch, [
+        _FakeResponse([_FakeBlock("text", text="Controllo. "), tool], "tool_use"),
+        _FakeResponse([_FakeBlock("text", text='Fatto. ```system\n{"action":"test"}\n```')], "end_turn"),
+    ])
+    calls = []
+    async def sentence(text): calls.append(text)
+    def execute(*args):
+        assert calls == ["Controllo."]
+        return "contenuto", False
+    monkeypatch.setattr(claude_bridge, "_execute_tool", execute)
+    post = AsyncMock(return_value="Fatto. Azione completata.")
+    monkeypatch.setattr(claude_bridge, "_run_post_processing", post)
+    save = MagicMock()
+    monkeypatch.setattr(claude_bridge, "save_state", save)
+    history = {}
+    result = asyncio.run(claude_bridge._run_claude_api(
+        "leggi", "jarvis", "C:\\ws", None, "voice", on_sentence=sentence,
+        context_prefix="Contesto gia pronto", history_store=history))
+    assert calls == ["Controllo.", "Fatto.", "Azione completata."]
+    assert result[0] == "Fatto. Azione completata."
+    assert history["jarvis"][-1]["content"] == result[0]
+    assert claude_bridge.state["api_sessions"] == {}
+    save.assert_not_called()
+
+
 def test_run_claude_api_executes_tool_then_answers(monkeypatch):
     tool_call = _FakeBlock("tool_use", id="tool_1", name="read_file", input={"path": "memory/profile.md"})
     responses = [
@@ -312,6 +356,28 @@ def test_run_claude_api_executes_tool_then_answers(monkeypatch):
     assert text == "Ho letto il profilo."
 
 
+def test_streamed_sdk_metadata_is_not_sent_back_to_anthropic(monkeypatch):
+    from anthropic.types.parsed_message import ParsedTextBlock
+    from unittest.mock import AsyncMock
+    responses = [
+        _FakeResponse([ParsedTextBlock(type='text', text='Controllo.', parsed_output=None),
+                       _FakeBlock('tool_use', id='jobs', name='coding_tasks', input={})], 'tool_use'),
+        _FakeResponse([_FakeBlock('text', text='Nessun lavoro.')], 'end_turn'),
+    ]
+    _patch_common(monkeypatch, responses)
+    class CheckingMessages(_FakeMessages):
+        def stream(self, **kwargs):
+            for message in kwargs['messages']:
+                if message['role'] == 'assistant':
+                    assert all('parsed_output' not in block for block in message['content'])
+            return super().stream(**kwargs)
+    client = MagicMock(messages=CheckingMessages(responses))
+    monkeypatch.setattr(claude_bridge, '_get_api_client', lambda: client)
+    monkeypatch.setattr(claude_bridge, '_execute_tool', lambda *args: ('[]', False))
+    result = asyncio.run(claude_bridge._run_claude_api('Lavori Codex?', 'jarvis', '.', None, 'voice', on_sentence=AsyncMock(), history_store={}))
+    assert result[0] == 'Nessun lavoro.'
+
+
 def test_run_claude_api_persists_clean_history_across_calls(monkeypatch):
     shared_state = {"ws": "jarvis", "sessions": {}, "api_sessions": {}}
     _patch_common(monkeypatch, [_FakeResponse([_FakeBlock("text", text="Prima risposta.")], "end_turn")], state=shared_state)
@@ -323,6 +389,24 @@ def test_run_claude_api_persists_clean_history_across_calls(monkeypatch):
         {"role": "user", "content": "primo messaggio"},
         {"role": "assistant", "content": "Prima risposta."},
     ]
+
+
+def test_shared_history_sent_to_model_after_project_change(monkeypatch):
+    from unittest.mock import AsyncMock
+    response = _FakeResponse([_FakeBlock("text", text="Risposta")], "end_turn")
+    _patch_common(monkeypatch, [response])
+    client = MagicMock()
+    client.messages.create = AsyncMock(return_value=response)
+    monkeypatch.setattr(claude_bridge, "_get_api_client", lambda: client)
+    histories = {}
+    async def run():
+        await claude_bridge._run_claude_api("Parliamo di Aura", "aura", "C:\\ws", None, "text", history_store=histories, history_key="all")
+        await claude_bridge._run_claude_api("Confrontala con EYRA", "eyra", "C:\\ws", None, "text", history_store=histories, history_key="all")
+    asyncio.run(run())
+    messages = client.messages.create.call_args.kwargs["messages"]
+    assert messages[0]["content"] == "Parliamo di Aura"
+    assert len(histories["all"]) == 4
+    assert claude_bridge.state["api_sessions"] == {}
 
 
 def test_run_claude_api_gives_up_after_max_tool_turns(monkeypatch):

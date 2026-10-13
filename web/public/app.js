@@ -1,13 +1,45 @@
 // JARVIS dashboard — app.js (vanilla, nessun framework)
 
 const $ = (sel) => document.querySelector(sel);
+const compactLayout = window.matchMedia("(max-width: 860px)");
+const touchDevice = window.matchMedia("(pointer: coarse)").matches;
+
+function setupViewport() {
+  const resize = () => {
+    const viewport = window.visualViewport;
+    document.body.classList.toggle("short-viewport", compactLayout.matches && (viewport?.height || window.innerHeight) < 640);
+    // Non contrastare lo zoom di accessibilita'. La tastiera iOS riduce
+    // visualViewport, ma non necessariamente 100vh.
+    if (!viewport || viewport.scale === 1) {
+      document.documentElement.style.setProperty("--app-height", `${viewport?.height || window.innerHeight}px`);
+    }
+    fitWeatherWindow();
+  };
+  resize();
+  window.visualViewport?.addEventListener("resize", resize);
+  window.addEventListener("resize", resize);
+  const syncAnimation = () => {
+    if (document.hidden) window.JarvisOrb?.stop();
+    else window.JarvisOrb?.start();
+  };
+  compactLayout.addEventListener("change", syncAnimation);
+  document.addEventListener("visibilitychange", syncAnimation);
+}
 
 async function api(action, body = {}) {
-  const r = await fetch("/api/jarvis", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ action, ...body }),
-  });
+  let r;
+  try {
+    r = await fetch("/api/jarvis", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action, ...body }),
+    });
+  } catch (error) {
+    if (!window.JarvisDirect) setConn("offline");
+    throw error;
+  }
+  // In privato conta il WebSocket, non il successo di un widget HTTP.
+  if (!window.JarvisDirect) setConn(r.ok ? "online" : "warning");
   const data = await r.json();
   if (!r.ok) throw new Error(data.error || "errore");
   return data;
@@ -16,6 +48,120 @@ async function api(action, body = {}) {
 // ── Finestre fluttuanti ────────────────────────────────────────────────
 
 let topZ = 10;
+const dataEscape = (value) => String(value ?? "").replace(/[&<>"']/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[ch]));
+const dataNumber = (value, digits = 2) => typeof value === "number" && Number.isFinite(value) ? value.toLocaleString("it-IT", {maximumFractionDigits:digits}) : "N/A";
+const dataDate = value => value && Number.isFinite(Date.parse(value)) ? new Date(value).toLocaleString("it-IT") : "N/A";
+
+async function refreshMemories() {
+  if (!window.JarvisDirect) return;
+  const target = $("#memory-items");
+  try {
+    const {memories = []} = await api("memories_list");
+    target.replaceChildren();
+    if (!memories.length) { target.textContent = "Nessuna memoria appresa. Puoi dire: ricorda che…"; return; }
+    for (const item of memories) {
+      const row = document.createElement("article"); row.className = "memory-item";
+      const text = document.createElement("p"); text.textContent = item.kind === "avoid_mention" ? `Argomento escluso: ${item.topic}` : item.content;
+      const source = document.createElement("small"); source.textContent = `${item.source} · ${dataDate(item.updated_at)}`;
+      const button = document.createElement("button"); button.type = "button"; button.textContent = "Dimentica";
+      button.onclick = async () => {
+        button.disabled = true;
+        try { await api("memory_forget", {id:item.id}); await refreshMemories(); }
+        catch { button.disabled = false; source.textContent = "Operazione non riuscita. Riprova."; }
+      };
+      row.append(text, source, button); target.append(row);
+    }
+  } catch { target.textContent = "Memoria non disponibile. Riprova."; }
+}
+
+function equityGraph(points) {
+  const rows = (points || []).filter(p => Number.isFinite(p.equity) && Number.isFinite(Date.parse(p.at)));
+  if (rows.length < 2) return '<p class="panel-footnote">Il grafico apparirà dopo due campioni reali. Nessuno storico ricostruito.</p>';
+  const low = Math.min(...rows.map(p=>p.equity)), high = Math.max(...rows.map(p=>p.equity));
+  const start = Date.parse(rows[0].at), span = Math.max(1, Date.parse(rows.at(-1).at) - start);
+  const coords = rows.map(p => `${(10 + (Date.parse(p.at)-start)/span*480).toFixed(1)},${(130-(p.equity-low)/(high-low||1)*110).toFixed(1)}`).join(" ");
+  return `<svg class="equity-chart" viewBox="0 0 500 150" role="img" aria-label="Equity osservata del conto, asse orizzontale tempo"><polyline points="${coords}" fill="none" stroke="currentColor" stroke-width="2"/></svg><p class="panel-footnote">Min ${dataNumber(low)} · max ${dataNumber(high)} · ${rows.length} campioni<br>${dataDate(rows[0].at)} → ${dataDate(rows.at(-1).at)}</p>`;
+}
+
+function renderTradePilot(data) {
+  const target = $("#tradepilot-data");
+  if (!data.connected) { target.textContent = data.error || "TradePilot non raggiungibile. I dati del conto non sono disponibili."; return; }
+  const account = data.account || {}, research = data.research || {};
+  const healthy = account.status === "ok";
+  const money = value => healthy ? `${dataNumber(value)} ${dataEscape(account.currency)}` : "N/A";
+  const metric = (label, value) => `<div><small>${label}</small><strong>${value}</strong></div>`;
+  const stats = data.strategy_stats || [];
+  target.innerHTML = `<p class="panel-subheading">TradePilot · ${dataEscape(account.mode)} · sola lettura</p>
+    <p class="panel-footnote">VPS · ${dataDate(data.observed_at)}${healthy ? "" : " · conto non disponibile"}</p>
+    <div class="data-metrics">${metric("Equity conto", money(account.equity))}${metric("Saldo", money(account.balance))}${metric("Variazione giorno", dataNumber(account.guard?.day_pct)+"%")}${metric("Drawdown dal picco", dataNumber(account.guard?.drawdown_pct)+"%")}</div>
+    ${equityGraph(data.curve)}<p class="panel-footnote">${dataEscape(data.curve_note)}</p>
+    <details><summary>Ricerche e strategie</summary>
+      <p class="panel-footnote">Registro VPS aggiornato: ${dataEscape(research.updated || "N/A")}. Può differire dal lavoro ancora sul PC.</p>
+      <div class="data-metrics">${metric("Tentativi registrati",dataNumber(research.total_trials,0))}${metric("Strategie eligible",dataNumber(research.eligible_strategies,0))}</div>
+      ${(data.experiments || []).slice(-6).reverse().map(e=>`<article class="data-note"><strong>${dataEscape(e.id)} · ${dataEscape(e.title)}</strong><p>${dataEscape(e.verdict)} · ${dataEscape(e.headline)}</p></article>`).join("")}
+      <p class="panel-footnote">Statistiche distinte per modalità. R = rischio iniziale; N = operazioni. Prime ${Math.min(stats.length,30)} di ${stats.length} righe.</p>
+      <div class="data-table"><table><thead><tr><th>Strategia / modalità</th><th>N</th><th>Win %</th><th>PF</th><th>Media R</th></tr></thead><tbody>${stats.slice(0,30).map(s=>`<tr><td>${dataEscape(s.strategy_id)}<br><b>${dataEscape(s.mode)}</b></td><td>${dataNumber(s.trades,0)}</td><td>${dataNumber(typeof s.win_rate==='number'?s.win_rate*100:null,1)}</td><td>${dataNumber(s.profit_factor)}</td><td>${dataNumber(s.expectancy_r,3)}</td></tr>`).join("")}</tbody></table></div>
+    </details><p class="panel-footnote">${dataEscape(data.notice)}${Object.keys(data.errors || {}).length ? " Fonti parziali: "+dataEscape(Object.keys(data.errors).join(", ")) : ""}</p>`;
+}
+
+let connectedDataBusy = false;
+async function refreshConnectedData() {
+  if (!window.JarvisDirect || connectedDataBusy) return;
+  connectedDataBusy = true;
+  try {
+    await Promise.all([
+      api("tradepilot_data").then(renderTradePilot).catch(() => { $("#tradepilot-data").textContent = "TradePilot non disponibile. Riprova."; }),
+      api("devops_data").then(renderDevOps).catch(() => { $("#devops-data").textContent = "Azure DevOps non disponibile."; }),
+      api("coding_tasks").then(data => {
+        const target = $("#coding-jobs"); target.replaceChildren();
+        if (!data.jobs?.length) target.textContent = "Nessun lavoro. Chiedi a JARVIS di inviare un prompt a Codex o Claude Code.";
+        for (const job of data.jobs || []) {
+          const row = document.createElement("article"); row.className = "data-note";
+          const status = ({running:"in corso",done:"risposta disponibile",blocked:"serve attenzione",error:"errore",interrupted:"interrotto"})[job.status] || job.status;
+          const title = document.createElement("strong"); title.textContent = `${job.provider} · ${job.project} · ${status}`;
+          const result = document.createElement("p"); result.textContent = job.result || job.prompt;
+          row.append(title, result); target.append(row);
+        }
+      }).catch(() => { $("#coding-jobs").textContent = "Stato lavori non disponibile."; })
+    ]);
+  } finally { connectedDataBusy = false; }
+}
+
+function renderDevOps(data) {
+  const target = $("#devops-data");
+  target.replaceChildren();
+  const title = document.createElement("p"); title.className = "panel-subheading"; title.textContent = "Iveco · Deploy Azure DevOps";
+  target.append(title);
+  const note = document.createElement("p"); note.className = "panel-footnote";
+  note.textContent = data.error || `Controllato: ${dataDate(data.observed_at)}. ${data.notice || ""}${data.partial ? " Copertura parziale." : ""}${Object.keys(data.errors || {}).length ? " Fonti non disponibili: " + Object.keys(data.errors).join(", ") : ""}`;
+  target.append(note);
+  for (const row of data.stages || []) {
+    const item = document.createElement("article"); item.className = "data-note";
+    const status = ({succeeded:"riuscita", skipped:"non eseguita", failed:"fallita", canceled:"annullata", inProgress:"in corso", pending:"in attesa", succeededWithIssues:"riuscita con problemi"})[row.status] || row.status;
+    item.textContent = `Fase: ${row.name} · ${status} · ${dataDate(row.at)} · run ${row.build_number}`;
+    target.append(item);
+  }
+  for (const row of data.job_attention || []) {
+    const item = document.createElement("p"); item.className = "panel-footnote";
+    item.textContent = `Da verificare: job ${row.name}, run ${row.build_number} · ${row.errors} errori · ${row.warnings} avvisi`;
+    target.append(item);
+  }
+  if (data.connected && !(data.stages || []).length && !(data.deployments || []).length) {
+    const empty = document.createElement("p"); empty.className = "panel-footnote";
+    empty.textContent = "Nessun record di deploy o fase disponibile nelle fonti consultate."; target.append(empty);
+  }
+  for (const row of data.deployments || []) {
+    const item = document.createElement("article"); item.className = "data-note";
+    item.textContent = `${row.name} · ${row.environment || "ambiente non dichiarato"} · ${row.status} · ${dataDate(row.at)}`;
+    target.append(item);
+  }
+  if ((data.builds || []).length) {
+    const detail = document.createElement("details"), heading = document.createElement("summary");
+    heading.textContent = "Build recenti (non equivalgono a deploy)"; detail.append(heading);
+    for (const row of data.builds) { const p = document.createElement("p"); p.textContent = `${row.name} · ${row.branch} · ${row.result || row.status} · ${dataDate(row.at)}`; detail.append(p); }
+    target.append(detail);
+  }
+}
 
 function bringToFront(win) {
   topZ += 1;
@@ -28,12 +174,37 @@ function dockBtnFor(id) {
 
 function openWindow(id) {
   const win = document.getElementById(id);
-  if (!win || win.classList.contains("open")) return;
+  if (!win) return;
+  if (compactLayout.matches) {
+    document.querySelectorAll(".floating-window.open").forEach((other) => {
+      if (other !== win) closeWindow(other.id);
+    });
+  }
+  if (win.classList.contains("open")) return;
   win.classList.add("open");
   bringToFront(win);
   dockBtnFor(id)?.classList.add("open");
-  if (id === "win-brain") startBrainGraph();
+  dockBtnFor(id)?.setAttribute("aria-pressed", "true");
+  if (id === "win-brain") { startBrainGraph(); refreshMemories(); }
+  if (id === "win-projects") refreshConnectedData();
   if (id === "win-camera") startCamera();
+  if (id === "win-weather") {
+    fitWeatherWindow();
+    refreshWeatherForecast();
+  }
+}
+
+function fitWeatherWindow() {
+  const win = $("#win-weather");
+  if (compactLayout.matches || !win?.classList.contains("open")) return;
+  const stage = $("#hud-stage").getBoundingClientRect();
+  const top = $("#app > header").getBoundingClientRect().bottom + 12;
+  const bottom = $(".dock").getBoundingClientRect().top - 12;
+  const height = win.offsetHeight;
+  const center = stage.top + stage.height / 2;
+  const current = center + (parseFloat(win.style.getPropertyValue("--y")) || 0);
+  const y = Math.max(top + height / 2, Math.min(current, bottom - height / 2));
+  win.style.setProperty("--y", `${y - center}px`);
 }
 
 function closeWindow(id) {
@@ -41,6 +212,7 @@ function closeWindow(id) {
   if (!win || !win.classList.contains("open")) return;
   win.classList.remove("open");
   dockBtnFor(id)?.classList.remove("open");
+  dockBtnFor(id)?.setAttribute("aria-pressed", "false");
   if (id === "win-brain") stopBrainGraph();
   if (id === "win-camera") stopCamera();
 }
@@ -58,6 +230,7 @@ function makeDraggable(win) {
   let startX = 0, startY = 0, origX = 0, origY = 0;
 
   header.addEventListener("pointerdown", (e) => {
+    if (compactLayout.matches) return;
     if (e.target.closest(".fw-close")) return;
     dragging = true;
     bringToFront(win);
@@ -78,11 +251,21 @@ function makeDraggable(win) {
 }
 
 function setupWindows() {
+  const fitPanels = () => {
+    if (!compactLayout.matches) return;
+    const panels = [...document.querySelectorAll(".floating-window.open")];
+    panels.sort((a, b) => Number(b.style.zIndex) - Number(a.style.zIndex));
+    if (panels[0]) openWindow(panels[0].id);
+  };
+  compactLayout.addEventListener("change", fitPanels);
   document.querySelectorAll(".floating-window").forEach((win) => {
     makeDraggable(win);
     bringToFront(win);
   });
   document.querySelectorAll(".dock-btn").forEach((btn) => {
+    btn.setAttribute("aria-label", btn.title);
+    btn.setAttribute("aria-controls", btn.dataset.toggle);
+    btn.setAttribute("aria-pressed", String(btn.classList.contains("open")));
     btn.addEventListener("click", () => {
       const id = btn.dataset.toggle;
       const wasOpen = document.getElementById(id)?.classList.contains("open");
@@ -95,12 +278,16 @@ function setupWindows() {
       // dashboard. Solo sull'APERTURA manuale (non alla chiusura, e non
       // quando l'apertura e' gia' un effetto collaterale di una domanda
       // vocale completa - vedi handleVoiceUiCommand, che non passa da qui).
-      if (id === "win-projects" && !wasOpen) submitTask("come vanno i progetti?");
+      if (id === "win-projects" && !wasOpen) {
+        submitTask("come vanno i progetti?", undefined, { openConsole: !compactLayout.matches });
+      }
     });
   });
   document.querySelectorAll(".fw-close").forEach((btn) => {
+    btn.setAttribute("aria-label", "Chiudi pannello");
     btn.addEventListener("click", () => closeWindow(btn.dataset.close));
   });
+  fitPanels();
 }
 
 // ── Login ────────────────────────────────────────────────────────────
@@ -116,7 +303,11 @@ $("#login-form").addEventListener("submit", async (e) => {
   }
 });
 
-$("#logout-btn").addEventListener("click", () => {
+$("#logout-btn").addEventListener("click", async () => {
+  if (window.JarvisDirect) {
+    window.JarvisDirect.cancel();
+    await api("logout");
+  }
   document.cookie = "jarvis_session=; Path=/; Max-Age=0";
   location.reload();
 });
@@ -139,6 +330,7 @@ function tickClock() {
 
 function setConn(state) {
   const map = {
+    connecting: ["warning", "collegamento"],
     online: ["good", "online"],
     warning: ["warning", "instabile"],
     offline: ["critical", "offline"],
@@ -209,11 +401,14 @@ async function pollTask(taskId, el) {
   fillEntry(el, { status: "error", result: "Timeout: nessuna risposta dal bridge locale." });
 }
 
-async function submitTask(text, imageB64) {
+async function submitTask(text, imageB64, options = {}) {
   if (!text.trim()) return;
-  openWindow("win-chat");
+  if (options.openConsole !== false) openWindow("win-chat");
   const el = appendEntry(text);
   $("#console-text").value = "";
+  if (window.JarvisDirect) {
+    return window.JarvisDirect.submit({ type: "text", prompt: text, image_b64: imageB64 }, el);
+  }
   try {
     // Niente piu' "workspace" dal client — il bridge locale lo rileva da
     // solo dal testo (core/claude_bridge.py::detect_workspace).
@@ -306,8 +501,8 @@ function handleVoiceUiCommand(text) {
     if (wants(closeVerb)) { closeWindow("win-brain"); return true; }
   }
   if (wants(/\b(tradeflow|trading)\b/)) {
-    if (wants(verb)) { openWindow("win-tradeflow"); return true; }
-    if (wants(closeVerb)) { closeWindow("win-tradeflow"); return true; }
+    if (wants(verb)) { openWindow("win-projects"); return true; }
+    if (wants(closeVerb)) { closeWindow("win-projects"); return true; }
   }
   // Meteo/progetti: si aprono anche solo chiedendo ("che tempo fa", "come
   // siamo messi con i progetti") senza dover dire esplicitamente "apri" —
@@ -333,9 +528,11 @@ function handleVoiceUiCommand(text) {
 // rumoroso, non un bug di decodifica). Alzata la soglia + richiesto che il
 // suono resti sopra soglia per un tratto minimo continuo (non un singolo
 // blip) prima di considerarlo davvero l'inizio di una frase.
-const MIC_SILENCE_RMS = 0.06; // scala -1..1 (PCM float32 vero, non più byte 0-255)
+// Il privato filtra comunque Jarvis lato server. 0.06 scartava voce normale
+// di volume basso; 0.012 e' vicino alla soglia del microfono nativo (300/32768).
+const MIC_SILENCE_RMS = window.JARVIS_LOCAL ? 0.012 : 0.06;
 const MIC_ONSET_SUSTAIN_MS = 200; // il suono deve restare sopra soglia per questo tratto continuo prima di far scattare la registrazione
-const MIC_SILENCE_HANG_MS = 1200; // stessa soglia di core/voice/stt.py::SILENCE_HANG_MS
+const MIC_SILENCE_HANG_MS = 800; // allineato al default del daemon locale
 const MIC_MAX_RECORD_MS = 15000;
 const MIC_PREROLL_MS = 400; // audio tenuto PRIMA del rilevamento voce, cosi' l'inizio non si taglia mai
 const MIC_MIN_SEGMENT_MS = 300; // sotto questa durata e' rumore/click, scartato
@@ -397,15 +594,20 @@ function _encodeWav(samples, sampleRate) {
 
 function setupVoice() {
   const micBtn = $("#mic-btn");
+  function showMicStatus(message) {
+    micBtn.title = message;
+    micBtn.setAttribute("aria-label", message);
+    $("#voice-status").textContent = message;
+  }
   if (!navigator.mediaDevices || !(window.AudioContext || window.webkitAudioContext)) {
     micBtn.disabled = true;
-    micBtn.title = "Registrazione audio non supportata in questo browser";
+    showMicStatus("Microfono non disponibile: apri JARVIS in HTTPS su Safari o Chrome");
     return;
   }
 
-  const OFF_TITLE = 'Ascolto in pausa — clicca per riattivare (di\' "Jarvis" + comando)';
-  const ON_TITLE = 'Ascolto a mani libere attivo — di\' "Jarvis" + comando — clicca per silenziare';
-  micBtn.title = ON_TITLE;
+  const OFF_TITLE = 'Tocca il microfono, poi di’ “Jarvis” e il comando';
+  const ON_TITLE = 'Ti ascolto · di’ “Jarvis” e il comando';
+  showMicStatus(OFF_TITLE);
 
   let armed = false;
   let stream = null;
@@ -443,21 +645,20 @@ function setupVoice() {
     handleRecordedAudio(_encodeWav(samples, audioCtx.sampleRate));
   }
 
-  // Una sola scheda JARVIS per browser tiene il microfono. Con due schede
-  // aperte ogni frase arrivava al bridge due volte (verificato in Turso il
-  // 2026-10-12: segmenti audio a coppie, stesso secondo): doppio lavoro per
-  // whisper su CPU e coda piu' lenta. Le altre schede aspettano il turno e
-  // subentrano da sole quando quella attiva si chiude o silenzia il mic.
+  // Non accodare un'attivazione: su iOS perderebbe il gesto utente,
+  // e potrebbe accendere il mic molto dopo il tap che l'ha richiesta.
   let arming = false;
+  let attempt = 0;
   let releaseMicLock = null;
 
-  function acquireMicLock() {
-    if (!navigator.locks) return Promise.resolve();
-    return new Promise((resolve) => {
-      navigator.locks.request("jarvis-mic", () => {
-        resolve();
+  function acquireMicLock(token) {
+    if (!navigator.locks) return Promise.resolve(true);
+    return new Promise((resolve, reject) => {
+      navigator.locks.request("jarvis-mic", { ifAvailable: true }, (lock) => {
+        if (!lock || token !== attempt) { resolve(false); return; }
+        resolve(true);
         return new Promise((release) => { releaseMicLock = release; });
-      });
+      }).catch(reject);
     });
   }
 
@@ -467,142 +668,177 @@ function setupVoice() {
   }
 
   async function arm() {
+    window.JarvisDirect?.unlock();
     if (armed || arming) return;
+    const token = ++attempt;
     arming = true;
-    micBtn.title = "In attesa: il microfono e' gia' in ascolto in un'altra scheda JARVIS";
+    showMicStatus("Attivazione microfono… Tocca di nuovo per annullare");
     try {
-      await acquireMicLock();
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    } catch {
-      freeMicLock();
-      micBtn.title = "Microfono non autorizzato dal browser";
-      return;
-    } finally {
-      arming = false;
-    }
-
-    armed = true;
-    micBtn.classList.add("listening");
-    micBtn.title = ON_TITLE;
-    prerollChunks = [];
-    prerollMs = 0;
-    segmentChunks = [];
-    segmentMs = 0;
-    silenceMs = 0;
-    onsetCandidateMs = 0;
-    hitMaxDuration = false;
-    recording = false;
-
-    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    const source = audioCtx.createMediaStreamSource(stream);
-    // ScriptProcessorNode e' deprecato ma universalmente supportato — per un
-    // singolo tool interno non serve il carico in piu' di un AudioWorklet
-    // (un file JS separato solo per questo). Va comunque collegato a una
-    // destinazione per essere eseguito in alcuni browser: un GainNode a
-    // volume zero lo tiene "vivo" senza mandare l'audio agli altoparlanti
-    // (altrimenti si sentirebbe un eco del proprio microfono).
-    processor = audioCtx.createScriptProcessor(4096, 1, 1);
-    silentSink = audioCtx.createGain();
-    silentSink.gain.value = 0;
-    source.connect(processor);
-    processor.connect(silentSink);
-    silentSink.connect(audioCtx.destination);
-
-    processor.onaudioprocess = (e) => {
-      const data = e.inputBuffer.getChannelData(0).slice(); // copia: il buffer sorgente viene riusato dal browser
-      const chunkMs = _chunkMs(data);
-      const rms = _pcmRms(data);
-
-      // JARVIS sta parlando dagli altoparlanti del PC (processo Python
-      // separato, non nel browser) — il mic normalmente tace del tutto per
-      // non risentirsi da solo, MA con una soglia molto piu' alta (e un
-      // debounce piu' lungo) resta possibile interromperlo dicendo "hey
-      // jarvis" chiaramente sopra l'eco del proprio parlato (barge-in,
-      // 2026-09-15). Niente pre-buffer in questa modalita': prima della
-      // soglia c'e' solo l'eco di JARVIS, non ha senso includerlo.
-      const silenceThreshold = botSpeaking ? MIC_INTERRUPT_RMS : MIC_SILENCE_RMS;
-      const onsetSustainNeeded = botSpeaking ? MIC_INTERRUPT_ONSET_SUSTAIN_MS : MIC_ONSET_SUSTAIN_MS;
-      const speaking = rms > silenceThreshold;
-
-      if (!recording) {
-        if (!botSpeaking) {
-          prerollChunks.push(data);
-          prerollMs += chunkMs;
-          while (prerollChunks.length > 1 && prerollMs - _chunkMs(prerollChunks[0]) >= MIC_PREROLL_MS) {
-            prerollMs -= _chunkMs(prerollChunks.shift());
-          }
-        } else if (prerollChunks.length) {
-          // Non usato in questa modalita': tenerlo svuotato evita che audio
-          // "vecchio" (da prima che JARVIS iniziasse a parlare) venga
-          // riesumato come pre-buffer quando torna in ascolto normale.
-          prerollChunks = [];
-          prerollMs = 0;
-        }
-        // Debounce: un singolo blip sopra soglia (click, colpo di tosse breve,
-        // spike isolato dell'eco) non deve far scattare una registrazione
-        // intera — deve restare sopra soglia con continuita' per il tratto
-        // minimo richiesto in questa modalita'.
-        onsetCandidateMs = speaking ? onsetCandidateMs + chunkMs : 0;
-        if (onsetCandidateMs >= onsetSustainNeeded) {
-          recording = true;
-          segmentChunks = botSpeaking ? [data] : prerollChunks; // pre-buffer solo a mic normale
-          segmentMs = botSpeaking ? chunkMs : prerollMs;
-          silenceMs = 0;
-          onsetCandidateMs = 0;
-          prerollChunks = [];
-          prerollMs = 0;
-          setOrbState("listening");
-        }
+      // Creazione e resume devono iniziare NEL gesto utente, prima dei
+      // permessi asincroni. Safari altrimenti lascia il contesto sospeso.
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      audioCtx = ctx;
+      ctx.resume().catch(() => {});
+      const acquired = await acquireMicLock(token);
+      if (token !== attempt) return;
+      if (!acquired) {
+        disarm(false, "Microfono attivo in un’altra scheda. Chiudila e riprova.");
         return;
       }
+      const requestedStream = await navigator.mediaDevices.getUserMedia({
+        audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      });
+      if (token !== attempt) {
+        requestedStream.getTracks().forEach((track) => track.stop());
+        return;
+      }
+      stream = requestedStream;
+      if (ctx.state !== "running") {
+        disarm(false, "Tocca il microfono per riattivare l’audio");
+        return;
+      }
+      arming = false;
 
-      segmentChunks.push(data);
-      segmentMs += chunkMs;
-      window.JarvisOrb?.setLevel(rms * 2.5); // reagisce al volume vero mentre registra
-      if (speaking) {
-        silenceMs = 0;
-      } else {
-        silenceMs += chunkMs;
-      }
-      if (silenceMs >= MIC_SILENCE_HANG_MS) {
-        finalizeSegment();
-      } else if (segmentMs >= MIC_MAX_RECORD_MS) {
-        hitMaxDuration = true;
-        finalizeSegment();
-      }
-    };
+      armed = true;
+      micBtn.classList.add("listening");
+      micBtn.setAttribute("aria-pressed", "true");
+      showMicStatus(ON_TITLE);
+      prerollChunks = [];
+      prerollMs = 0;
+      segmentChunks = [];
+      segmentMs = 0;
+      silenceMs = 0;
+      onsetCandidateMs = 0;
+      hitMaxDuration = false;
+      recording = false;
+
+      const source = audioCtx.createMediaStreamSource(stream);
+      // ScriptProcessorNode e' deprecato ma universalmente supportato — per un
+      // singolo tool interno non serve il carico in piu' di un AudioWorklet
+      // (un file JS separato solo per questo). Va comunque collegato a una
+      // destinazione per essere eseguito in alcuni browser: un GainNode a
+      // volume zero lo tiene "vivo" senza mandare l'audio agli altoparlanti
+      // (altrimenti si sentirebbe un eco del proprio microfono).
+      processor = audioCtx.createScriptProcessor(4096, 1, 1);
+      silentSink = audioCtx.createGain();
+      silentSink.gain.value = 0;
+      source.connect(processor);
+      processor.connect(silentSink);
+      silentSink.connect(audioCtx.destination);
+      ctx.onstatechange = () => {
+        if (armed && ctx.state !== "running") disarm(false, "Audio interrotto · tocca il microfono per riprendere");
+      };
+      stream.getAudioTracks().forEach((track) => {
+        track.onended = () => disarm(false, "Microfono scollegato · tocca per riprovare");
+      });
+
+      processor.onaudioprocess = (e) => {
+        if (!armed) return;
+        const data = e.inputBuffer.getChannelData(0).slice(); // copia: il buffer sorgente viene riusato dal browser
+        const chunkMs = _chunkMs(data);
+        const rms = _pcmRms(data);
+
+        // JARVIS sta parlando dagli altoparlanti del PC (processo Python
+        // separato, non nel browser) — il mic normalmente tace del tutto per
+        // non risentirsi da solo, MA con una soglia molto piu' alta (e un
+        // debounce piu' lungo) resta possibile interromperlo dicendo "hey
+        // jarvis" chiaramente sopra l'eco del proprio parlato (barge-in,
+        // 2026-09-15). Niente pre-buffer in questa modalita': prima della
+        // soglia c'e' solo l'eco di JARVIS, non ha senso includerlo.
+        const silenceThreshold = botSpeaking ? MIC_INTERRUPT_RMS : MIC_SILENCE_RMS;
+        const onsetSustainNeeded = botSpeaking ? MIC_INTERRUPT_ONSET_SUSTAIN_MS : MIC_ONSET_SUSTAIN_MS;
+        const speaking = rms > silenceThreshold;
+
+        if (!recording) {
+          if (!botSpeaking) {
+            prerollChunks.push(data);
+            prerollMs += chunkMs;
+            while (prerollChunks.length > 1 && prerollMs - _chunkMs(prerollChunks[0]) >= MIC_PREROLL_MS) {
+              prerollMs -= _chunkMs(prerollChunks.shift());
+            }
+          } else if (prerollChunks.length) {
+            // Non usato in questa modalita': tenerlo svuotato evita che audio
+            // "vecchio" (da prima che JARVIS iniziasse a parlare) venga
+            // riesumato come pre-buffer quando torna in ascolto normale.
+            prerollChunks = [];
+            prerollMs = 0;
+          }
+          // Debounce: un singolo blip sopra soglia (click, colpo di tosse breve,
+          // spike isolato dell'eco) non deve far scattare una registrazione
+          // intera — deve restare sopra soglia con continuita' per il tratto
+          // minimo richiesto in questa modalita'.
+          onsetCandidateMs = speaking ? onsetCandidateMs + chunkMs : 0;
+          if (onsetCandidateMs >= onsetSustainNeeded) {
+            recording = true;
+            segmentChunks = botSpeaking ? [data] : prerollChunks; // pre-buffer solo a mic normale
+            segmentMs = botSpeaking ? chunkMs : prerollMs;
+            silenceMs = 0;
+            onsetCandidateMs = 0;
+            prerollChunks = [];
+            prerollMs = 0;
+            setOrbState("listening");
+          }
+          return;
+        }
+
+        segmentChunks.push(data);
+        segmentMs += chunkMs;
+        window.JarvisOrb?.setLevel(rms * 2.5); // reagisce al volume vero mentre registra
+        if (speaking) {
+          silenceMs = 0;
+        } else {
+          silenceMs += chunkMs;
+        }
+        if (silenceMs >= MIC_SILENCE_HANG_MS) {
+          finalizeSegment();
+        } else if (segmentMs >= MIC_MAX_RECORD_MS) {
+          hitMaxDuration = true;
+          finalizeSegment();
+        }
+      };
+    } catch (error) {
+      if (token !== attempt) return;
+      const message = error.name === "NotAllowedError"
+        ? "Consenti il microfono nelle impostazioni del sito, poi riprova"
+        : "Microfono non disponibile · tocca per riprovare";
+      disarm(false, message);
+    }
   }
 
-  function disarm() {
-    if (!armed) return;
+  function disarm(submit = true, message = OFF_TITLE) {
+    ++attempt; // invalida anche una richiesta permessi ancora in corso
+    if (submit && armed && recording) finalizeSegment();
     armed = false;
-    if (recording) finalizeSegment(); // non perdere un segmento in corso quando si silenzia a mano
-    processor.disconnect();
-    silentSink.disconnect();
-    stream.getTracks().forEach((t) => t.stop());
-    audioCtx.close().catch(() => {});
+    arming = false;
+    recording = false;
+    segmentChunks = [];
+    prerollChunks = [];
+    if (processor) { processor.onaudioprocess = null; processor.disconnect(); }
+    silentSink?.disconnect();
+    stream?.getTracks().forEach((t) => { t.onended = null; t.stop(); });
+    if (audioCtx) { audioCtx.onstatechange = null; audioCtx.close().catch(() => {}); }
     stream = null;
     audioCtx = null;
     processor = null;
     silentSink = null;
     freeMicLock();
     micBtn.classList.remove("listening");
-    micBtn.title = OFF_TITLE;
+    micBtn.setAttribute("aria-pressed", "false");
+    if (orbState === "listening") setOrbState("idle");
+    showMicStatus(message);
   }
 
   micBtn.addEventListener("click", () => {
-    if (armed) disarm();
+    if (armed || arming) disarm();
     else arm();
   });
 
-  // Ascolto sempre attivo di default — niente click richiesto per iniziare
-  // a parlare/mandare messaggi (richiesta esplicita di Alessandro): il
-  // filtro "Jarvis" lato server (core/web_bridge.py::_strip_wake_word) e'
-  // gia' quello che protegge da rumore ambientale, il click resta solo
-  // come interruttore manuale per chi vuole silenziare il mic (es. per
-  // privacy). La prima volta il browser mostra comunque il permesso
-  // nativo del microfono — dopo, riparte da solo ad ogni apertura pagina.
-  arm();
+  document.addEventListener("visibilitychange", () => {
+    if (touchDevice && document.hidden) disarm(false, "Ascolto in pausa · tocca il microfono per riprendere");
+  });
+  window.addEventListener("pagehide", () => disarm(false));
+  // Desktop resta a mani libere; su telefono serve un tap esplicito.
+  if (!touchDevice) arm();
 }
 
 async function handleRecordedAudio(blob) {
@@ -618,6 +854,9 @@ async function handleRecordedAudio(blob) {
 async function submitTaskAudio(audioB64) {
   openWindow("win-chat");
   const el = appendEntry("🎙️ (trascrizione in corso…)");
+  if (window.JarvisDirect) {
+    return window.JarvisDirect.submit({ type: "audio", data: audioB64 }, el);
+  }
   try {
     const { task_id } = await api("task_push", { audio_b64: audioB64 });
     setOrbState("thinking");
@@ -694,34 +933,6 @@ function timeAgo(iso) {
   return `${Math.floor(s / 3600)}h fa`;
 }
 
-async function refreshTradeflow() {
-  try {
-    const res = await fetch("/api/tradeflow", { method: "POST" });
-    const json = await res.json();
-    const data = json.data;
-    const stats = $("#tradeflow-stats");
-    if (!data) {
-      stats.innerHTML = `<div class="stat-tile"><div class="label">Equity</div><div class="value">—</div></div>
-        <div class="stat-tile"><div class="label">Posizioni</div><div class="value">—</div></div>`;
-      $("#tradeflow-status").innerHTML = "";
-      $("#tradeflow-sync").textContent = "Bot non ancora connesso.";
-      setConn("online");
-      return;
-    }
-    const eq = data.account?.equity;
-    const cur = data.account?.currency || "";
-    stats.innerHTML = `
-      <div class="stat-tile"><div class="label">Equity</div><div class="value">${eq != null ? eq.toFixed(2) + " " + cur : "—"}</div></div>
-      <div class="stat-tile"><div class="label">Posizioni</div><div class="value">${data.positions?.length ?? 0}</div></div>`;
-    $("#tradeflow-status").innerHTML = statusPill(data.bot_status);
-    $("#tradeflow-sync").textContent = "Ultimo sync: " + timeAgo(json.updated_at || data.synced_at);
-    setConn("online");
-  } catch {
-    $("#tradeflow-sync").textContent = "Errore di connessione.";
-    setConn("warning");
-  }
-}
-
 // ── Meteo settimanale animato ("come il vero JARVIS di Iron Man") ──────
 // Dati scritti da bot.py::weather_forecast_loop() su Turso (il browser non
 // puo' chiamare Open-Meteo con la posizione configurata in .env — quella
@@ -767,6 +978,7 @@ async function refreshWeatherForecast() {
           </div>`;
       })
       .join("");
+    fitWeatherWindow();
   } catch {
     // rete assente/blip transitorio: lascia il pannello com'era
   }
@@ -796,21 +1008,22 @@ async function refreshProjectStatus() {
       .map((p) => {
         if (!p.configured) {
           return `<div class="project-card disabled">
-            <div class="project-card-title">${p.label}</div>
-            <p class="panel-footnote">Workspace non configurato.</p>
+            <div class="project-card-title">${_escHtml(p.label)}</div>
+            <p class="panel-footnote">Disponibile in memoria o nel registro; percorso locale non configurato.</p>
           </div>`;
         }
         if (p.error) {
           return `<div class="project-card">
-            <div class="project-card-title">${p.label}</div>
-            <p class="panel-footnote">Errore git: ${p.error.slice(0, 80)}</p>
+            <div class="project-card-title">${_escHtml(p.label)}</div>
+            <p class="panel-footnote">Errore git: ${_escHtml(p.error.slice(0, 80))}</p>
           </div>`;
         }
+        if (!p.branch) return `<div class="project-card"><div class="project-card-title">${_escHtml(p.label)}</div><p class="panel-footnote">Cartella locale senza Git.</p></div>`;
         return `
           <div class="project-card">
-            <div class="project-card-title">${p.label} <span class="project-branch">${p.branch || ""}</span></div>
+            <div class="project-card-title">${_escHtml(p.label)} <span class="project-branch">${_escHtml(p.branch || "")}</span></div>
             <div class="project-card-row"><span>Modifiche in sospeso</span><strong>${p.dirty_files}</strong></div>
-            <div class="project-card-row"><span>Ultimo commit</span><strong>${_lastCommitShort(p.last_commit)}</strong></div>
+            <div class="project-card-row"><span>Ultimo commit</span><strong>${_escHtml(_lastCommitShort(p.last_commit))}</strong></div>
           </div>`;
       })
       .join("");
@@ -1201,20 +1414,28 @@ function stopBrainGraph() {
 // Lo stream si ferma sempre quando la finestra si chiude.
 
 let cameraStream = null;
+let cameraAttempt = 0;
 
 async function startCamera() {
+  const token = ++cameraAttempt;
   const video = $("#camera-video");
   const hint = $("#camera-hint");
   try {
-    cameraStream = await navigator.mediaDevices.getUserMedia({ video: true });
+    const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+    if (token !== cameraAttempt) {
+      stream.getTracks().forEach((track) => track.stop());
+      return;
+    }
+    cameraStream = stream;
     video.srcObject = cameraStream;
     hint.textContent = "Camera attiva.";
   } catch {
-    hint.textContent = "Permesso camera negato o non disponibile.";
+    if (token === cameraAttempt) hint.textContent = "Permesso camera negato o non disponibile.";
   }
 }
 
 function stopCamera() {
+  ++cameraAttempt;
   if (cameraStream) {
     cameraStream.getTracks().forEach((t) => t.stop());
     cameraStream = null;
@@ -1288,6 +1509,10 @@ function setOrbAlert(durationMs = 2500) {
 }
 
 async function pollSpeakingStatus() {
+  if (window.JarvisDirect) {
+    botSpeaking = window.JarvisDirect.speaking;
+    return;
+  }
   try {
     const { speaking } = await api("runtime_status");
     botSpeaking = !!speaking;
@@ -1318,12 +1543,24 @@ function _bootStep(label, fn) {
 async function boot() {
   $("#login-screen").style.display = "none";
   $("#app").classList.add("visible");
+  _bootStep("viewport", setupViewport);
+  _bootStep("direct-voice", () => window.JarvisDirect?.start());
   _bootStep("orb", () => {
     window.JarvisOrb = window.createJarvisOrb($("#orb-canvas"));
-    window.JarvisOrb.start();
+    if (!document.hidden) window.JarvisOrb.start();
   });
   _bootStep("voice", setupVoice);
   _bootStep("windows", setupWindows);
+  _bootStep("connected-data", () => {
+    if (!window.JarvisDirect) return;
+    $("#show-data-btn").hidden = false;
+    $("#connected-data").hidden = false;
+    $("#learned-memory").hidden = false;
+    $("#show-data-btn").onclick = () => { openWindow("win-projects"); $("#connected-data").scrollIntoView({block:"start"}); };
+    $("#refresh-data-btn").onclick = refreshConnectedData;
+    setInterval(() => { if (!document.hidden && $("#win-projects").classList.contains("open")) refreshConnectedData(); }, 60000);
+  });
+  _bootStep("weather-window", () => { if (!compactLayout.matches) openWindow("win-weather"); });
   _bootStep("camera", setupCamera);
   _bootStep("clock", () => {
     tickClock();
@@ -1334,10 +1571,6 @@ async function boot() {
   } catch (e) {
     console.error('boot: "history" fallito (ignorato)', e);
   }
-  _bootStep("tradeflow", () => {
-    refreshTradeflow();
-    setInterval(refreshTradeflow, 5000);
-  });
   _bootStep("weather", () => {
     refreshWeatherForecast();
     setInterval(refreshWeatherForecast, 5 * 60 * 1000); // il bridge locale pubblica ogni 30min, basta controllare ogni 5
@@ -1369,3 +1602,8 @@ async function boot() {
     // resta sulla schermata di login
   }
 })();
+
+// Stessi messaggi nella conversazione unica, anche su iPhone.
+document.querySelectorAll("[data-prompt]").forEach(button => {
+  button.addEventListener("click", () => submitTask(button.dataset.prompt));
+});

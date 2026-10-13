@@ -360,7 +360,7 @@ async def handle(text: str) -> None:
     typing()
     keepalive = asyncio.create_task(_keepalive())
     try:
-        result, _sid, cost = await run_claude(text, image_b64=image_b64)
+        result, _sid, cost = await run_claude(text, image_b64=image_b64, channel='telegram')
     finally:
         keepalive.cancel()
 
@@ -392,9 +392,13 @@ async def _transcribe_telegram_voice(file_id: str) -> str:
 
         from core.voice import stt  # import qui: faster-whisper solo se serve davvero
 
-        file_info = requests.get(f"{API}/getFile", params={"file_id": file_id}, timeout=15).json()
+        info_response = requests.get(f"{API}/getFile", params={"file_id": file_id}, timeout=15)
+        info_response.raise_for_status()
+        file_info = info_response.json()
         file_path = file_info["result"]["file_path"]
-        audio = requests.get(f"https://api.telegram.org/file/bot{TOKEN}/{file_path}", timeout=30).content
+        download = requests.get(f"https://api.telegram.org/file/bot{TOKEN}/{file_path}", timeout=30)
+        download.raise_for_status()
+        audio = download.content
 
         fd, tmp_path = tempfile.mkstemp(suffix=".ogg")
         os.close(fd)
@@ -406,6 +410,22 @@ async def _transcribe_telegram_voice(file_id: str) -> str:
             path.unlink(missing_ok=True)
 
     return await asyncio.to_thread(work)
+
+
+async def handle_telegram_message(msg):
+    if (msg.get('from') or {}).get('id') != OWNER_ID:
+        return
+    text, voice = msg.get('text'), msg.get('voice')
+    if voice:
+        if voice.get('duration', 0) > 180 or voice.get('file_size', 0) > 20 * 1024 * 1024:
+            send('Invia una nota vocale di massimo 3 minuti e 20 MB.')
+            return
+        text = await _transcribe_telegram_voice(voice['file_id'])
+        if not text:
+            send('Non ho capito la nota vocale. Riprova.')
+            return
+    if text:
+        await handle(text)
 
 
 async def telegram_loop() -> None:
@@ -420,8 +440,10 @@ async def telegram_loop() -> None:
                     timeout=60,
                 ).json()
             )
+            if not r.get('ok'):
+                raise RuntimeError(f"Telegram getUpdates: errore {r.get('error_code', 'API')}")
         except Exception as e:  # noqa: BLE001
-            print("poll error:", e)
+            print("poll error:", telegram.safe_error(e))
             await asyncio.sleep(3)
             continue
 
@@ -430,24 +452,10 @@ async def telegram_loop() -> None:
             msg = upd.get("message") or upd.get("edited_message")
             if not msg:
                 continue
-            if msg["from"]["id"] != OWNER_ID:
-                continue
-            text = msg.get("text")
-            voice = msg.get("voice")
-            if not text and not voice:
-                continue
             try:
-                if voice:
-                    text = await _transcribe_telegram_voice(voice["file_id"])
-                    if not text:
-                        send("Non ho capito niente dalla nota vocale, Signore. Riprova.")
-                        continue
-                    print(f"> [voce] {text[:80]}")
-                else:
-                    print(f"> {text[:80]}")
-                await handle(text)
+                await handle_telegram_message(msg)
             except Exception as e:  # noqa: BLE001
-                send(f"Errore: {html.escape(str(e))[:1000]}")
+                send(f"Errore: {html.escape(telegram.safe_error(e))[:1000]}")
 
 
 DIGEST_HOUR = int(os.getenv("JARVIS_DAILY_DIGEST_HOUR", "-1"))

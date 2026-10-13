@@ -54,6 +54,30 @@ body::after {
 button {
   font-family: inherit;
   cursor: pointer;
+  touch-action: manipulation;
+}
+
+input { font-family: inherit; }
+
+button:focus-visible, input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.voice-status {
+  position: absolute;
+  bottom: 84px;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: calc(100% - 24px);
+  margin: 0;
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: var(--page);
+  color: var(--text-secondary);
+  font-size: 12px;
+  text-align: center;
+  z-index: 95;
 }
 
 /* ── Corner-frame utility (HUD bracket chrome) ─────────────────────── */
@@ -433,6 +457,21 @@ header::after {
 
 .fw-body--console { padding: 0; display: flex; flex-direction: column; min-height: 260px; }
 .fw-body--brain { padding: 8px; }
+.data-metrics { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; margin: 12px 0; }
+.data-metrics small, .data-metrics strong { display: block; }
+.data-metrics strong { margin-top: 4px; font-size: 17px; }
+.data-note, .memory-item { padding: 12px 0; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
+.data-note p, .memory-item p { margin: 6px 0; }
+.memory-item small { display: block; opacity: .7; }
+#connected-data details, #learned-memory { margin: 12px 0; font-size: 12px; line-height: 1.5; }
+#connected-data summary, #learned-memory summary { min-height: 44px; cursor: pointer; padding: 10px 0; }
+#connected-data button, #learned-memory button { min-height: 44px; padding: 8px 12px; color: inherit; background: transparent; border: 1px solid var(--border); border-radius: 6px; cursor: pointer; }
+.equity-chart { width: 100%; height: auto; color: #68d9cd; }
+.data-table { overflow-x: auto; }
+.data-table table { width: 100%; border-collapse: collapse; font-size: 11px; }
+.data-table th, .data-table td { text-align: left; padding: 8px 5px; border-bottom: 1px solid var(--border); }
+.data-table td:first-child { overflow-wrap: anywhere; max-width: 155px; }
+@media (min-width: 861px) { #win-projects { width: min(540px, 88vw); max-height: calc(var(--app-height,100vh) - 190px); } }
 
 @media (max-width: 640px) {
   .floating-window { width: 92vw; }
@@ -801,4 +840,101 @@ header::after {
   border-radius: 8px;
   background: radial-gradient(circle at 50% 40%, rgba(57, 135, 229, 0.05), transparent 65%);
   cursor: grab;
+}
+
+/* iPhone / tablet: un pannello alla volta, tastiera e safe area incluse. */
+@media (max-width: 860px) {
+  html, body { overflow: hidden; overscroll-behavior: none; }
+  #app {
+    height: 100dvh;
+    height: var(--app-height, 100dvh);
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+  #app > header { flex: 0 0 auto; padding: 4px 16px; gap: 10px; }
+  .header-clock { display: block; font-size: 12px; }
+  .logout-btn { min-width: 44px; min-height: 44px; }
+  .hud-mini, .hud-dots, .hud-stage::before, .hud-stage::after { display: none; }
+  body::after { display: none; }
+  .hud-stage { margin: 8px 12px 0; --mobile-orb-size: clamp(48px, calc(var(--app-height, 100dvh) - 620px), 140px); }
+  .jarvis-orb { top: 0; width: var(--mobile-orb-size); height: var(--mobile-orb-size); margin: 0; transform: translateX(-50%); }
+  .orb-core { display: none; }
+  .short-viewport .conversation-starters { display: none; }
+  .floating-window, .floating-window.open {
+    top: calc(var(--mobile-orb-size) + 8px);
+    left: 0;
+    transform: none;
+    width: 100% !important; /* prevale anche sulle dimensioni trascinate da desktop */
+    height: calc(100% - var(--mobile-orb-size) - 8px) !important;
+    min-width: 0;
+    min-height: 0;
+    max-width: none;
+    max-height: none;
+    clip-path: none;
+    resize: none;
+    display: none;
+    box-shadow: none;
+  }
+  .floating-window.open { display: flex; }
+  .fw-header { padding: 2px 8px 2px 16px; cursor: default; touch-action: auto; }
+  .fw-header:active { cursor: default; }
+  .fw-header::after, header::after { animation: none; }
+  .fw-title { font-size: 12px; }
+  .fw-close { min-width: 44px; min-height: 44px; }
+  .fw-body { overscroll-behavior: contain; }
+  .fw-body--console { min-height: 0; }
+  .console-log { min-height: 0; max-height: none; padding: 16px; overflow-wrap: anywhere; }
+  .console-input { flex: 0 0 auto; padding: 10px; }
+  .console-input input, .camera-ask-form input, .login-card input {
+    font-size: 16px; /* evita lo zoom automatico al focus in Safari iOS */
+    min-width: 0;
+  }
+  .send-btn, .camera-btn, .camera-ask-form button { min-width: 44px; min-height: 44px; }
+  #camera-video { max-height: 40dvh; object-fit: contain; }
+  #brain-canvas { min-height: 180px; }
+  .voice-status {
+    position: static;
+    transform: none;
+    align-self: center;
+    flex-shrink: 0;
+    min-height: 32px;
+    padding: 8px 4px;
+    font-size: 12px;
+  }
+  .dock {
+    position: relative;
+    bottom: auto;
+    left: auto;
+    transform: none;
+    margin: 0 12px 8px;
+    flex: 0 0 auto;
+    min-height: 60px;
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 7px;
+    gap: 6px;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: thin;
+    background-color: var(--surface-1);
+  }
+  .dock-btn, .mic-btn { width: 44px; height: 44px; }
+  .mic-btn { position: sticky; left: 0; z-index: 1; background-color: var(--page); }
+  .mic-btn.listening { background-color: #351a1a; }
+  #login-screen { min-height: 100dvh; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+/* Collegamento privato: stato e interruzione sempre vicini alla console. */
+.live-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 8px 12px; border-bottom: 1px solid #2b3545; }
+.live-controls span { flex: 1 1 150px; font-size: 12px; color: #a7bfdc; }
+.live-controls button { min-height: 44px; padding: 8px 12px; border: 1px solid #3d5270; border-radius: 8px; color: #e0ecff; background: #142033; cursor: pointer; }
+
+.conversation-starters { display:flex; flex-wrap:wrap; gap:6px; padding:8px 0; }
+.conversation-starters button { min-height:44px; border:1px solid #365363; border-radius:8px; padding:6px 10px; background:#10212b; color:#d9edf5; font:inherit; cursor:pointer; }
+.conversation-starters button:focus-visible { outline:2px solid #89d6ed; outline-offset:2px; }
+
+@media (min-width: 861px) {
+  #win-weather { max-height: calc(var(--app-height, 100vh) - 180px); }
 }

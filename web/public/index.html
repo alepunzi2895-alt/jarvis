@@ -2,7 +2,10 @@
 <html lang="it">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0d0d0d" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="JARVIS" />
   <title>JARVIS</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22><circle cx=%2216%22 cy=%2216%22 r=%2213%22 fill=%22none%22 stroke=%22%233987e5%22 stroke-width=%223%22/></svg>" />
   <link rel="stylesheet" href="/style.css" />
@@ -27,7 +30,7 @@
     </header>
 
     <div class="hud-mini corner-frame" id="hud-mini">
-      <div class="hud-mini-row"><span>Progetto</span><strong id="hud-ws">—</strong></div>
+      <div class="hud-mini-row"><span>Contesto</span><strong id="hud-ws">—</strong></div>
       <div class="hud-mini-row"><span>Sessione</span><strong id="hud-uptime">00:00:00</strong></div>
       <div class="hud-mini-row"><span>Task</span><strong id="hud-taskcount">0</strong></div>
       <div class="hud-mini-row"><span>Rete</span><strong id="hud-conn"><span class="status-pill warning"><span class="dot"></span>attesa</span></strong></div>
@@ -53,14 +56,20 @@
 
       <section class="floating-window open" id="win-chat" style="--x:-320px; --y:20px;">
         <header class="fw-header">
-          <span class="fw-title">Console</span>
+          <span class="fw-title">Conversazione</span>
           <button type="button" class="fw-close" data-close="win-chat">✕</button>
         </header>
         <div class="fw-body fw-body--console">
           <div class="console-log" id="console-log"></div>
+          <div class="conversation-starters" aria-label="Suggerimenti">
+            <button type="button" data-prompt="Organizza la mia giornata usando agenda, progetti e obiettivi: proponi tre priorità concrete.">Organizza oggi</button>
+            <button type="button" data-prompt="Analizza gli ultimi sette giorni su Databricks QAS: job falliti, durate, periodo e copertura dei dati.">Analizza i job</button>
+            <button type="button" data-prompt="Aiutami a scegliere su cosa concentrarmi tra lavoro, progetti e vita personale. Parti dai miei obiettivi e fammi una domanda utile.">Trova il focus</button>
+            <button type="button" id="show-data-btn" hidden>Equity e deploy</button>
+          </div>
           <form class="console-input" id="console-form">
-            <input type="text" id="console-text" placeholder="Scrivi un task…" autocomplete="off" />
-            <button type="submit" class="send-btn" title="Invia">➤</button>
+            <input type="text" id="console-text" placeholder="Chiedi a JARVIS…" aria-label="Messaggio per JARVIS" autocomplete="off" enterkeyhint="send" />
+            <button type="submit" class="send-btn" title="Invia" aria-label="Invia messaggio">➤</button>
           </form>
         </div>
       </section>
@@ -89,22 +98,11 @@
           <button type="button" class="fw-close" data-close="win-brain">✕</button>
         </header>
         <div class="fw-body fw-body--brain">
+          <details id="learned-memory" hidden>
+            <summary>Memorie apprese e preferenze</summary>
+            <div id="memory-items"></div>
+          </details>
           <canvas id="brain-canvas"></canvas>
-        </div>
-      </section>
-
-      <section class="floating-window" id="win-tradeflow" style="--x:320px; --y:120px;">
-        <header class="fw-header">
-          <span class="fw-title">TradeFlow AI · XAU/USD</span>
-          <button type="button" class="fw-close" data-close="win-tradeflow">✕</button>
-        </header>
-        <div class="fw-body">
-          <div class="stat-grid" id="tradeflow-stats">
-            <div class="stat-tile"><div class="label">Equity</div><div class="value">—</div></div>
-            <div class="stat-tile"><div class="label">Posizioni</div><div class="value">—</div></div>
-          </div>
-          <div id="tradeflow-status"></div>
-          <p class="panel-footnote" id="tradeflow-sync">In attesa di dati…</p>
         </div>
       </section>
 
@@ -120,12 +118,18 @@
         </div>
       </section>
 
-      <section class="floating-window" id="win-projects" style="--x:320px; --y:-260px;">
+      <section class="floating-window" id="win-projects" style="--x:200px; --y:20px;">
         <header class="fw-header">
-          <span class="fw-title">Stato progetti</span>
+          <span class="fw-title">Panoramica</span>
           <button type="button" class="fw-close" data-close="win-projects">✕</button>
         </header>
         <div class="fw-body">
+          <div id="connected-data" hidden>
+            <p class="panel-subheading">Dati collegati <button type="button" id="refresh-data-btn">Aggiorna</button></p>
+            <div id="tradepilot-data" aria-live="polite">Caricamento TradePilot…</div>
+            <div id="devops-data" aria-live="polite"></div>
+            <details><summary>Lavori Codex e Claude Code</summary><div id="coding-jobs">Nessun lavoro caricato.</div></details>
+          </div>
           <div class="project-cards" id="project-cards">
             <p class="panel-footnote">In attesa di dati…</p>
           </div>
@@ -138,37 +142,21 @@
         </div>
       </section>
 
-      <section class="floating-window" id="win-social" style="--x:-320px; --y:260px;">
-        <header class="fw-header">
-          <span class="fw-title">Social</span>
-          <button type="button" class="fw-close" data-close="win-social">✕</button>
-        </header>
-        <div class="fw-body">
-          <div class="panel disabled">
-            <p class="panel-title">Social AURA</p>
-            <p class="panel-footnote">In attesa di credenziali Meta.</p>
-          </div>
-          <div class="panel disabled">
-            <p class="panel-title">WhatsApp Business</p>
-            <p class="panel-footnote">In attesa di credenziali Meta.</p>
-          </div>
-        </div>
-      </section>
     </div>
 
-    <div class="dock corner-frame">
-      <button type="button" class="mic-btn" id="mic-btn" title="Ascolto a mani libere attivo — di' &quot;Jarvis&quot; + comando">🎙</button>
+    <p class="voice-status" id="voice-status" role="status" aria-live="polite">Tocca il microfono per parlare</p>
+    <div class="dock corner-frame" role="toolbar" aria-label="Comandi JARVIS">
+      <button type="button" class="mic-btn" id="mic-btn" aria-label="Attiva microfono" aria-pressed="false" title="Attiva microfono">🎙</button>
       <button type="button" class="dock-btn open" data-toggle="win-chat" title="Console">💬</button>
       <button type="button" class="dock-btn" data-toggle="win-camera" title="Camera">📷</button>
       <button type="button" class="dock-btn" data-toggle="win-brain" title="Second brain">🧠</button>
-      <button type="button" class="dock-btn" data-toggle="win-tradeflow" title="TradeFlow">📈</button>
       <button type="button" class="dock-btn" data-toggle="win-weather" title="Meteo">⛅</button>
-      <button type="button" class="dock-btn" data-toggle="win-projects" title="Stato progetti">🗂️</button>
-      <button type="button" class="dock-btn" data-toggle="win-social" title="Social">📡</button>
+      <button type="button" class="dock-btn" data-toggle="win-projects" title="Panoramica">🗂️</button>
     </div>
   </div>
 
   <script src="/orb.js"></script>
+  <script src="/live.js"></script>
   <script src="/app.js"></script>
 </body>
 </html>
