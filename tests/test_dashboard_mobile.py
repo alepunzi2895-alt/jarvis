@@ -334,21 +334,44 @@ def test_direct_text_stream_audio_stop_and_no_cloud_fallback(mobile_page):
     assert "scollegato" in page.locator(".live-controls span").inner_text()
 
 
-def test_direct_mic_sends_wav_only_over_websocket(mobile_page):
+@pytest.mark.parametrize('volume', [.2, .025])
+def test_direct_mic_sends_wav_only_over_websocket(mobile_page, volume):
     page = mobile_page
     uploads = []
     page.on("request", lambda req: uploads.append(req.post_data) if req.url.endswith("/api/jarvis") else None)
     page.locator("#mic-btn").click()
     page.wait_for_function("document.querySelector('#mic-btn').getAttribute('aria-pressed') === 'true'")
-    page.evaluate("""() => {
+    page.evaluate("""volume => {
       const processor = fakeNodes.at(-1);
       const feed = value => processor.onaudioprocess({inputBuffer:{getChannelData:() => new Float32Array(4096).fill(value)}});
-      for(let i=0;i<8;i++) feed(.2);
+      for(let i=0;i<8;i++) feed(volume);
       for(let i=0;i<10;i++) feed(0);
-    }""")
+    }""", volume)
     page.wait_for_function("liveMessages.some(m => m.type === 'audio')")
     assert page.evaluate("liveMessages.find(m => m.type === 'audio').data.startsWith('UklGR')")
     assert not any(json.loads(body).get("audio_b64") for body in uploads if body)
+    page.evaluate("document.dispatchEvent(new Event('visibilitychange'))")
+
+
+def test_direct_mic_rejects_background_noise_and_explains_ignored_speech(mobile_page):
+    page = mobile_page
+    page.locator('#mic-btn').click()
+    page.wait_for_function("document.querySelector('#mic-btn').getAttribute('aria-pressed') === 'true'")
+    page.evaluate("""() => {
+      const feed = value => fakeNodes.at(-1).onaudioprocess({inputBuffer:{getChannelData:() => new Float32Array(4096).fill(value)}});
+      for(let i=0;i<20;i++) feed(.005);
+      feed(.2);
+      for(let i=0;i<20;i++) feed(0);
+    }""")
+    assert not page.evaluate("liveMessages.some(m => m.type === 'audio')")
+    page.evaluate("""() => {
+      const feed = value => fakeNodes.at(-1).onaudioprocess({inputBuffer:{getChannelData:() => new Float32Array(4096).fill(value)}});
+      for(let i=0;i<8;i++) feed(.025);
+      for(let i=0;i<10;i++) feed(0);
+    }""")
+    page.wait_for_function("liveMessages.some(m => m.type === 'audio')")
+    page.evaluate("liveSocket.emit({type:'ignored', id:liveMessages.find(m=>m.type==='audio').id})")
+    assert 'Audio ricevuto' in page.locator('.live-controls span').inner_text()
     page.evaluate("document.dispatchEvent(new Event('visibilitychange'))")
 
 

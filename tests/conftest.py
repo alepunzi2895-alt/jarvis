@@ -4,6 +4,7 @@ import pytest
 @pytest.fixture(autouse=True)
 def _isolate_personal_memory_and_tradepilot(monkeypatch, tmp_path):
     monkeypatch.setattr('core.conversation_memory.DB', tmp_path / 'memory.sqlite3')
+    monkeypatch.setattr('core.coding_tasks.DB', tmp_path / 'coding.sqlite3')
     monkeypatch.setattr('core.tradepilot.DB', tmp_path / 'tradepilot.sqlite3')
     monkeypatch.setattr('core.tradepilot.CONFIG', tmp_path / 'tradepilot.json')
     monkeypatch.setattr('core.tradepilot._cache', {'at': 0, 'value': None, 'key': ''})

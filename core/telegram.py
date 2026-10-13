@@ -24,6 +24,14 @@ _TIMEOUT = 30
 _CHUNK_CHARS = 3900  # sotto il limite di 4096 caratteri di Telegram
 
 
+def safe_error(error):
+    import re
+    text = str(error)
+    if TOKEN:
+        text = text.replace(TOKEN, '[token riservato]')
+    return re.sub(r'bot\d+:[A-Za-z0-9_-]+', 'bot[token riservato]', text)
+
+
 def send_to_owner(text: str, parse: str | None = None) -> None:
     if not TOKEN or not OWNER_ID:
         return
@@ -34,4 +42,4 @@ def send_to_owner(text: str, parse: str | None = None) -> None:
         try:
             requests.post(f"{API}/sendMessage", json=payload, timeout=_TIMEOUT)
         except Exception as e:  # noqa: BLE001
-            print(f"(invio Telegram fallito, ignorato: {e})")
+            print(f"(invio Telegram fallito, ignorato: {safe_error(e)})")

@@ -99,7 +99,7 @@
         finish(data.id);
         break;
       }
-      case "ignored": entry.remove(); finish(data.id); break;
+      case "ignored": entry.remove(); finish(data.id); setStatus("Audio ricevuto. Di’ Jarvis e poi il comando."); break;
       case "cancelled":
         if (current === data.id) silence();
         finish(data.id, "Interrotto."); break;

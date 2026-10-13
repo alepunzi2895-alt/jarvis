@@ -109,10 +109,12 @@ def test_auth_origin_password_logout_and_no_cloud_fallback():
         client, server = await client_for()
         async with client:
             assert (await client.post("/api/jarvis", json={"action": "tasks_recent"})).status == 401
+            assert (await client.post("/api/jarvis", json={"action": "coding_tasks"})).status == 401
             with pytest.raises(WSServerHandshakeError):
                 await client.ws_connect("/live/ws")
             assert (await client.post("/api/jarvis", json={"action": "login", "password": "wrong"})).status == 401
             response = await login(client)
+            assert (await (await client.post('/api/jarvis', json={'action':'coding_tasks'})).json())['jobs'] == []
             assert response.cookies[COOKIE]["httponly"]
             assert response.cookies[COOKIE]["samesite"] == "Strict"
             for headers in ({"Origin": "https://evil.example"}, {"Host": "evil.example"}):

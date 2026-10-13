@@ -921,3 +921,40 @@ delle fonti. TradePilot ora espone 25 esperimenti e 8 righe statistiche;
 conto demo e curva con campioni reali. WebKit mobile sul vero HTTPS: sfera
 visibile/animata, grafico equity, fasi PROD/QAS e pannello memorie disponibili,
 nessun errore JS. Nessuna modifica al codice dopo il riavvio.
+
+## Ascolto PC, Telegram e agenti coding (2026-10-13, 18:42)
+
+Utente segnala entrambi i percorsi PC: dashboard "Ti ascolto" senza risposta,
+wake word/hotkey non funzionanti. Bot e VoiceDaemon erano fermi, LiveBridge
+attivo PID 20396. Microfono Windows apribile; modelli STT/wake word e hotkey
+inizializzati senza errori nel preflight. Causa precedente uscita non isolata.
+
+Dashboard privata: soglia RMS ridotta da .06 a .012, verificato inoltro voce
+bassa .025 e scarto rumore .005/clic. Audio ignorato ora spiega di dire Jarvis.
+Riprodotto inoltre HTTP 400 dopo tool streaming Anthropic: `parsed_output`
+era reinviato all'API. Metadati SDK esclusi; test di regressione e due turni
+API reali riusciti. Il daemon usa lo stesso Engine/memoria/tool della dashboard,
+con event loop persistente.
+
+Codex/Claude Code: apertura app sul progetto, prompt espliciti in background,
+registro SQLite privato, stato/risposta in Panoramica e su richiesta vocale,
+seguiti nella stessa sessione. Un lavoro per progetto; modifiche richieste e
+cartelle autorizzate, niente bypass sandbox o deploy/push. Risultati Telegram
+solo per lavori iniziati da Telegram. Non controlla automaticamente chat GUI
+gia esistenti: traccia le sessioni CLI avviate da JARVIS.
+
+Telegram: bot zerodayzz_bot verificato con getMe, senza webhook. Testo e note
+vocali solo owner, STT locale, massimo 3 minuti/20 MB e pulizia temporanei.
+Errori mascherati per non esporre il token; vecchi log bonificati. Credenziale
+precedentemente esposta nei log da rigenerare tramite BotFather.
+
+Validazione: 460 test completi passati, Chromium/WebKit inclusi; JS syntax e
+diff check ok. App Codex e VS Code aperte sul progetto reale. Entrambi i CLI
+verificati su fixture: lettura, scrittura di un solo file, ripresa sessione e
+risposta coerente. Claude ha segnalato onestamente un permesso negato sul
+profilo esterno alla fixture, pur completando il file richiesto.
+
+Attivazione da completare dopo commit/push: Bot e VoiceDaemon possono essere
+avviati direttamente perche fermi; LiveBridge richiede una sola chiusura
+manuale del PID 20396. Prova con parlato reale ancora dell'utente.
+Procedura: `memory/playbooks/voice-telegram-coding.md`.

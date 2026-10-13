@@ -4,6 +4,7 @@
 .project-catalog.json
 .focus.sqlite3*
 .memory.sqlite3*
+.coding.sqlite3*
 .tradepilot.json
 .tradepilot.sqlite3*
 .azure-devops.json

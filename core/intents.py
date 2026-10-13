@@ -185,6 +185,11 @@ def parse_intent(text: str) -> dict | None:
         return {"type": "calendar", "day": "domani" if _TOMORROW_RE.search(t) else "oggi"}
 
     low = t.lower()
+    # Il nome progetto e l'eventuale prompt vanno al router dei tool coding,
+    # non al fast-path che aprirebbe solo l'eseguibile senza contesto.
+    if (re.search(r'\b(codex|claude|vs ?code|vs studio|visual studio)\b', low)
+            and not re.search(rf'\b({_CLOSE_VERBS})\b', low)):
+        return None
     for app in _APP_NAMES:
         if re.search(rf"\b{re.escape(app)}\b", low):
             if re.search(rf"\b({_CLOSE_VERBS})\b", low):

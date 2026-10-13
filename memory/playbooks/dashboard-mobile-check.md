@@ -15,6 +15,7 @@
    blocco/sblocco, ritorno alla pagina e frase italiana. WebKit emulato non
    dimostra il funzionamento del microfono fisico o la latenza completa.
 
-Prima di promettere risposte vocali mobili, verifica la destinazione TTS:
-attualmente il bridge parla sul PC. La trascrizione locale non significa
-trasporto locale: la dashboard attuale invia gli audio a Turso.
+Verificare il percorso in uso: la dashboard privata Tailscale invia audio
+via WebSocket al PC e riproduce il TTS sul dispositivo chiamante. Il vecchio
+percorso cloud usa Turso. La suite verifica entrambi e impedisce fallback
+involontari dal privato al cloud. Vedere `voce-privata-iphone.md`.

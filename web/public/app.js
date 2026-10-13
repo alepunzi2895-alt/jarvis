@@ -111,7 +111,18 @@ async function refreshConnectedData() {
   try {
     await Promise.all([
       api("tradepilot_data").then(renderTradePilot).catch(() => { $("#tradepilot-data").textContent = "TradePilot non disponibile. Riprova."; }),
-      api("devops_data").then(renderDevOps).catch(() => { $("#devops-data").textContent = "Azure DevOps non disponibile."; })
+      api("devops_data").then(renderDevOps).catch(() => { $("#devops-data").textContent = "Azure DevOps non disponibile."; }),
+      api("coding_tasks").then(data => {
+        const target = $("#coding-jobs"); target.replaceChildren();
+        if (!data.jobs?.length) target.textContent = "Nessun lavoro. Chiedi a JARVIS di inviare un prompt a Codex o Claude Code.";
+        for (const job of data.jobs || []) {
+          const row = document.createElement("article"); row.className = "data-note";
+          const status = ({running:"in corso",done:"risposta disponibile",blocked:"serve attenzione",error:"errore",interrupted:"interrotto"})[job.status] || job.status;
+          const title = document.createElement("strong"); title.textContent = `${job.provider} · ${job.project} · ${status}`;
+          const result = document.createElement("p"); result.textContent = job.result || job.prompt;
+          row.append(title, result); target.append(row);
+        }
+      }).catch(() => { $("#coding-jobs").textContent = "Stato lavori non disponibile."; })
     ]);
   } finally { connectedDataBusy = false; }
 }
@@ -517,7 +528,9 @@ function handleVoiceUiCommand(text) {
 // rumoroso, non un bug di decodifica). Alzata la soglia + richiesto che il
 // suono resti sopra soglia per un tratto minimo continuo (non un singolo
 // blip) prima di considerarlo davvero l'inizio di una frase.
-const MIC_SILENCE_RMS = 0.06; // scala -1..1 (PCM float32 vero, non più byte 0-255)
+// Il privato filtra comunque Jarvis lato server. 0.06 scartava voce normale
+// di volume basso; 0.012 e' vicino alla soglia del microfono nativo (300/32768).
+const MIC_SILENCE_RMS = window.JARVIS_LOCAL ? 0.012 : 0.06;
 const MIC_ONSET_SUSTAIN_MS = 200; // il suono deve restare sopra soglia per questo tratto continuo prima di far scattare la registrazione
 const MIC_SILENCE_HANG_MS = 800; // allineato al default del daemon locale
 const MIC_MAX_RECORD_MS = 15000;

@@ -144,12 +144,17 @@ def handle_command(prompt, workspace='jarvis'):
 def request_scope(function):
     @wraps(function)
     async def wrapped(prompt, ws, *args, **kwargs):
-        token = _request.set({'prompt': prompt, 'workspace': ws, 'evidence': {}})
+        token = _request.set({'prompt': prompt, 'workspace': ws, 'evidence': {},
+                              'channel': kwargs.get('channel', args[2] if len(args) > 2 else 'web')})
         try:
             return await function(prompt, ws, *args, **kwargs)
         finally:
             _request.reset(token)
     return wrapped
+
+
+def current_request():
+    return _request.get()
 
 
 def note_evidence(source, text):

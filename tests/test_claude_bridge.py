@@ -356,6 +356,28 @@ def test_run_claude_api_executes_tool_then_answers(monkeypatch):
     assert text == "Ho letto il profilo."
 
 
+def test_streamed_sdk_metadata_is_not_sent_back_to_anthropic(monkeypatch):
+    from anthropic.types.parsed_message import ParsedTextBlock
+    from unittest.mock import AsyncMock
+    responses = [
+        _FakeResponse([ParsedTextBlock(type='text', text='Controllo.', parsed_output=None),
+                       _FakeBlock('tool_use', id='jobs', name='coding_tasks', input={})], 'tool_use'),
+        _FakeResponse([_FakeBlock('text', text='Nessun lavoro.')], 'end_turn'),
+    ]
+    _patch_common(monkeypatch, responses)
+    class CheckingMessages(_FakeMessages):
+        def stream(self, **kwargs):
+            for message in kwargs['messages']:
+                if message['role'] == 'assistant':
+                    assert all('parsed_output' not in block for block in message['content'])
+            return super().stream(**kwargs)
+    client = MagicMock(messages=CheckingMessages(responses))
+    monkeypatch.setattr(claude_bridge, '_get_api_client', lambda: client)
+    monkeypatch.setattr(claude_bridge, '_execute_tool', lambda *args: ('[]', False))
+    result = asyncio.run(claude_bridge._run_claude_api('Lavori Codex?', 'jarvis', '.', None, 'voice', on_sentence=AsyncMock(), history_store={}))
+    assert result[0] == 'Nessun lavoro.'
+
+
 def test_run_claude_api_persists_clean_history_across_calls(monkeypatch):
     shared_state = {"ws": "jarvis", "sessions": {}, "api_sessions": {}}
     _patch_common(monkeypatch, [_FakeResponse([_FakeBlock("text", text="Prima risposta.")], "end_turn")], state=shared_state)
