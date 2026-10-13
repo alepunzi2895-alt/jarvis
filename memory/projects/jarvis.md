@@ -843,3 +843,9 @@ Richiesta chiusura manuale del solo python.exe PID 14968 per caricare tutte
 le modifiche in un unico riavvio. Finche' non confermata, backend nuovo non
 ancora attivo; UI statica gia' visibile al reload. Test panoramica Outlook
 reale (inclusione eventi iniziati prima del giorno) riuscito senza errori.
+
+Attivazione completata il 2026-10-13 alle 16:30 (Europe/Rome): dopo la
+conferma di chiusura del PID 14968, porta libera e LiveBridge avviato. Verifica
+reale HTTPS/login/WebSocket riuscita; STT pronto su CPU, catalogo dinamico
+16 progetti inclusi EYRA, IVGAgent, TradePilot e VMScout. Il backend aggiornato
+e' ora attivo; ricaricare la dashboard per usare la conversazione unica.
