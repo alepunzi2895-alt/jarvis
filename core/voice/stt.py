@@ -3,6 +3,9 @@ JARVIS — registrazione + trascrizione locale (faster-whisper), offline.
 """
 
 import os
+import io
+import threading
+import wave
 
 import numpy as np
 import sounddevice as sd
@@ -41,24 +44,35 @@ WHISPER_BEAM_SIZE = _positive_int_env("JARVIS_WHISPER_BEAM_SIZE", 5)
 WHISPER_CPU_THREADS = _positive_int_env("JARVIS_WHISPER_THREADS", min(8, os.cpu_count() or 4))
 
 _model: WhisperModel | None = None
+_model_lock = threading.RLock()
+MODEL_DEVICE = "not_loaded"
 
 
 def _get_model() -> WhisperModel:
+    with _model_lock:
+        return _load_model()
+
+
+def _load_model() -> WhisperModel:
     """Prova la GPU (piu' veloce), torna su CPU se CUDA/cuDNN non sono
     disponibili o utilizzabili su questa macchina — mai bloccare l'avvio del
     daemon per questo, e mai far credere che la GPU sia in uso quando in
     realta' e' scattato il fallback."""
-    global _model
+    global _model, MODEL_DEVICE
     if _model is not None:
         return _model
     try:
         _model = WhisperModel(WHISPER_MODEL_NAME, device="cuda", compute_type="float16")
+        # Forza una prima inferenza: alcune DLL CUDA falliscono solo qui.
+        list(_model.transcribe(np.zeros(SAMPLE_RATE, dtype=np.float32), language="it", beam_size=1)[0])
+        MODEL_DEVICE = "cuda"
         print("whisper: GPU (CUDA) in uso")
     except Exception as e:  # noqa: BLE001 — qualunque problema CUDA/cuDNN, degrado a CPU
         print(f"whisper: GPU non disponibile ({e}) — uso CPU")
         _model = WhisperModel(
             WHISPER_MODEL_NAME, device="cpu", compute_type="int8", cpu_threads=WHISPER_CPU_THREADS
         )
+        MODEL_DEVICE = "cpu"
     return _model
 
 
@@ -67,7 +81,23 @@ def warm_up() -> None:
     trascrizione reale (~30s la prima volta) — altrimenti la primissima
     attivazione dopo un riavvio del daemon sembra "non aver sentito" il
     microfono, quando in realta' sta solo caricando il modello in silenzio."""
-    _get_model()
+    with _model_lock:
+        model = _get_model()
+        list(model.transcribe(np.zeros(SAMPLE_RATE, dtype=np.float32), language="it", vad_filter=True)[0])
+
+
+def transcribe_wav(raw: bytes) -> str:
+    """Audio del collegamento diretto: validato e decodificato solo in RAM."""
+    from faster_whisper.audio import decode_audio
+
+    with wave.open(io.BytesIO(raw), "rb") as wav:
+        rate = wav.getframerate()
+        if wav.getnchannels() != 1 or wav.getsampwidth() != 2 or not 8000 <= rate <= 48000:
+            raise ValueError("Formato audio non supportato")
+        if not 0 < wav.getnframes() / rate <= 20:
+            raise ValueError("Registra un comando di massimo 20 secondi")
+    with _model_lock:
+        return transcribe(decode_audio(io.BytesIO(raw), sampling_rate=SAMPLE_RATE))
 
 
 def record_until_silence() -> np.ndarray:
@@ -129,6 +159,11 @@ _VAD_PARAMS = {"min_silence_duration_ms": 500}
 
 
 def transcribe(audio: np.ndarray, language: str = "it") -> str:
+    with _model_lock:
+        return _transcribe(audio, language)
+
+
+def _transcribe(audio: np.ndarray, language: str = "it") -> str:
     # record_until_silence() restituisce PCM int16 grezzo, ma faster-whisper
     # vuole float32 in [-1, 1]: da quando vad_filter=True (2026-09-15) il VAD
     # silero rifiutava l'int16 con "[ONNXRuntimeError] ... Unexpected input
@@ -145,6 +180,11 @@ def transcribe(audio: np.ndarray, language: str = "it") -> str:
 
 
 def transcribe_file(path: str, language: str = "it") -> str:
+    with _model_lock:
+        return _transcribe_file(path, language)
+
+
+def _transcribe_file(path: str, language: str = "it") -> str:
     """Come transcribe(), ma da un file audio su disco (webm/ogg/mp3/wav...)
     invece che da un array registrato dal microfono nativo — usata per
     l'audio caricato dal mic del dashboard web (MediaRecorder del browser,

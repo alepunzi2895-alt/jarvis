@@ -908,3 +908,7 @@ header::after {
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+/* Collegamento privato: stato e interruzione sempre vicini alla console. */
+.live-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 8px 12px; border-bottom: 1px solid #2b3545; }
+.live-controls span { flex: 1 1 150px; font-size: 12px; color: #a7bfdc; }
+.live-controls button { min-height: 44px; padding: 8px 12px; border: 1px solid #3d5270; border-radius: 8px; color: #e0ecff; background: #142033; cursor: pointer; }

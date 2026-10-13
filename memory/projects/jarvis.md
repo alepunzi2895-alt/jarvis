@@ -754,3 +754,50 @@ iPhone-PC con trascrittore caldo/GPU compatibile, streaming Claude e audio
 per frasi sul dispositivo chiamante. Ora la dashboard usa messages.create
 e riproduce il TTS sul PC: lo streaming del daemon nativo non è quello web.
 Nessuna modifica a driver, STT provider o instradamento audio in questo branch.
+
+## Collegamento privato voce attivo (2026-10-13)
+
+Su «fai tutto committa e pusha», implementato `core/live_server.py` con
+WebSocket autenticato, STT locale gia' caldo e audio delle risposte sul
+dispositivo chiamante. Dashboard privata Tailscale Serve HTTPS, bind solo
+loopback 8765; porta privata 8443. Tailscale installato e PC collegato;
+Alessandro conferma di vedere `tl0352132` nell'app iPhone. Il link iniziale
+di login dava 403 sull'iPhone, ma la rete PC era gia' attiva: usare l'URL
+dashboard, non il link di associazione.
+
+URL locale a questa macchina: https://tl0352132.tail18e3c0.ts.net:8443/ .
+Password separata nel file ignorato `.live-password`; config ignorata
+`.live-config.json`. `setup_live.ps1 -Start` registra LiveBridge nascosto
+all'accesso Windows e AudioCleanup ogni 5 minuti. `uninstall_live.ps1`
+rimuove i due task senza terminare processi o eliminare dati.
+
+Audio in ingresso solo in RAM, nessun passaggio Vercel/Turso e nessun
+fallback cloud. Testo/immagini esplicite continuano verso Anthropic, testo
+della risposta verso edge-tts; second brain mantiene i log testuali esistenti.
+Haiku (`JARVIS_VOICE_MODEL`) con gli stessi tool, streaming per frasi, coda
+TTS limitata, Stop/disconnessione scartano audio obsoleto. Rumore non
+interrompe comandi validi. Contesto preparato ogni minuto, history privata
+in RAM, nessuna scrittura allo state.json del bot. Trading conserva il CLI.
+
+Login HTTPS/cookie Secure, WebSocket reale e STT caldo verificati sul PC.
+Prova sintetica CPU small: ~2,05-2,25 s di STT; Haiku su una domanda breve
+1,66 s al primo testo e 5,49 s al primo MP3 completo (TTS incluso, STT
+escluso). Non e' una misura su iPhone fisico e NON e' quasi istantaneo.
+Driver NVIDIA 517.13 ancora incompatibile con CUDA installato; nessun
+driver sostituito. Il fallback CPU funziona. Serve upgrade driver/runtime
+compatibile e misurazione con voce reale prima di promettere meno di 1 s.
+
+Gli audio Turso erano risaliti a 10 con il vecchio bridge ancora in memoria:
+ripuliti a 5 e verificato AudioCleanup con LastTaskResult=0. I pending/running
+sono preservati. LiveBridge riavviato dopo chiusura manuale del vecchio PID
+38936 da parte di Alessandro: Stop-ScheduledTask aveva lasciato il figlio
+Python vivo. Bot/VoiceDaemon precedenti non terminati.
+
+Verifica: 380 test della suite completa, piu' regressione aggiuntiva dello
+Stop mentre un comando sostitutivo attende la fine di un'azione OS (suite
+servizio 10/10). La cancellazione del chiamante non deve essere inghiottita
+dal cleanup del vecchio turno, altrimenti la sostituzione puo' partire dopo
+Stop. Richiesta chiusura manuale PID 13276 per caricare anche questa correzione.
+WebKit sul vero URL HTTPS: login, stato voce pronta e logout verificati senza
+errori JavaScript; il microfono hardware non e' disponibile nell'emulatore
+Windows e resta da provare sull'iPhone fisico.

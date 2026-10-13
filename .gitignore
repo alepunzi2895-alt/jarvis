@@ -1,4 +1,6 @@
 .env
+.live-password
+.live-config.json
 .venv/
 state.json
 __pycache__/

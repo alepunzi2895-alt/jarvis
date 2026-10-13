@@ -673,7 +673,9 @@ def _cached_system_blocks(system_prompt: str) -> list[dict]:
 
 
 async def _run_claude_api(
-    prompt: str, ws: str, cwd: str, image_b64: str | None, channel: str
+    prompt: str, ws: str, cwd: str, image_b64: str | None, channel: str,
+    *, on_sentence=None, history_store=None, context_prefix: str | None = None,
+    model: str | None = None,
 ) -> tuple[str, None, float]:
     """Motore di default per testo/Telegram/dashboard: API Anthropic diretta
     con tool reali (vedi TOOLS/_execute_tool sopra) invece del processo CLI.
@@ -682,22 +684,40 @@ async def _run_claude_api(
     e Claude non ha comunque bisogno di rivedere il proprio ragionamento
     passato, solo l'esito conversazionale."""
     client = _get_api_client()
-    system_prompt = await _build_context_prefix(ws)
+    request_model = model or API_MODEL
+    system_prompt = context_prefix if context_prefix is not None else await _build_context_prefix(ws)
     if channel == "voice":
         system_prompt = f"{system_prompt}\n\n{persona.PERSONA}"
 
     user_content = await _build_user_content(prompt, image_b64)
-    history = _trim_history(list(state["api_sessions"].get(ws) or []))
+    sessions = state["api_sessions"] if history_store is None else history_store
+    history = _trim_history(list(sessions.get(ws) or []))
     messages = [*history, {"role": "user", "content": user_content}]
 
     in_tokens = out_tokens = 0
     final_text = "(nessun output)"
+    spoken_final = ""
 
     system_blocks = _cached_system_blocks(system_prompt)
     for _ in range(MAX_TOOL_TURNS):
-        response = await client.messages.create(
-            model=API_MODEL, max_tokens=8000, system=system_blocks, tools=TOOLS, messages=messages,
-        )
+        kwargs = dict(model=request_model, max_tokens=8000, system=system_blocks, tools=TOOLS, messages=messages)
+        if on_sentence:
+            from core.voice.streaming import SentenceBuffer
+
+            sentences = SentenceBuffer()
+            emitted = []
+            async with client.messages.stream(**kwargs) as stream:
+                async for delta in stream.text_stream:
+                    for sentence in sentences.feed(delta):
+                        emitted.append(sentence)
+                        await on_sentence(sentence)
+                response = await stream.get_final_message()
+            for sentence in sentences.finish():
+                emitted.append(sentence)
+                await on_sentence(sentence)
+            spoken_final = " ".join(emitted)
+        else:
+            response = await client.messages.create(**kwargs)
         usage = response.usage
         # Token equivalenti a prezzo pieno: scrittura cache 1,25x, lettura 0,1x.
         in_tokens += (
@@ -716,7 +736,11 @@ async def _run_claude_api(
         for block in response.content:
             if block.type != "tool_use":
                 continue
-            result_text, is_error = _execute_tool(block.name, block.input, cwd)
+            if on_sentence:
+                from core.voice.streaming import finish_thread
+                result_text, is_error = await finish_thread(_execute_tool, block.name, block.input, cwd)
+            else:
+                result_text, is_error = _execute_tool(block.name, block.input, cwd)
             tool_results.append(
                 {"type": "tool_result", "tool_use_id": block.id, "content": result_text, "is_error": is_error}
             )
@@ -724,13 +748,26 @@ async def _run_claude_api(
     else:
         final_text = "Troppi passaggi per completare il task, mi fermo qui — riprova con una richiesta più mirata."
 
-    final_text = await _run_post_processing(final_text, ws, prompt, channel)
+    if on_sentence:
+        from core.voice.streaming import finish_work
+        final_text = await finish_work(_run_post_processing(final_text, ws, prompt, channel))
+    else:
+        final_text = await _run_post_processing(final_text, ws, prompt, channel)
+    if on_sentence:
+        # I blocchi di azione sono nascosti durante lo stream. L'esito
+        # aggiunto dal post-processing va pronunciato solo DOPO l'azione.
+        visible = " ".join(final_text.split("```", 1)[0].split())
+        if visible.startswith(spoken_final):
+            remainder = visible[len(spoken_final):].strip()
+            if remainder:
+                await on_sentence(remainder)
 
     new_history = [*history, {"role": "user", "content": user_content}, {"role": "assistant", "content": final_text}]
-    state["api_sessions"][ws] = _trim_history(new_history)
-    save_state(state)
+    sessions[ws] = _trim_history(new_history)
+    if history_store is None:
+        save_state(state)
 
-    in_price, out_price = _PRICING.get(API_MODEL, (0.0, 0.0))
+    in_price, out_price = _PRICING.get(request_model, (0.0, 0.0))
     cost = (in_tokens * in_price + out_tokens * out_price) / 1_000_000
     return final_text, None, cost
 
@@ -748,13 +785,15 @@ def _save_temp_image(image_b64: str) -> Path:
 
 
 async def _run_claude_cli(
-    prompt: str, ws: str, cwd: str, image_b64: str | None, channel: str
+    prompt: str, ws: str, cwd: str, image_b64: str | None, channel: str,
+    *, session_store=None,
 ) -> tuple[str, str | None, float]:
     """Lancia claude -p nel workspace indicato. Ritorna (testo, session_id, costo).
     Invariato rispetto a prima dell'introduzione del motore API — resta l'unico
     percorso per "trading" (MCP TradingView) e il ripiego manuale via
     JARVIS_TEXT_ENGINE=cli."""
-    sid = state["sessions"].get(ws)
+    sessions = state["sessions"] if session_store is None else session_store
+    sid = sessions.get(ws)
     original_prompt = prompt  # per il log second-brain: prima che venga arricchito col testo webcam/identita'
 
     image_path = None
@@ -835,14 +874,19 @@ async def _run_claude_cli(
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        out, err = await proc.communicate()
+        if session_store is not None:
+            from core.voice.streaming import finish_work
+            out, err = await finish_work(proc.communicate())
+        else:
+            out, err = await proc.communicate()
 
     try:
         if proc.returncode != 0:
             # sessione corrotta / non trovata -> resetta e riprova pulito
             if sid:
-                state["sessions"].pop(ws, None)
-                save_state(state)
+                sessions.pop(ws, None)
+                if session_store is None:
+                    save_state(state)
                 return ("Sessione scaduta. Riprova.", None, 0.0)
             return (f"Errore claude:\n{err.decode(errors='replace')[:1500]}", None, 0.0)
 
@@ -856,10 +900,15 @@ async def _run_claude_cli(
         cost = float(data.get("total_cost_usd") or 0)
 
         if new_sid:
-            state["sessions"][ws] = new_sid
-            save_state(state)
+            sessions[ws] = new_sid
+            if session_store is None:
+                save_state(state)
 
-        text = await _run_post_processing(text, ws, original_prompt, channel)
+        if session_store is not None:
+            from core.voice.streaming import finish_work
+            text = await finish_work(_run_post_processing(text, ws, original_prompt, channel))
+        else:
+            text = await _run_post_processing(text, ws, original_prompt, channel)
 
         return (text, new_sid, cost)
     finally:

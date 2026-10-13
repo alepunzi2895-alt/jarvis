@@ -21,6 +21,7 @@ window.failPermission = false;
 window.micAvailable = true;
 window.lockHeld = false;
 window.fakeNodes = [];
+window.playedSources = [];
 window.fakeTrack = {stop() { window.captureStopped++; }};
 const stream = {getTracks: () => [fakeTrack], getAudioTracks: () => [fakeTrack]};
 Object.defineProperty(navigator, 'mediaDevices', {value: {
@@ -46,6 +47,24 @@ window.AudioContext = class {
   createMediaStreamSource() { return node(); }
   createScriptProcessor() { const n = node(); fakeNodes.push(n); return n; }
   createGain() { return node(); }
+  createBuffer() { return {}; }
+  decodeAudioData() { return Promise.resolve({duration: 1}); }
+  createBufferSource() { const source = {...node(), start() { playedSources.push(this); }, stop() { this.stopped = true; }}; return source; }
+};
+"""
+
+DIRECT_STUB = """
+window.JARVIS_LOCAL = true;
+window.liveMessages = [];
+window.WebSocket = class {
+  static OPEN = 1;
+  constructor() {
+    this.readyState = 0; window.liveSocket = this;
+    setTimeout(() => { this.readyState = 1; this.onopen?.(); this.emit({type: 'ready', stt_ready: true, device: 'cpu'}); }, 0);
+  }
+  send(data) { liveMessages.push(JSON.parse(data)); }
+  emit(data) { this.onmessage?.({data: JSON.stringify(data)}); }
+  close() { this.readyState = 3; this.onclose?.(); }
 };
 """
 
@@ -59,6 +78,8 @@ def mobile_page(request):
         browser = engine.launch()
         context = browser.new_context(viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True)
         context.add_init_script(MEDIA_STUB)
+        if "direct" in request.node.name:
+            context.add_init_script(DIRECT_STUB)
         page = context.new_page()
         page.errors = []
         page.on("pageerror", lambda error: page.errors.append(str(error)))
@@ -74,7 +95,7 @@ def mobile_page(request):
                     data["task"] = {"id": "test-task", "status": "done", "prompt": "Test", "result": "Risposta locale di test"}
                 route.fulfill(json=data)
                 return
-            filenames = {"/": "index.html", "/app.js": "app.js", "/orb.js": "orb.js", "/style.css": "style.css"}
+            filenames = {"/": "index.html", "/app.js": "app.js", "/live.js": "live.js", "/orb.js": "orb.js", "/style.css": "style.css"}
             if path not in filenames:
                 route.fulfill(status=404)
                 return
@@ -215,3 +236,63 @@ def test_desktop_keeps_multiple_panels_and_rotation_selects_latest(mobile_page):
     page.set_viewport_size({"width": 390, "height": 844})
     page.wait_for_function("document.querySelectorAll('.floating-window.open').length === 1")
     assert page.locator("#win-weather").is_visible()
+
+
+def test_direct_text_stream_audio_stop_and_no_cloud_fallback(mobile_page):
+    page = mobile_page
+    uploads = []
+    page.on("request", lambda req: uploads.append(req.post_data) if req.url.endswith("/api/jarvis") else None)
+    page.locator("#console-text").fill("come stai")
+    page.locator(".send-btn").click()
+    page.wait_for_function("liveMessages.some(m => m.type === 'text')")
+    assert "resume" in page.evaluate("mediaCalls")
+    page.evaluate("""() => {
+      const id = liveMessages.find(m => m.type === 'text').id;
+      liveSocket.emit({type:'accepted', id, prompt:'come stai'});
+      liveSocket.emit({type:'sentence', id, text:'Prima frase.'});
+      liveSocket.emit({type:'audio', id, data:btoa('mp3')});
+    }""")
+    assert "Prima frase." in page.locator(".entry .result").last.inner_text()
+    page.wait_for_function("playedSources.length >= 2")
+    page.get_by_role("button", name="Stop", exact=True).click()
+    assert page.evaluate("playedSources.at(-1).stopped")
+    page.evaluate("liveSocket.close()")
+    assert not any(json.loads(body).get("action") == "task_push" for body in uploads if body)
+    assert "scollegato" in page.locator(".live-controls span").inner_text()
+
+
+def test_direct_mic_sends_wav_only_over_websocket(mobile_page):
+    page = mobile_page
+    uploads = []
+    page.on("request", lambda req: uploads.append(req.post_data) if req.url.endswith("/api/jarvis") else None)
+    page.locator("#mic-btn").click()
+    page.wait_for_function("document.querySelector('#mic-btn').getAttribute('aria-pressed') === 'true'")
+    page.evaluate("""() => {
+      const processor = fakeNodes.at(-1);
+      const feed = value => processor.onaudioprocess({inputBuffer:{getChannelData:() => new Float32Array(4096).fill(value)}});
+      for(let i=0;i<8;i++) feed(.2);
+      for(let i=0;i<10;i++) feed(0);
+    }""")
+    page.wait_for_function("liveMessages.some(m => m.type === 'audio')")
+    assert page.evaluate("liveMessages.find(m => m.type === 'audio').data.startsWith('UklGR')")
+    assert not any(json.loads(body).get("audio_b64") for body in uploads if body)
+    page.evaluate("document.dispatchEvent(new Event('visibilitychange'))")
+
+
+def test_direct_mobile_controls_fit_and_stale_audio_is_discarded(mobile_page):
+    page = mobile_page
+    page.set_viewport_size({"width": 320, "height": 568})
+    for selector in [".live-controls", "#console-text"]:
+        box = page.locator(selector).bounding_box()
+        assert box["x"] >= 0 and box["x"] + box["width"] <= 321
+    page.locator("#console-text").fill("prima")
+    page.locator(".send-btn").click()
+    page.wait_for_function("liveMessages.some(m => m.type === 'text')")
+    page.evaluate("""() => {
+      const id = liveMessages.find(m => m.type === 'text').id;
+      liveSocket.emit({type:'accepted', id, prompt:'prima'});
+    }""")
+    page.get_by_role("button", name="Stop", exact=True).click()
+    before = page.evaluate("playedSources.length")
+    page.evaluate("liveSocket.emit({type:'audio', id:liveMessages.find(m=>m.type==='text').id, data:btoa('stale')})")
+    assert page.evaluate("playedSources.length") == before

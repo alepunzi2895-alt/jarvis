@@ -270,6 +270,22 @@ class _FakeMessages:
     async def create(self, **kwargs):
         return self._responses.pop(0)
 
+    def stream(self, **kwargs):
+        response = self._responses.pop(0)
+        class Stream:
+            async def __aenter__(self): return self
+            async def __aexit__(self, *args): pass
+            @property
+            def text_stream(self):
+                async def chunks():
+                    for block in response.content:
+                        if block.type == "text":
+                            for char in block.text:
+                                yield char
+                return chunks()
+            async def get_final_message(self): return response
+        return Stream()
+
 
 class _FakeClient:
     def __init__(self, responses):
@@ -296,6 +312,34 @@ def test_run_claude_api_answers_directly_without_tools(monkeypatch):
     assert text == "Ciao Alessandro."
     assert sid is None
     assert cost > 0
+
+
+def test_streaming_preserves_tools_and_isolates_session_history(monkeypatch):
+    from unittest.mock import AsyncMock
+    tool = _FakeBlock("tool_use", id="read", name="read_file", input={"path": "readme.md"})
+    _patch_common(monkeypatch, [
+        _FakeResponse([_FakeBlock("text", text="Controllo. "), tool], "tool_use"),
+        _FakeResponse([_FakeBlock("text", text='Fatto. ```system\n{"action":"test"}\n```')], "end_turn"),
+    ])
+    calls = []
+    async def sentence(text): calls.append(text)
+    def execute(*args):
+        assert calls == ["Controllo."]
+        return "contenuto", False
+    monkeypatch.setattr(claude_bridge, "_execute_tool", execute)
+    post = AsyncMock(return_value="Fatto. Azione completata.")
+    monkeypatch.setattr(claude_bridge, "_run_post_processing", post)
+    save = MagicMock()
+    monkeypatch.setattr(claude_bridge, "save_state", save)
+    history = {}
+    result = asyncio.run(claude_bridge._run_claude_api(
+        "leggi", "jarvis", "C:\\ws", None, "voice", on_sentence=sentence,
+        context_prefix="Contesto gia pronto", history_store=history))
+    assert calls == ["Controllo.", "Fatto.", "Azione completata."]
+    assert result[0] == "Fatto. Azione completata."
+    assert history["jarvis"][-1]["content"] == result[0]
+    assert claude_bridge.state["api_sessions"] == {}
+    save.assert_not_called()
 
 
 def test_run_claude_api_executes_tool_then_answers(monkeypatch):

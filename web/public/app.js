@@ -161,7 +161,11 @@ $("#login-form").addEventListener("submit", async (e) => {
   }
 });
 
-$("#logout-btn").addEventListener("click", () => {
+$("#logout-btn").addEventListener("click", async () => {
+  if (window.JarvisDirect) {
+    window.JarvisDirect.cancel();
+    await api("logout");
+  }
   document.cookie = "jarvis_session=; Path=/; Max-Age=0";
   location.reload();
 });
@@ -259,6 +263,9 @@ async function submitTask(text, imageB64, options = {}) {
   if (options.openConsole !== false) openWindow("win-chat");
   const el = appendEntry(text);
   $("#console-text").value = "";
+  if (window.JarvisDirect) {
+    return window.JarvisDirect.submit({ type: "text", prompt: text, image_b64: imageB64 }, el);
+  }
   try {
     // Niente piu' "workspace" dal client — il bridge locale lo rileva da
     // solo dal testo (core/claude_bridge.py::detect_workspace).
@@ -516,6 +523,7 @@ function setupVoice() {
   }
 
   async function arm() {
+    window.JarvisDirect?.unlock();
     if (armed || arming) return;
     const token = ++attempt;
     arming = true;
@@ -701,6 +709,9 @@ async function handleRecordedAudio(blob) {
 async function submitTaskAudio(audioB64) {
   openWindow("win-chat");
   const el = appendEntry("🎙️ (trascrizione in corso…)");
+  if (window.JarvisDirect) {
+    return window.JarvisDirect.submit({ type: "audio", data: audioB64 }, el);
+  }
   try {
     const { task_id } = await api("task_push", { audio_b64: audioB64 });
     setOrbState("thinking");
@@ -1379,6 +1390,10 @@ function setOrbAlert(durationMs = 2500) {
 }
 
 async function pollSpeakingStatus() {
+  if (window.JarvisDirect) {
+    botSpeaking = window.JarvisDirect.speaking;
+    return;
+  }
   try {
     const { speaking } = await api("runtime_status");
     botSpeaking = !!speaking;
@@ -1410,6 +1425,7 @@ async function boot() {
   $("#login-screen").style.display = "none";
   $("#app").classList.add("visible");
   _bootStep("viewport", setupViewport);
+  _bootStep("direct-voice", () => window.JarvisDirect?.start());
   _bootStep("orb", () => {
     window.JarvisOrb = window.createJarvisOrb($("#orb-canvas"));
     if (!compactLayout.matches && !document.hidden) window.JarvisOrb.start();
