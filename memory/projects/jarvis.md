@@ -729,6 +729,28 @@ Claude via API diretta risponde in 1,2-1,6 s: non e' il collo di bottiglia.
 Il tempo va in whisper su CPU (4-5 s a frase, small), poll coda, contesto
 meteo+brain (1,4 s) e TTS. Applicati: whisper 8 thread + beam 5, poll 1 s,
 prompt caching (input -68%), retry edge-tts sul 403 casuale (workaround).
-Blocco principale rimasto: GPU T1200 inutilizzabile con driver 517.13
-(CUDA 11.7, serve >= 527 per CUDA 12) — con GPU large-v3-turbo darebbe
-precisione ~0,4% WER, stimato sotto il secondo (non misurato) invece di 17 s su CPU.
+Blocco principale rimasto: GPU T1200 inutilizzabile con driver 517.13 e
+runtime attuale. Verificare insieme driver, CUDA/cuBLAS e cuDNN compatibili.
+Il WER riportato sopra riguarda un benchmark sintetico, non la voce reale
+di Alessandro. Latenza e precisione sulla T1200 non sono state misurate:
+non promettere large-v3-turbo sotto il secondo, soprattutto con 4 GB VRAM.
+
+## iPhone e percorso a bassa latenza (2026-10-13)
+
+Alessandro ha scelto la trascrizione locale sul PC, non un provider STT
+cloud. Attenzione: attualmente gli audio della dashboard passano comunque
+da Vercel/Turso; per mantenerli solo sui dispositivi serve un collegamento
+diretto autenticato e cifrato. Claude via API resta il motore delle risposte.
+
+Branch `codex/ios-local-voice`: layout mobile a pannello singolo, safe area,
+tastiera via visualViewport, controlli 44 px, dock scorrevole, microfono su
+tap, resume AudioContext nel gesto utente, annullamento permessi/interruzioni
+senza riaccensione tardiva. Silenzio browser ridotto da 1200 a 800 ms.
+Animazione orb fermata su mobile/background. 18 test Chromium/WebKit con
+API e media simulati passati; non verificato su iPhone fisico.
+
+Per il quasi immediato resta da implementare il percorso persistente
+iPhone-PC con trascrittore caldo/GPU compatibile, streaming Claude e audio
+per frasi sul dispositivo chiamante. Ora la dashboard usa messages.create
+e riproduce il TTS sul PC: lo streaming del daemon nativo non è quello web.
+Nessuna modifica a driver, STT provider o instradamento audio in questo branch.

@@ -54,6 +54,30 @@ body::after {
 button {
   font-family: inherit;
   cursor: pointer;
+  touch-action: manipulation;
+}
+
+input { font-family: inherit; }
+
+button:focus-visible, input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.voice-status {
+  position: absolute;
+  bottom: 84px;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: calc(100% - 24px);
+  margin: 0;
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: var(--page);
+  color: var(--text-secondary);
+  font-size: 12px;
+  text-align: center;
+  z-index: 95;
 }
 
 /* ── Corner-frame utility (HUD bracket chrome) ─────────────────────── */
@@ -801,4 +825,86 @@ header::after {
   border-radius: 8px;
   background: radial-gradient(circle at 50% 40%, rgba(57, 135, 229, 0.05), transparent 65%);
   cursor: grab;
+}
+
+/* iPhone / tablet: un pannello alla volta, tastiera e safe area incluse. */
+@media (max-width: 860px) {
+  html, body { overflow: hidden; overscroll-behavior: none; }
+  #app {
+    height: 100dvh;
+    height: var(--app-height, 100dvh);
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+  #app > header { flex: 0 0 auto; padding: 4px 16px; gap: 10px; }
+  .header-clock { display: block; font-size: 12px; }
+  .logout-btn { min-width: 44px; min-height: 44px; }
+  .hud-mini, .hud-dots, .hud-stage::before, .hud-stage::after { display: none; }
+  body::after { display: none; }
+  .hud-stage { margin: 8px 12px 0; }
+  .floating-window, .floating-window.open {
+    top: 0;
+    left: 0;
+    transform: none;
+    width: 100% !important; /* prevale anche sulle dimensioni trascinate da desktop */
+    height: 100% !important;
+    min-width: 0;
+    min-height: 0;
+    max-width: none;
+    max-height: none;
+    clip-path: none;
+    resize: none;
+    display: none;
+    box-shadow: none;
+  }
+  .floating-window.open { display: flex; }
+  .fw-header { padding: 2px 8px 2px 16px; cursor: default; touch-action: auto; }
+  .fw-header:active { cursor: default; }
+  .fw-header::after, header::after { animation: none; }
+  .fw-title { font-size: 12px; }
+  .fw-close { min-width: 44px; min-height: 44px; }
+  .fw-body { overscroll-behavior: contain; }
+  .fw-body--console { min-height: 0; }
+  .console-log { min-height: 0; max-height: none; padding: 16px; overflow-wrap: anywhere; }
+  .console-input { flex: 0 0 auto; padding: 10px; }
+  .console-input input, .camera-ask-form input, .login-card input {
+    font-size: 16px; /* evita lo zoom automatico al focus in Safari iOS */
+    min-width: 0;
+  }
+  .send-btn, .camera-btn, .camera-ask-form button { min-width: 44px; min-height: 44px; }
+  #camera-video { max-height: 40dvh; object-fit: contain; }
+  #brain-canvas { min-height: 180px; }
+  .voice-status {
+    position: static;
+    transform: none;
+    align-self: center;
+    flex-shrink: 0;
+    min-height: 32px;
+    padding: 8px 4px;
+    font-size: 12px;
+  }
+  .dock {
+    position: relative;
+    bottom: auto;
+    left: auto;
+    transform: none;
+    margin: 0 12px 8px;
+    flex: 0 0 auto;
+    min-height: 60px;
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 7px;
+    gap: 6px;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: thin;
+    background-color: var(--surface-1);
+  }
+  .dock-btn, .mic-btn { width: 44px; height: 44px; }
+  .mic-btn { position: sticky; left: 0; z-index: 1; background-color: var(--page); }
+  .mic-btn.listening { background-color: #351a1a; }
+  #login-screen { min-height: 100dvh; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
 }

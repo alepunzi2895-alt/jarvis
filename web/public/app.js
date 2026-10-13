@@ -1,6 +1,28 @@
 // JARVIS dashboard — app.js (vanilla, nessun framework)
 
 const $ = (sel) => document.querySelector(sel);
+const compactLayout = window.matchMedia("(max-width: 860px)");
+const touchDevice = window.matchMedia("(pointer: coarse)").matches;
+
+function setupViewport() {
+  const resize = () => {
+    const viewport = window.visualViewport;
+    // Non contrastare lo zoom di accessibilita'. La tastiera iOS riduce
+    // visualViewport, ma non necessariamente 100vh.
+    if (!viewport || viewport.scale === 1) {
+      document.documentElement.style.setProperty("--app-height", `${viewport?.height || window.innerHeight}px`);
+    }
+  };
+  resize();
+  window.visualViewport?.addEventListener("resize", resize);
+  window.addEventListener("resize", resize);
+  const syncAnimation = () => {
+    if (document.hidden || compactLayout.matches) window.JarvisOrb?.stop();
+    else window.JarvisOrb?.start();
+  };
+  compactLayout.addEventListener("change", syncAnimation);
+  document.addEventListener("visibilitychange", syncAnimation);
+}
 
 async function api(action, body = {}) {
   const r = await fetch("/api/jarvis", {
@@ -28,10 +50,17 @@ function dockBtnFor(id) {
 
 function openWindow(id) {
   const win = document.getElementById(id);
-  if (!win || win.classList.contains("open")) return;
+  if (!win) return;
+  if (compactLayout.matches) {
+    document.querySelectorAll(".floating-window.open").forEach((other) => {
+      if (other !== win) closeWindow(other.id);
+    });
+  }
+  if (win.classList.contains("open")) return;
   win.classList.add("open");
   bringToFront(win);
   dockBtnFor(id)?.classList.add("open");
+  dockBtnFor(id)?.setAttribute("aria-pressed", "true");
   if (id === "win-brain") startBrainGraph();
   if (id === "win-camera") startCamera();
 }
@@ -41,6 +70,7 @@ function closeWindow(id) {
   if (!win || !win.classList.contains("open")) return;
   win.classList.remove("open");
   dockBtnFor(id)?.classList.remove("open");
+  dockBtnFor(id)?.setAttribute("aria-pressed", "false");
   if (id === "win-brain") stopBrainGraph();
   if (id === "win-camera") stopCamera();
 }
@@ -58,6 +88,7 @@ function makeDraggable(win) {
   let startX = 0, startY = 0, origX = 0, origY = 0;
 
   header.addEventListener("pointerdown", (e) => {
+    if (compactLayout.matches) return;
     if (e.target.closest(".fw-close")) return;
     dragging = true;
     bringToFront(win);
@@ -78,11 +109,21 @@ function makeDraggable(win) {
 }
 
 function setupWindows() {
+  const fitPanels = () => {
+    if (!compactLayout.matches) return;
+    const panels = [...document.querySelectorAll(".floating-window.open")];
+    panels.sort((a, b) => Number(b.style.zIndex) - Number(a.style.zIndex));
+    if (panels[0]) openWindow(panels[0].id);
+  };
+  compactLayout.addEventListener("change", fitPanels);
   document.querySelectorAll(".floating-window").forEach((win) => {
     makeDraggable(win);
     bringToFront(win);
   });
   document.querySelectorAll(".dock-btn").forEach((btn) => {
+    btn.setAttribute("aria-label", btn.title);
+    btn.setAttribute("aria-controls", btn.dataset.toggle);
+    btn.setAttribute("aria-pressed", String(btn.classList.contains("open")));
     btn.addEventListener("click", () => {
       const id = btn.dataset.toggle;
       const wasOpen = document.getElementById(id)?.classList.contains("open");
@@ -95,12 +136,16 @@ function setupWindows() {
       // dashboard. Solo sull'APERTURA manuale (non alla chiusura, e non
       // quando l'apertura e' gia' un effetto collaterale di una domanda
       // vocale completa - vedi handleVoiceUiCommand, che non passa da qui).
-      if (id === "win-projects" && !wasOpen) submitTask("come vanno i progetti?");
+      if (id === "win-projects" && !wasOpen) {
+        submitTask("come vanno i progetti?", undefined, { openConsole: !compactLayout.matches });
+      }
     });
   });
   document.querySelectorAll(".fw-close").forEach((btn) => {
+    btn.setAttribute("aria-label", "Chiudi pannello");
     btn.addEventListener("click", () => closeWindow(btn.dataset.close));
   });
+  fitPanels();
 }
 
 // ── Login ────────────────────────────────────────────────────────────
@@ -209,9 +254,9 @@ async function pollTask(taskId, el) {
   fillEntry(el, { status: "error", result: "Timeout: nessuna risposta dal bridge locale." });
 }
 
-async function submitTask(text, imageB64) {
+async function submitTask(text, imageB64, options = {}) {
   if (!text.trim()) return;
-  openWindow("win-chat");
+  if (options.openConsole !== false) openWindow("win-chat");
   const el = appendEntry(text);
   $("#console-text").value = "";
   try {
@@ -335,7 +380,7 @@ function handleVoiceUiCommand(text) {
 // blip) prima di considerarlo davvero l'inizio di una frase.
 const MIC_SILENCE_RMS = 0.06; // scala -1..1 (PCM float32 vero, non più byte 0-255)
 const MIC_ONSET_SUSTAIN_MS = 200; // il suono deve restare sopra soglia per questo tratto continuo prima di far scattare la registrazione
-const MIC_SILENCE_HANG_MS = 1200; // stessa soglia di core/voice/stt.py::SILENCE_HANG_MS
+const MIC_SILENCE_HANG_MS = 800; // allineato al default del daemon locale
 const MIC_MAX_RECORD_MS = 15000;
 const MIC_PREROLL_MS = 400; // audio tenuto PRIMA del rilevamento voce, cosi' l'inizio non si taglia mai
 const MIC_MIN_SEGMENT_MS = 300; // sotto questa durata e' rumore/click, scartato
@@ -397,15 +442,20 @@ function _encodeWav(samples, sampleRate) {
 
 function setupVoice() {
   const micBtn = $("#mic-btn");
+  function showMicStatus(message) {
+    micBtn.title = message;
+    micBtn.setAttribute("aria-label", message);
+    $("#voice-status").textContent = message;
+  }
   if (!navigator.mediaDevices || !(window.AudioContext || window.webkitAudioContext)) {
     micBtn.disabled = true;
-    micBtn.title = "Registrazione audio non supportata in questo browser";
+    showMicStatus("Microfono non disponibile: apri JARVIS in HTTPS su Safari o Chrome");
     return;
   }
 
-  const OFF_TITLE = 'Ascolto in pausa — clicca per riattivare (di\' "Jarvis" + comando)';
-  const ON_TITLE = 'Ascolto a mani libere attivo — di\' "Jarvis" + comando — clicca per silenziare';
-  micBtn.title = ON_TITLE;
+  const OFF_TITLE = 'Tocca il microfono, poi di’ “Jarvis” e il comando';
+  const ON_TITLE = 'Ti ascolto · di’ “Jarvis” e il comando';
+  showMicStatus(OFF_TITLE);
 
   let armed = false;
   let stream = null;
@@ -443,21 +493,20 @@ function setupVoice() {
     handleRecordedAudio(_encodeWav(samples, audioCtx.sampleRate));
   }
 
-  // Una sola scheda JARVIS per browser tiene il microfono. Con due schede
-  // aperte ogni frase arrivava al bridge due volte (verificato in Turso il
-  // 2026-10-12: segmenti audio a coppie, stesso secondo): doppio lavoro per
-  // whisper su CPU e coda piu' lenta. Le altre schede aspettano il turno e
-  // subentrano da sole quando quella attiva si chiude o silenzia il mic.
+  // Non accodare un'attivazione: su iOS perderebbe il gesto utente,
+  // e potrebbe accendere il mic molto dopo il tap che l'ha richiesta.
   let arming = false;
+  let attempt = 0;
   let releaseMicLock = null;
 
-  function acquireMicLock() {
-    if (!navigator.locks) return Promise.resolve();
-    return new Promise((resolve) => {
-      navigator.locks.request("jarvis-mic", () => {
-        resolve();
+  function acquireMicLock(token) {
+    if (!navigator.locks) return Promise.resolve(true);
+    return new Promise((resolve, reject) => {
+      navigator.locks.request("jarvis-mic", { ifAvailable: true }, (lock) => {
+        if (!lock || token !== attempt) { resolve(false); return; }
+        resolve(true);
         return new Promise((release) => { releaseMicLock = release; });
-      });
+      }).catch(reject);
     });
   }
 
@@ -468,141 +517,175 @@ function setupVoice() {
 
   async function arm() {
     if (armed || arming) return;
+    const token = ++attempt;
     arming = true;
-    micBtn.title = "In attesa: il microfono e' gia' in ascolto in un'altra scheda JARVIS";
+    showMicStatus("Attivazione microfono… Tocca di nuovo per annullare");
     try {
-      await acquireMicLock();
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    } catch {
-      freeMicLock();
-      micBtn.title = "Microfono non autorizzato dal browser";
-      return;
-    } finally {
-      arming = false;
-    }
-
-    armed = true;
-    micBtn.classList.add("listening");
-    micBtn.title = ON_TITLE;
-    prerollChunks = [];
-    prerollMs = 0;
-    segmentChunks = [];
-    segmentMs = 0;
-    silenceMs = 0;
-    onsetCandidateMs = 0;
-    hitMaxDuration = false;
-    recording = false;
-
-    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    const source = audioCtx.createMediaStreamSource(stream);
-    // ScriptProcessorNode e' deprecato ma universalmente supportato — per un
-    // singolo tool interno non serve il carico in piu' di un AudioWorklet
-    // (un file JS separato solo per questo). Va comunque collegato a una
-    // destinazione per essere eseguito in alcuni browser: un GainNode a
-    // volume zero lo tiene "vivo" senza mandare l'audio agli altoparlanti
-    // (altrimenti si sentirebbe un eco del proprio microfono).
-    processor = audioCtx.createScriptProcessor(4096, 1, 1);
-    silentSink = audioCtx.createGain();
-    silentSink.gain.value = 0;
-    source.connect(processor);
-    processor.connect(silentSink);
-    silentSink.connect(audioCtx.destination);
-
-    processor.onaudioprocess = (e) => {
-      const data = e.inputBuffer.getChannelData(0).slice(); // copia: il buffer sorgente viene riusato dal browser
-      const chunkMs = _chunkMs(data);
-      const rms = _pcmRms(data);
-
-      // JARVIS sta parlando dagli altoparlanti del PC (processo Python
-      // separato, non nel browser) — il mic normalmente tace del tutto per
-      // non risentirsi da solo, MA con una soglia molto piu' alta (e un
-      // debounce piu' lungo) resta possibile interromperlo dicendo "hey
-      // jarvis" chiaramente sopra l'eco del proprio parlato (barge-in,
-      // 2026-09-15). Niente pre-buffer in questa modalita': prima della
-      // soglia c'e' solo l'eco di JARVIS, non ha senso includerlo.
-      const silenceThreshold = botSpeaking ? MIC_INTERRUPT_RMS : MIC_SILENCE_RMS;
-      const onsetSustainNeeded = botSpeaking ? MIC_INTERRUPT_ONSET_SUSTAIN_MS : MIC_ONSET_SUSTAIN_MS;
-      const speaking = rms > silenceThreshold;
-
-      if (!recording) {
-        if (!botSpeaking) {
-          prerollChunks.push(data);
-          prerollMs += chunkMs;
-          while (prerollChunks.length > 1 && prerollMs - _chunkMs(prerollChunks[0]) >= MIC_PREROLL_MS) {
-            prerollMs -= _chunkMs(prerollChunks.shift());
-          }
-        } else if (prerollChunks.length) {
-          // Non usato in questa modalita': tenerlo svuotato evita che audio
-          // "vecchio" (da prima che JARVIS iniziasse a parlare) venga
-          // riesumato come pre-buffer quando torna in ascolto normale.
-          prerollChunks = [];
-          prerollMs = 0;
-        }
-        // Debounce: un singolo blip sopra soglia (click, colpo di tosse breve,
-        // spike isolato dell'eco) non deve far scattare una registrazione
-        // intera — deve restare sopra soglia con continuita' per il tratto
-        // minimo richiesto in questa modalita'.
-        onsetCandidateMs = speaking ? onsetCandidateMs + chunkMs : 0;
-        if (onsetCandidateMs >= onsetSustainNeeded) {
-          recording = true;
-          segmentChunks = botSpeaking ? [data] : prerollChunks; // pre-buffer solo a mic normale
-          segmentMs = botSpeaking ? chunkMs : prerollMs;
-          silenceMs = 0;
-          onsetCandidateMs = 0;
-          prerollChunks = [];
-          prerollMs = 0;
-          setOrbState("listening");
-        }
+      // Creazione e resume devono iniziare NEL gesto utente, prima dei
+      // permessi asincroni. Safari altrimenti lascia il contesto sospeso.
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      audioCtx = ctx;
+      ctx.resume().catch(() => {});
+      const acquired = await acquireMicLock(token);
+      if (token !== attempt) return;
+      if (!acquired) {
+        disarm(false, "Microfono attivo in un’altra scheda. Chiudila e riprova.");
         return;
       }
+      const requestedStream = await navigator.mediaDevices.getUserMedia({
+        audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      });
+      if (token !== attempt) {
+        requestedStream.getTracks().forEach((track) => track.stop());
+        return;
+      }
+      stream = requestedStream;
+      if (ctx.state !== "running") {
+        disarm(false, "Tocca il microfono per riattivare l’audio");
+        return;
+      }
+      arming = false;
 
-      segmentChunks.push(data);
-      segmentMs += chunkMs;
-      window.JarvisOrb?.setLevel(rms * 2.5); // reagisce al volume vero mentre registra
-      if (speaking) {
-        silenceMs = 0;
-      } else {
-        silenceMs += chunkMs;
-      }
-      if (silenceMs >= MIC_SILENCE_HANG_MS) {
-        finalizeSegment();
-      } else if (segmentMs >= MIC_MAX_RECORD_MS) {
-        hitMaxDuration = true;
-        finalizeSegment();
-      }
-    };
+      armed = true;
+      micBtn.classList.add("listening");
+      micBtn.setAttribute("aria-pressed", "true");
+      showMicStatus(ON_TITLE);
+      prerollChunks = [];
+      prerollMs = 0;
+      segmentChunks = [];
+      segmentMs = 0;
+      silenceMs = 0;
+      onsetCandidateMs = 0;
+      hitMaxDuration = false;
+      recording = false;
+
+      const source = audioCtx.createMediaStreamSource(stream);
+      // ScriptProcessorNode e' deprecato ma universalmente supportato — per un
+      // singolo tool interno non serve il carico in piu' di un AudioWorklet
+      // (un file JS separato solo per questo). Va comunque collegato a una
+      // destinazione per essere eseguito in alcuni browser: un GainNode a
+      // volume zero lo tiene "vivo" senza mandare l'audio agli altoparlanti
+      // (altrimenti si sentirebbe un eco del proprio microfono).
+      processor = audioCtx.createScriptProcessor(4096, 1, 1);
+      silentSink = audioCtx.createGain();
+      silentSink.gain.value = 0;
+      source.connect(processor);
+      processor.connect(silentSink);
+      silentSink.connect(audioCtx.destination);
+      ctx.onstatechange = () => {
+        if (armed && ctx.state !== "running") disarm(false, "Audio interrotto · tocca il microfono per riprendere");
+      };
+      stream.getAudioTracks().forEach((track) => {
+        track.onended = () => disarm(false, "Microfono scollegato · tocca per riprovare");
+      });
+
+      processor.onaudioprocess = (e) => {
+        if (!armed) return;
+        const data = e.inputBuffer.getChannelData(0).slice(); // copia: il buffer sorgente viene riusato dal browser
+        const chunkMs = _chunkMs(data);
+        const rms = _pcmRms(data);
+
+        // JARVIS sta parlando dagli altoparlanti del PC (processo Python
+        // separato, non nel browser) — il mic normalmente tace del tutto per
+        // non risentirsi da solo, MA con una soglia molto piu' alta (e un
+        // debounce piu' lungo) resta possibile interromperlo dicendo "hey
+        // jarvis" chiaramente sopra l'eco del proprio parlato (barge-in,
+        // 2026-09-15). Niente pre-buffer in questa modalita': prima della
+        // soglia c'e' solo l'eco di JARVIS, non ha senso includerlo.
+        const silenceThreshold = botSpeaking ? MIC_INTERRUPT_RMS : MIC_SILENCE_RMS;
+        const onsetSustainNeeded = botSpeaking ? MIC_INTERRUPT_ONSET_SUSTAIN_MS : MIC_ONSET_SUSTAIN_MS;
+        const speaking = rms > silenceThreshold;
+
+        if (!recording) {
+          if (!botSpeaking) {
+            prerollChunks.push(data);
+            prerollMs += chunkMs;
+            while (prerollChunks.length > 1 && prerollMs - _chunkMs(prerollChunks[0]) >= MIC_PREROLL_MS) {
+              prerollMs -= _chunkMs(prerollChunks.shift());
+            }
+          } else if (prerollChunks.length) {
+            // Non usato in questa modalita': tenerlo svuotato evita che audio
+            // "vecchio" (da prima che JARVIS iniziasse a parlare) venga
+            // riesumato come pre-buffer quando torna in ascolto normale.
+            prerollChunks = [];
+            prerollMs = 0;
+          }
+          // Debounce: un singolo blip sopra soglia (click, colpo di tosse breve,
+          // spike isolato dell'eco) non deve far scattare una registrazione
+          // intera — deve restare sopra soglia con continuita' per il tratto
+          // minimo richiesto in questa modalita'.
+          onsetCandidateMs = speaking ? onsetCandidateMs + chunkMs : 0;
+          if (onsetCandidateMs >= onsetSustainNeeded) {
+            recording = true;
+            segmentChunks = botSpeaking ? [data] : prerollChunks; // pre-buffer solo a mic normale
+            segmentMs = botSpeaking ? chunkMs : prerollMs;
+            silenceMs = 0;
+            onsetCandidateMs = 0;
+            prerollChunks = [];
+            prerollMs = 0;
+            setOrbState("listening");
+          }
+          return;
+        }
+
+        segmentChunks.push(data);
+        segmentMs += chunkMs;
+        window.JarvisOrb?.setLevel(rms * 2.5); // reagisce al volume vero mentre registra
+        if (speaking) {
+          silenceMs = 0;
+        } else {
+          silenceMs += chunkMs;
+        }
+        if (silenceMs >= MIC_SILENCE_HANG_MS) {
+          finalizeSegment();
+        } else if (segmentMs >= MIC_MAX_RECORD_MS) {
+          hitMaxDuration = true;
+          finalizeSegment();
+        }
+      };
+    } catch (error) {
+      if (token !== attempt) return;
+      const message = error.name === "NotAllowedError"
+        ? "Consenti il microfono nelle impostazioni del sito, poi riprova"
+        : "Microfono non disponibile · tocca per riprovare";
+      disarm(false, message);
+    }
   }
 
-  function disarm() {
-    if (!armed) return;
+  function disarm(submit = true, message = OFF_TITLE) {
+    ++attempt; // invalida anche una richiesta permessi ancora in corso
+    if (submit && armed && recording) finalizeSegment();
     armed = false;
-    if (recording) finalizeSegment(); // non perdere un segmento in corso quando si silenzia a mano
-    processor.disconnect();
-    silentSink.disconnect();
-    stream.getTracks().forEach((t) => t.stop());
-    audioCtx.close().catch(() => {});
+    arming = false;
+    recording = false;
+    segmentChunks = [];
+    prerollChunks = [];
+    if (processor) { processor.onaudioprocess = null; processor.disconnect(); }
+    silentSink?.disconnect();
+    stream?.getTracks().forEach((t) => { t.onended = null; t.stop(); });
+    if (audioCtx) { audioCtx.onstatechange = null; audioCtx.close().catch(() => {}); }
     stream = null;
     audioCtx = null;
     processor = null;
     silentSink = null;
     freeMicLock();
     micBtn.classList.remove("listening");
-    micBtn.title = OFF_TITLE;
+    micBtn.setAttribute("aria-pressed", "false");
+    if (orbState === "listening") setOrbState("idle");
+    showMicStatus(message);
   }
 
   micBtn.addEventListener("click", () => {
-    if (armed) disarm();
+    if (armed || arming) disarm();
     else arm();
   });
 
-  // Ascolto sempre attivo di default — niente click richiesto per iniziare
-  // a parlare/mandare messaggi (richiesta esplicita di Alessandro): il
-  // filtro "Jarvis" lato server (core/web_bridge.py::_strip_wake_word) e'
-  // gia' quello che protegge da rumore ambientale, il click resta solo
-  // come interruttore manuale per chi vuole silenziare il mic (es. per
-  // privacy). La prima volta il browser mostra comunque il permesso
-  // nativo del microfono — dopo, riparte da solo ad ogni apertura pagina.
-  arm();
+  document.addEventListener("visibilitychange", () => {
+    if (touchDevice && document.hidden) disarm(false, "Ascolto in pausa · tocca il microfono per riprendere");
+  });
+  window.addEventListener("pagehide", () => disarm(false));
+  // Desktop resta a mani libere; su telefono serve un tap esplicito.
+  if (!touchDevice) arm();
 }
 
 async function handleRecordedAudio(blob) {
@@ -1201,20 +1284,28 @@ function stopBrainGraph() {
 // Lo stream si ferma sempre quando la finestra si chiude.
 
 let cameraStream = null;
+let cameraAttempt = 0;
 
 async function startCamera() {
+  const token = ++cameraAttempt;
   const video = $("#camera-video");
   const hint = $("#camera-hint");
   try {
-    cameraStream = await navigator.mediaDevices.getUserMedia({ video: true });
+    const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+    if (token !== cameraAttempt) {
+      stream.getTracks().forEach((track) => track.stop());
+      return;
+    }
+    cameraStream = stream;
     video.srcObject = cameraStream;
     hint.textContent = "Camera attiva.";
   } catch {
-    hint.textContent = "Permesso camera negato o non disponibile.";
+    if (token === cameraAttempt) hint.textContent = "Permesso camera negato o non disponibile.";
   }
 }
 
 function stopCamera() {
+  ++cameraAttempt;
   if (cameraStream) {
     cameraStream.getTracks().forEach((t) => t.stop());
     cameraStream = null;
@@ -1318,9 +1409,10 @@ function _bootStep(label, fn) {
 async function boot() {
   $("#login-screen").style.display = "none";
   $("#app").classList.add("visible");
+  _bootStep("viewport", setupViewport);
   _bootStep("orb", () => {
     window.JarvisOrb = window.createJarvisOrb($("#orb-canvas"));
-    window.JarvisOrb.start();
+    if (!compactLayout.matches && !document.hidden) window.JarvisOrb.start();
   });
   _bootStep("voice", setupVoice);
   _bootStep("windows", setupWindows);
