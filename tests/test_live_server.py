@@ -11,6 +11,8 @@ from aiohttp.test_utils import TestClient, TestServer
 
 from core.live_server import create_app, LiveServer, COOKIE
 from core.voice.streaming import SentenceBuffer, finish_thread
+# Il server lo importa al primo audio: a freddo supera il timeout dei test WebSocket.
+import core.web_bridge  # noqa: F401
 
 
 class FakeEngine:
@@ -338,5 +340,44 @@ def test_stop_during_replacement_never_launches_waiting_command():
             assert not any(m["type"] == "accepted" and m.get("id") == "replacement" for m in events)
             assert engine.commands == ["slow"]
             assert engine.finished.is_set()
+            await socket.close()
+    asyncio.run(scenario())
+
+
+def test_text_command_supersedes_audio_still_transcribing():
+    import threading
+    async def scenario():
+        class SlowSttEngine(FakeEngine):
+            def __init__(self):
+                super().__init__()
+                self.stt_started = threading.Event()
+                self.stt_release = threading.Event()
+            def transcribe(self, raw):
+                self.stt_started.set()
+                self.stt_release.wait(3)
+                return raw.decode()
+        engine = SlowSttEngine()
+        client, server = await client_for(engine)
+        async with client:
+            await login(client)
+            socket = await client.ws_connect("/live/ws")
+            await until(socket, "ready")
+            await socket.send_json(dict(type="audio", id="late", data=base64.b64encode(b"Jarvis apri il browser").decode()))
+            while not engine.stt_started.is_set():
+                await asyncio.sleep(.01)
+            # Pulsante premuto mentre la CPU trascrive ancora rumore o voce.
+            await socket.send_json(dict(type="text", id="button", prompt="ciao"))
+            events = await until(socket, "done", "button")
+            assert not any(m["type"] == "error" for m in events)
+            assert any(m["type"] == "ignored" and m["id"] == "late" for m in events)
+            engine.stt_release.set()
+            for _ in range(100):
+                if not server.stt_lock.locked():
+                    break
+                await asyncio.sleep(.01)
+            await socket.send_json(dict(type="status"))
+            rest = await until(socket, "ready")
+            assert not any(m.get("id") == "late" for m in rest)
+            assert engine.commands == ["ciao"]
             await socket.close()
     asyncio.run(scenario())

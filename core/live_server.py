@@ -279,7 +279,7 @@ class LiveServer:
         await socket.prepare(request)
         registration = (socket, request.cookies[COOKIE])
         self.sockets.add(registration)
-        active = incoming = None
+        active = incoming = transcribing = None
         wake_until = 0
 
         async def send(kind, rid=None, **payload):
@@ -345,7 +345,7 @@ class LiveServer:
                     await cancel(speaker)
 
         async def accept(body):
-            nonlocal active, wake_until
+            nonlocal active, wake_until, transcribing
             rid = body["id"]
             started = time.monotonic()
             stt_ms = 0
@@ -358,8 +358,12 @@ class LiveServer:
                     if self.stt_lock.locked():
                         raise ValueError("Trascrizione occupata. Riprova tra poco.")
                     async with self.stt_lock:
-                        raw = base64.b64decode(body.get("data", ""), validate=True)
-                        transcript = await finish_thread(self.engine.transcribe, raw)
+                        transcribing = rid
+                        try:
+                            raw = base64.b64decode(body.get("data", ""), validate=True)
+                            transcript = await finish_thread(self.engine.transcribe, raw)
+                        finally:
+                            transcribing = None
                     stt_ms = round((time.monotonic() - started) * 1000)
                     from core.web_bridge import _strip_wake_word, _is_wake_only, WAKE_FOLLOWUP_SEC, _HALLUCINATION_PHRASES
                     prompt = _strip_wake_word(transcript)
@@ -409,7 +413,13 @@ class LiveServer:
                         continue
                     if body.get("type") not in {"audio", "text"} or not isinstance(rid, str) or not re.fullmatch(r"[\w-]{1,80}", rid):
                         raise ValueError()
-                    if incoming and not incoming.done():
+                    if incoming and not incoming.done() and body["type"] == "text" and transcribing:
+                        # Testo e pulsanti sono comandi certi: non aspettano la
+                        # trascrizione CPU di un audio (spesso rumore), che viene scartato.
+                        incoming.cancel()
+                        await send("ignored", transcribing)
+                        incoming = asyncio.create_task(accept(body))
+                    elif incoming and not incoming.done():
                         await send("error", rid, message="Sto trascrivendo il comando precedente.")
                     else:
                         incoming = asyncio.create_task(accept(body))
