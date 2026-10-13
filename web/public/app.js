@@ -12,6 +12,7 @@ function setupViewport() {
     if (!viewport || viewport.scale === 1) {
       document.documentElement.style.setProperty("--app-height", `${viewport?.height || window.innerHeight}px`);
     }
+    fitWeatherWindow();
   };
   resize();
   window.visualViewport?.addEventListener("resize", resize);
@@ -25,11 +26,19 @@ function setupViewport() {
 }
 
 async function api(action, body = {}) {
-  const r = await fetch("/api/jarvis", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ action, ...body }),
-  });
+  let r;
+  try {
+    r = await fetch("/api/jarvis", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action, ...body }),
+    });
+  } catch (error) {
+    if (!window.JarvisDirect) setConn("offline");
+    throw error;
+  }
+  // In privato conta il WebSocket, non il successo di un widget HTTP.
+  if (!window.JarvisDirect) setConn(r.ok ? "online" : "warning");
   const data = await r.json();
   if (!r.ok) throw new Error(data.error || "errore");
   return data;
@@ -63,6 +72,23 @@ function openWindow(id) {
   dockBtnFor(id)?.setAttribute("aria-pressed", "true");
   if (id === "win-brain") startBrainGraph();
   if (id === "win-camera") startCamera();
+  if (id === "win-weather") {
+    fitWeatherWindow();
+    refreshWeatherForecast();
+  }
+}
+
+function fitWeatherWindow() {
+  const win = $("#win-weather");
+  if (compactLayout.matches || !win?.classList.contains("open")) return;
+  const stage = $("#hud-stage").getBoundingClientRect();
+  const top = $("#app > header").getBoundingClientRect().bottom + 12;
+  const bottom = $(".dock").getBoundingClientRect().top - 12;
+  const height = win.offsetHeight;
+  const center = stage.top + stage.height / 2;
+  const current = center + (parseFloat(win.style.getPropertyValue("--y")) || 0);
+  const y = Math.max(top + height / 2, Math.min(current, bottom - height / 2));
+  win.style.setProperty("--y", `${y - center}px`);
 }
 
 function closeWindow(id) {
@@ -188,6 +214,7 @@ function tickClock() {
 
 function setConn(state) {
   const map = {
+    connecting: ["warning", "collegamento"],
     online: ["good", "online"],
     warning: ["warning", "instabile"],
     offline: ["critical", "offline"],
@@ -833,6 +860,7 @@ async function refreshWeatherForecast() {
           </div>`;
       })
       .join("");
+    fitWeatherWindow();
   } catch {
     // rete assente/blip transitorio: lascia il pannello com'era
   }
@@ -1405,6 +1433,7 @@ async function boot() {
   });
   _bootStep("voice", setupVoice);
   _bootStep("windows", setupWindows);
+  _bootStep("weather-window", () => { if (!compactLayout.matches) openWindow("win-weather"); });
   _bootStep("camera", setupCamera);
   _bootStep("clock", () => {
     tickClock();

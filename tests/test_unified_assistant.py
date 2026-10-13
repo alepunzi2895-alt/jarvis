@@ -162,6 +162,21 @@ def test_discovery_does_not_authorize_cli_writes(catalog_root, monkeypatch):
     launch.assert_not_called()
 
 
+def test_generic_project_voice_summary_avoids_model_roundtrip(monkeypatch):
+    states = [project_status.ProjectStatus("aura", "Aura", "/repo", True, branch="dev", dirty_files=3)]
+    monkeypatch.setattr(project_status, "cached_check_all", lambda _: states)
+    model = AsyncMock()
+    monkeypatch.setattr(claude_bridge, "_run_claude_api", model)
+    speak = AsyncMock()
+    history = {}
+    result = asyncio.run(Engine().respond("come vanno i progetti?", None, history, speak))
+    model.assert_not_called()
+    assert result["cost_usd"] == 0
+    assert "3 file modificati" in result["result"]
+    assert history["_conversation"][-1]["content"] == result["result"]
+    assert speak.call_count == 1
+
+
 def test_live_conversation_shared_across_projects_and_model_routing(catalog_root, monkeypatch):
     repo(catalog_root, "auraibiza")
     repo(catalog_root, "EYRA")

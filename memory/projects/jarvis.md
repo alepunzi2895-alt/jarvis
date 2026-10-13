@@ -849,3 +849,25 @@ conferma di chiusura del PID 14968, porta libera e LiveBridge avviato. Verifica
 reale HTTPS/login/WebSocket riuscita; STT pronto su CPU, catalogo dinamico
 16 progetti inclusi EYRA, IVGAgent, TradePilot e VMScout. Il backend aggiornato
 e' ora attivo; ricaricare la dashboard per usare la conversazione unica.
+
+## Correzioni Rete/meteo e voce essenziale (2026-10-13)
+
+Rete restava su attesa perche' setConn era chiamato solo dal widget TradeFlow
+rimosso. Ora WebSocket reale nel privato, API nel cloud; eventi di socket
+precedenti non possono riportare offline una connessione nuova. Meteo aveva
+7 giorni validi ma il titolo desktop finiva sotto l'header: pannello entro
+viewport, aperto di default desktop, dal dock su mobile. Modifiche statiche
+verificate sul vero HTTPS senza riavvio server.
+
+Richiesta di Alessandro: non elencare tutti i progetti a voce, solo punti
+salienti/attenzioni e meno attesa. Git parallelo e cache unica 30 s condivisa
+tra tool e widget. Panoramica generica senza LLM: massimo due punti da
+verificare, segnalazioni storiche esplicite e modifiche locali non confuse
+con guasti. Dettagli/analisi/elenco completo restano richiedibili. Misura:
+9,17 s prima, 1,59-2,22 s per scansione parallela, 31-47 ms snapshot, 63 ms
+risposta a caldo (2 frasi, esclusi STT/TTS). STT CPU e TTS restano fattori
+separati: niente promessa di risposta vocale istantanea.
+
+413 test della suite completa e 42 mirati finali passati. Backend precedente
+ancora PID 26352 alla chiusura del codice: nuova sintesi/cache richiedono
+chiusura manuale e riavvio dopo commit/push; Rete/meteo disponibili al reload.

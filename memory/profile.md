@@ -93,3 +93,5 @@ Meta Ads, Twilio, Stripe, Google Places API.
 - Una conversazione unica, senza sezioni separate per ogni progetto; riconoscere anche i nuovi progetti locali.
 - Fonti operative: Outlook, file/progetti sul PC e Databricks (dashboard, notebook, job). Aiuto su analisi/statistiche, priorita' di lavoro e obiettivi personali.
 - Audio e trascrizione sul PC; questa preferenza non cambia con le nuove funzioni.
+
+- Voce sui progetti: riportare solo cose salienti e che richiedono attenzione; non leggere l'elenco completo salvo richiesta. Risposte brevi e rapide, dettagli quando richiesti (2026-10-13).

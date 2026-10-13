@@ -32,3 +32,8 @@ def _no_real_obsidian_vault(monkeypatch):
 @pytest.fixture(autouse=True)
 def _reset_weather_cache(monkeypatch):
     monkeypatch.setattr("core.weather._cache", {"line": None, "ts": 0.0, "ok": False}, raising=False)
+
+
+@pytest.fixture(autouse=True)
+def _reset_project_snapshot(monkeypatch):
+    monkeypatch.setattr("core.project_status._snapshot_cache", {"key": None, "ts": 0.0, "values": []})

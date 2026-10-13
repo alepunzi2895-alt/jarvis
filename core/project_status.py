@@ -13,6 +13,11 @@ from __future__ import annotations
 
 import os
 import subprocess
+import re
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 from dataclasses import dataclass, asdict
 from pathlib import Path
 
@@ -21,6 +26,8 @@ from core import projects
 
 _NOTES_DIR = Path(__file__).resolve().parent.parent / "memory" / "projects"
 _NOTES_EXCERPT_CHARS = 500
+_snapshot_cache = {"key": None, "ts": 0.0, "values": []}
+_snapshot_lock = threading.Lock()
 
 
 @dataclass(frozen=True)
@@ -120,7 +127,54 @@ def _check_one(cfg: ProjectConfig, executor: SystemExecutor) -> ProjectStatus:
 
 
 def check_all(executor: SystemExecutor) -> list[ProjectStatus]:
-    return [_check_one(cfg, executor) for cfg in PROJECTS]
+    configs = list(PROJECTS)
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        return list(pool.map(lambda cfg: _check_one(cfg, executor), configs))
+
+
+def cached_check_all(executor: SystemExecutor) -> list[ProjectStatus]:
+    # Riutilizza la scansione del widget nei tool e nelle richieste vocali.
+    configs = list(PROJECTS)
+    key = (id(executor), tuple((p.key, getattr(p, "path", None), p.notes_file,
+                               os.getenv(p.env_var, "")) for p in configs))
+    with _snapshot_lock:
+        if _snapshot_cache["key"] != key or time.monotonic() - _snapshot_cache["ts"] >= 30:
+            values = check_all(executor)
+            _snapshot_cache.update(key=key, ts=time.monotonic(), values=values)
+        return list(_snapshot_cache["values"])
+
+
+def is_overview_request(prompt: str) -> bool:
+    prompt = re.sub(r"^\s*jarvis[, :]+", "", prompt, flags=re.I).strip()
+    return bool(re.fullmatch(
+        r"(?:come (?:vanno|stanno|sono messi) (?:i |i miei |tutti i )?progetti|"
+        r"(?:stato|situazione|aggiornamenti|novit[aà]) (?:dei |sui |sui miei )?progetti)[?.! ]*",
+        prompt, re.I))
+
+
+def attention_report(statuses: list[ProjectStatus]) -> dict:
+    highlights = []
+    for s in statuses:
+        if s.error:
+            highlights.append((0, s.key, f"{s.label}: stato Git non verificabile, controlla l'accesso al repository."))
+        elif s.configured and s.notes and "🔴" in s.notes:
+            highlights.append((1, s.key, f"{s.label}: una nota storica segnala un problema noto, ancora da verificare."))
+        elif s.configured and s.dirty_files:
+            highlights.append((2, s.key, f"{s.label}: {s.dirty_files} file modificati da rivedere prima del prossimo commit."))
+    highlights.sort(key=lambda item: (item[0], item[1]))
+    verified = sum(bool(s.branch) and not s.error for s in statuses)
+    if highlights:
+        sentences = [item[2] for item in highlights[:2]]
+        sentences[0] = "Signore, " + sentences[0]
+    elif verified:
+        sentences = ["Nei repository controllati non emergono modifiche locali o errori di lettura, Signore."]
+    else:
+        sentences = ["Non ho ancora uno stato Git verificabile dei progetti, Signore."]
+    return dict(reported_at=datetime.now().isoformat(), checked=len(statuses), verified_repositories=verified,
+                highlights=[dict(project=key, text=text) for _, key, text in highlights[:2]],
+                additional_items=max(0, len(highlights)-2), sentences=sentences,
+                scope="Snapshot Git locale, massimo 30 secondi. Modifiche non committate non sono guasti. "
+                      "Le note sono storiche; deploy, metriche di business e Databricks richiedono verifiche dedicate.")
 
 
 def check_one_by_key(key: str, executor: SystemExecutor) -> ProjectStatus | None:
@@ -139,20 +193,7 @@ def to_json_ready(statuses: list[ProjectStatus]) -> list[dict]:
 
 def format_report(statuses: list[ProjectStatus], voice: bool) -> str:
     if voice:
-        parts = []
-        for s in statuses:
-            if not s.configured:
-                continue
-            if s.error:
-                parts.append(f"{s.label}: errore")
-                continue
-            state = ("cartella senza Git" if not s.branch else
-                     "pulito" if s.dirty_files == 0 else f"{s.dirty_files} modifiche in sospeso")
-            flag = " — problema noto" if s.notes and "\U0001F534" in s.notes else ""
-            parts.append(f"{s.label}: {state}{flag}")
-        if not parts:
-            return "Nessun progetto configurato, Signore."
-        return f"Stato progetti, Signore — {'; '.join(parts)}."
+        return " ".join(attention_report(statuses)["sentences"])
 
     lines = ["Stato progetti:", ""]
     for s in statuses:

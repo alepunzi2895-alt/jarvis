@@ -168,3 +168,61 @@ def test_format_report_text_lists_all_projects():
     assert "Aura Ibiza" in text and "non configurato" in text
     assert "TradeFlow AI" in text and "1 modifiche non committate" in text
     assert "abc123 fix (1 giorno fa)" in text
+
+
+def test_attention_omits_healthy_projects_and_limits_spoken_items():
+    statuses = [project_status.ProjectStatus(f"ok{i}", f"Healthy {i}", "/repo", True, branch="main") for i in range(12)]
+    statuses += [project_status.ProjectStatus("dirty", "Working", "/repo", True, branch="dev", dirty_files=3),
+                 project_status.ProjectStatus("error", "Blocked", "/repo", True, error="git failed"),
+                 project_status.ProjectStatus("extra", "Another", "/repo", True, branch="dev", dirty_files=2)]
+    report = project_status.attention_report(statuses)
+    assert len(report["highlights"]) == 2 and report["additional_items"] == 1
+    assert report["highlights"][0]["project"] == "error"
+    spoken = project_status.format_report(statuses, voice=True)
+    assert "Healthy" not in spoken and "Another" not in spoken
+    assert "da rivedere" in spoken and "non verificabile" in spoken
+
+
+def test_project_overview_does_not_intercept_explicit_lists_or_analysis():
+    assert project_status.is_overview_request("Jarvis, come vanno i miei progetti?")
+    assert not project_status.is_overview_request("elencami tutti i progetti")
+    assert not project_status.is_overview_request("analizza tutti i progetti e confrontali")
+
+
+def test_snapshot_reuses_scan_and_invalidates_on_new_project(monkeypatch):
+    check = MagicMock(return_value=[])
+    monkeypatch.setattr(project_status, "check_all", check)
+    executor = MagicMock()
+    project_status.cached_check_all(executor)
+    project_status.cached_check_all(executor)
+    assert check.call_count == 1
+    project_status.PROJECTS.append(project_status.ProjectConfig("new", "New", "WS_NEW", "new.md"))
+    project_status.cached_check_all(executor)
+    assert check.call_count == 2
+
+
+def test_snapshot_expires_after_30_seconds(monkeypatch):
+    clock = {"now": 100}
+    monkeypatch.setattr(project_status.time, "monotonic", lambda: clock["now"])
+    check = MagicMock(return_value=[])
+    monkeypatch.setattr(project_status, "check_all", check)
+    executor = MagicMock()
+    project_status.cached_check_all(executor)
+    clock["now"] += 29
+    project_status.cached_check_all(executor)
+    assert check.call_count == 1
+    clock["now"] += 1
+    project_status.cached_check_all(executor)
+    assert check.call_count == 2
+
+
+def test_git_scans_run_concurrently_and_keep_catalog_order(monkeypatch):
+    import threading
+    barrier = threading.Barrier(4)
+    configs = [project_status.ProjectConfig(str(i), str(i), "WS_TEST", "") for i in range(4)]
+    monkeypatch.setattr(project_status, "PROJECTS", configs)
+    def check(cfg, executor):
+        barrier.wait(timeout=2)
+        return cfg
+    monkeypatch.setattr(project_status, "_check_one", check)
+    assert project_status.check_all(MagicMock()) == configs

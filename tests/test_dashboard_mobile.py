@@ -60,7 +60,8 @@ window.WebSocket = class {
   static OPEN = 1;
   constructor() {
     this.readyState = 0; window.liveSocket = this;
-    setTimeout(() => { this.readyState = 1; this.onopen?.(); this.emit({type: 'ready', stt_ready: true, device: 'cpu'}); }, 0);
+    this.open = () => { this.readyState = 1; this.onopen?.(); this.emit({type: 'ready', stt_ready: true, device: 'cpu'}); };
+    if (!window.deferSocketOpen) setTimeout(this.open, 0);
   }
   send(data) { liveMessages.push(JSON.parse(data)); }
   emit(data) { this.onmessage?.({data: JSON.stringify(data)}); }
@@ -148,6 +149,59 @@ def test_direct_unified_starters_and_dynamic_project_labels(mobile_page):
     }""")
     assert page.locator("#project-cards img, #project-cards script").count() == 0
     assert "Nuovo progetto" in page.locator("#project-cards").inner_text()
+
+
+def test_direct_network_indicator_tracks_socket_not_widget_requests(mobile_page):
+    page = mobile_page
+    page.wait_for_function("document.querySelector('.live-controls span').textContent.includes('pronta')")
+    assert page.locator("#hud-conn").inner_text() == "online"
+    page.evaluate("window.oldSocket = liveSocket; liveSocket.close(); window.deferSocketOpen = true")
+    assert page.locator("#hud-conn").inner_text() == "offline"
+    page.evaluate("api('runtime_status')")
+    assert page.locator("#hud-conn").inner_text() == "offline"
+    page.get_by_role("button", name="Organizza oggi", exact=True).click()
+    assert page.locator("#hud-conn").inner_text() == "collegamento"
+    page.evaluate("liveSocket.open()")
+    assert page.locator("#hud-conn").inner_text() == "online"
+    page.evaluate("oldSocket.onclose()")
+    assert page.locator("#hud-conn").inner_text() == "online"
+    page.evaluate("liveSocket.onerror({})")
+    assert page.locator("#hud-conn").inner_text() == "offline"
+
+
+def test_network_indicator_tracks_cloud_api_and_recovers(mobile_page):
+    page = mobile_page
+    page.evaluate("api('runtime_status')")
+    assert page.locator("#hud-conn").inner_text() == "online"
+    page.route("**/api/jarvis", lambda route: route.abort())
+    page.evaluate("api('runtime_status').catch(() => {})")
+    assert page.locator("#hud-conn").inner_text() == "offline"
+    page.unroute("**/api/jarvis")
+    page.evaluate("api('runtime_status')")
+    assert page.locator("#hud-conn").inner_text() == "online"
+
+
+def test_weather_header_stays_below_topbar_on_desktop(mobile_page):
+    page = mobile_page
+    page.set_viewport_size({"width": 1366, "height": 768})
+    page.evaluate("""() => {
+      const original = api;
+      api = async (action) => action === 'weather_forecast' ? {forecast: {place:'Ibiza', days:
+        Array.from({length:7}, (_, i) => ({date:`2026-10-${13+i}`,code:0,high:24,low:18}))
+      }} : original(action);
+    }""")
+    page.locator('[data-toggle="win-weather"]').click()
+    page.wait_for_function("document.querySelectorAll('.weather-day').length === 7")
+    for width, height in [(1366, 768), (1024, 600), (900, 500)]:
+        page.set_viewport_size({"width": width, "height": height})
+        page.wait_for_function("""() => {
+          const w = document.querySelector('#win-weather').getBoundingClientRect();
+          const header = document.querySelector('#app > header').getBoundingClientRect();
+          return w.top >= header.bottom + 8;
+        }""")
+        assert page.locator("#weather-place").text_content() == "Ibiza"
+        box = page.locator("#win-weather").bounding_box()
+        assert box["y"] + box["height"] < height
 
 
 def test_mobile_mic_waits_for_tap_and_releases_on_interruption(mobile_page):

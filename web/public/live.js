@@ -111,14 +111,26 @@
   function connect() {
     if (socket?.readyState === WebSocket.OPEN) return Promise.resolve(socket);
     if (connecting) return connecting;
+    setConn("connecting");
     connecting = new Promise((resolve, reject) => {
       const ws = socket = new WebSocket(`${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/live/ws`);
       const timer = setTimeout(() => ws.close(), 8000);
-      ws.onopen = () => { clearTimeout(timer); resolve(ws); };
-      ws.onmessage = message;
-      ws.onerror = () => reject(new Error("PC non raggiungibile. Controlla Tailscale e riprova."));
+      ws.onopen = () => {
+        if (ws !== socket) return;
+        clearTimeout(timer);
+        setConn("online");
+        resolve(ws);
+      };
+      ws.onmessage = event => { if (ws === socket) message(event); };
+      ws.onerror = () => {
+        if (ws !== socket) return;
+        setConn("offline");
+        reject(new Error("PC non raggiungibile. Controlla Tailscale e riprova."));
+      };
       ws.onclose = () => {
         clearTimeout(timer);
+        if (ws !== socket) return;
+        setConn("offline");
         connecting = null;
         sttReady = false;
         silence();

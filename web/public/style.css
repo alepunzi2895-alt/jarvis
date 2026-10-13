@@ -916,3 +916,7 @@ header::after {
 .conversation-starters { display:flex; flex-wrap:wrap; gap:6px; padding:8px 0; }
 .conversation-starters button { min-height:44px; border:1px solid #365363; border-radius:8px; padding:6px 10px; background:#10212b; color:#d9edf5; font:inherit; cursor:pointer; }
 .conversation-starters button:focus-visible { outline:2px solid #89d6ed; outline-offset:2px; }
+
+@media (min-width: 861px) {
+  #win-weather { max-height: calc(var(--app-height, 100vh) - 180px); }
+}

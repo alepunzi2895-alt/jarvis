@@ -213,7 +213,10 @@ SYSTEM = (
     "se l'utente chiede 'leggimi le mail' in modo generico — e' proprio quel "
     "caso che deve attivare il flusso.\n\n"
     "La conversazione e' unica e puo' attraversare tutti i progetti. Per una panoramica "
-    "usa list_projects/get_work_overview senza imporre una scelta di progetto. "
+    "usa get_project_attention senza imporre una scelta di progetto. Riferisci solo i due punti "
+    "salienti o da verificare; non leggere tutti i nomi e non presentare modifiche locali come guasti. "
+    "L'elenco completo e' nella panoramica e va letto solo su richiesta esplicita. "
+    "Per organizzare la giornata usa get_work_overview; list_projects serve a scoprire il catalogo. "
     "Il catalogo corrente prevale sui vecchi elenchi nel profilo; scoperto non significa attivo. "
     "Per dettagli usa get_project_context/get_project_status e read_project_file. I progetti scoperti "
     "non hanno automaticamente permessi di scrittura. Non confondere metadati con conoscenza "
@@ -494,6 +497,7 @@ def _tool(name, description, properties, required=()):
 _STRING = {"type": "string"}
 TOOLS += [
     _tool("list_projects", "Catalogo aggiornato di tutti i progetti, cartelle e note disponibili.", {}),
+    _tool("get_project_attention", "Sintesi dei soli punti da verificare: massimo due progetti, Git e note storiche esplicitamente distinte. Una sola scansione parallela con cache 30 s. Usa per 'come vanno i progetti', senza leggerne l'elenco.", {}),
     _tool("get_project_context", "Note storiche e percorso di un progetto; controlla poi i dati attuali.", {"project": _STRING}, ("project",)),
     _tool("read_project_file", "Elenca cartelle o legge un file testuale in un progetto scoperto, sola lettura; percorso relativo. Non legge segreti noti.", {"project": _STRING, "path": _STRING}, ("project",)),
     _tool("get_work_overview", "Agenda Outlook, tempo occupato senza sovrapposizioni, numero mail non lette, Git e obiettivi espliciti. Dati mancanti non sono zero.", {"start": {"type": "string", "description": "YYYY-MM-DD, default oggi"}, "days": {"type": "integer", "minimum": 1, "maximum": 7}}),
@@ -520,11 +524,13 @@ def _execute_tool(name: str, tool_input: dict, cwd: str) -> tuple[str, bool]:
     (testo per il tool_result, is_error) — mai solleva, un errore diventa
     sempre un tool_result con is_error=True cosi' Claude puo' reagire."""
     try:
-        if name in {"list_projects", "get_project_context", "read_project_file", "get_work_overview", "focus_items", "inspect_databricks", "query_databricks"}:
+        if name in {"list_projects", "get_project_attention", "get_project_context", "read_project_file", "get_work_overview", "focus_items", "inspect_databricks", "query_databricks"}:
             from dataclasses import asdict
             if name == "list_projects":
                 items = [asdict(p) for p in projects.catalog()]
                 result = {"count": len(items), "projects": items}
+            elif name == "get_project_attention":
+                result = project_status.attention_report(project_status.cached_check_all(_system_executor))
             elif name == "get_project_context":
                 result = projects.read_context(tool_input["project"])
             elif name == "read_project_file":

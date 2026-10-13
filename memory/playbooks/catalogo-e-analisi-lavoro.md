@@ -27,3 +27,10 @@
 8. Concludi tutte le modifiche/test prima di chiedere il singolo riavvio
    manuale di LiveBridge: vedi `autostart-windows-hidden.md`. Poi login HTTPS,
    `/live/ws` pronto e `project_status_data` con il nuovo catalogo.
+
+9. Scansione Git in parallelo, snapshot unico 30 s per widget/tool/voce. Il
+   riepilogo vocale generico usa al massimo due punti, senza giro LLM. Non
+   ripristinare un elenco completo nel parlato per ogni progetto scoperto.
+10. Rete segue il trasporto, mai il refresh di un widget. Per problemi al
+    meteo distinguere dati assenti da pannello fuori viewport: controllare
+    forecast, sette card, posizione sotto header e sopra dock su desktop.

@@ -66,7 +66,7 @@ class Engine:
         return await _edge_tts_audio(clean_for_speech(text))
 
     async def respond(self, prompt, image, histories, sentence):
-        from core import claude_bridge as bridge, intents
+        from core import claude_bridge as bridge, intents, project_status
         from core.executor_singleton import executor
         ws = bridge.detect_workspace(prompt, histories.get("_focus", "jarvis"))
         analysis = bridge.needs_analysis(prompt) or bool(
@@ -77,6 +77,14 @@ class Engine:
             turns.extend([{"role": "user", "content": prompt}, {"role": "assistant", "content": result}])
             histories["_conversation"] = bridge._trim_history(turns)
             histories.update(_focus=ws, _analysis=analysis)
+        if not image and project_status.is_overview_request(prompt):
+            statuses = await finish_thread(project_status.cached_check_all, executor)
+            report = project_status.attention_report(statuses)
+            for line in report["sentences"]:
+                await sentence(line)
+            result = " ".join(report["sentences"])
+            remember(result)
+            return dict(result=result, workspace=ws, cost_usd=0)
         if intent:
             # Stop sul telefono non aziona gli altoparlanti del daemon PC.
             result = "Silenzio." if intent["type"] == "stop" else await finish_thread(
@@ -100,7 +108,10 @@ class Engine:
             context = re.sub(r"Data e ora attuali: [^.]+\.", "", context)
             context += f"\nData e ora attuali: {datetime.now():%Y-%m-%d %H:%M}."
             context += ("\nLa prima frase deve gia' rispondere alla domanda, in massimo 15 parole. "
-                        "Poi aggiungi i dettagli necessari in frasi brevi. Evita preamboli e riempitivi.")
+                        "Per aggiornamenti sui progetti riferisci solo anomalie, cambiamenti rilevanti e priorita': "
+                        "massimo due punti, mai l'elenco completo, salvo richiesta esplicita di elencarli. "
+                        "Per le domande brevi bastano due o tre frasi. Approfondisci quando richiesto. "
+                        "Non annunciare i controlli: usa gli strumenti, poi comunica il risultato utile.")
             result, _, cost = await bridge._run_claude_api(
                 prompt, ws, bridge.WORKSPACES.get(ws) or str(ROOT), image, "voice",
                 history_store=histories, context_prefix=context, on_sentence=sentence,
@@ -121,8 +132,6 @@ class LiveServer:
         self.command_lock = asyncio.Lock()
         self.stt_lock = asyncio.Lock()
         self.sockets = set()
-        self.project_cache = (0, [])
-        self.project_lock = asyncio.Lock()
 
     @web.middleware
     async def boundary(self, request, handler):
@@ -195,11 +204,8 @@ class LiveServer:
         if action == "project_status_data":
             from core import project_status
             from core.executor_singleton import executor
-            async with self.project_lock:
-                if time.monotonic() - self.project_cache[0] > 30:
-                    values = await asyncio.to_thread(project_status.check_all, executor)
-                    self.project_cache = (time.monotonic(), project_status.to_json_ready(values))
-            return web.json_response({"projects": self.project_cache[1]})
+            values = await asyncio.to_thread(project_status.cached_check_all, executor)
+            return web.json_response({"projects": project_status.to_json_ready(values)})
         # Widget esistenti: solo metadati; audio e task non vanno al database.
         metadata = {"weather_forecast": ("weather_forecast", "forecast"),
                     "remote_status_data": ("remote_status", "remote"),

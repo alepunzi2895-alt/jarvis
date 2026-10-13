@@ -68,7 +68,7 @@ def overview(start="", days=1):
     if not 1 <= days <= 7:
         raise ValueError("Periodo ammesso: 1-7 giorni")
     result = dict(observed_at=datetime.now().isoformat(), start=first.isoformat(), days=days,
-                  calendar=[], projects=project_status.to_json_ready(project_status.check_all(executor)),
+                  calendar=[], projects=project_status.to_json_ready(project_status.cached_check_all(executor)),
                   focus=focus(), sources={})
     for offset in range(days):
         day = first + timedelta(days=offset)

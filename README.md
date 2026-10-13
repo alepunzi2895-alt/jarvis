@@ -149,6 +149,20 @@ copia `project-catalog.example.json` in `.project-catalog.json` e adatta i
 percorsi. Questo file personale resta fuori da Git. Un progetto remoto
 registrato solo per nome non rende accessibili i suoi contenuti.
 
+La richiesta breve «come vanno i progetti?» usa una sintesi locale senza
+attendere il modello: al massimo due punti da verificare, con priorita'
+agli errori di lettura e alle segnalazioni storiche (dichiarate tali).
+I progetti senza segnali da verificare non vengono elencati a voce. Le
+modifiche non committate sono lavoro da rivedere, non guasti. L'elenco
+completo resta nella panoramica; analisi approfondite ed elenchi espliciti
+continuano a usare il modello. Scansioni Git parallele (4 worker), cache
+condivisa tra widget e tool per 30 secondi, invalidata se cambia il catalogo.
+
+L'indicatore Rete segue il WebSocket sulla dashboard privata e le richieste
+API sulla dashboard cloud. Una risposta di un widget non nasconde una
+disconnessione vocale. Il meteo si apre al caricamento su desktop e resta
+sotto la barra superiore anche ridimensionando; su mobile si apre dal dock.
+
 Gli strumenti permettono di leggere note e file testuali locali (256 KB
 massimi, estratto fino a 16.000 caratteri), elencare cartelle e verificare
 Git. PDF, Excel e allegati Outlook non vengono automaticamente indicizzati.
