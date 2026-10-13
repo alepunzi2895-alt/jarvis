@@ -958,3 +958,12 @@ Attivazione da completare dopo commit/push: Bot e VoiceDaemon possono essere
 avviati direttamente perche fermi; LiveBridge richiede una sola chiusura
 manuale del PID 20396. Prova con parlato reale ancora dell'utente.
 Procedura: `memory/playbooks/voice-telegram-coding.md`.
+
+Codice `5d17754` committato e pushato. Bot e VoiceDaemon avviati dai task e
+verificati Running: processi effettivi 37196 (bot) e 8832 (voce), modelli
+caricati su CPU e hotkey registrata. getMe conferma zerodayzz_bot operativo.
+LiveBridge e ancora PID 20396: chiusura manuale richiesta una sola volta,
+in attesa del "fatto". Script di verifica dopo il riavvio:
+`.tmp/verify_voice_coding_ready.py` (API autenticata e audio sintetico completo),
+`.tmp/verify_connected_ready.py` (fonti collegate). Nessun codice modificato
+dopo l'avvio dei due servizi.
