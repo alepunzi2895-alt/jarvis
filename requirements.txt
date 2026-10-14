@@ -10,6 +10,7 @@ faster-whisper>=1.2
 edge-tts>=7.3.1
 sounddevice>=0.5
 numpy>=2.0
+scipy>=1.11
 av>=18.0
 keyboard>=0.13
 # contrib (non solo opencv-python) serve per cv2.face (riconoscimento volto, LBPH)

@@ -63,8 +63,8 @@ class Engine:
         return transcribe_wav(raw)
 
     async def synthesize(self, text):
-        from core.voice.tts import _edge_tts_audio, clean_for_speech
-        return await _edge_tts_audio(clean_for_speech(text))
+        from core.voice.tts import clean_for_speech, synthesize_mp3
+        return await synthesize_mp3(clean_for_speech(text))
 
     async def respond(self, prompt, image, histories, sentence):
         from core import claude_bridge as bridge, intents, project_status
@@ -382,6 +382,8 @@ class LiveServer:
                 if image is not None and (not isinstance(image, str) or len(image) > MAX_FRAME - 20000):
                     raise ValueError("Immagine troppo grande")
                 # Il rumore non interrompe mai un comando gia' valido.
+                if active and not active.done():
+                    LOG.info("Comando precedente sostituito da %s", rid)
                 await cancel(active)
                 await send("accepted", rid, prompt=prompt, stt_ms=stt_ms)
                 active = asyncio.create_task(run(rid, prompt, image, started, stt_ms))
@@ -405,6 +407,8 @@ class LiveServer:
                         raise ValueError()
                     rid = body.get("id")
                     if body.get("type") == "cancel":
+                        if active and not active.done():
+                            LOG.info("Stop dal browser: comando in corso annullato")
                         await cancel(incoming)
                         await cancel(active)
                         continue
