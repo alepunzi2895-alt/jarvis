@@ -7,7 +7,7 @@ watchdog>=4.0
 # Voce nativa (blocco c2): wake word, STT, TTS
 openwakeword>=0.6
 faster-whisper>=1.2
-edge-tts>=7.2
+edge-tts>=7.3.1
 sounddevice>=0.5
 numpy>=2.0
 av>=18.0
