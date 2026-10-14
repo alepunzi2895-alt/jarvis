@@ -47,6 +47,10 @@ VOICE = os.getenv("JARVIS_TTS_VOICE", "it-IT-GiuseppeMultilingualNeural")
 RATE = os.getenv("JARVIS_TTS_RATE", "-2%")
 PITCH = os.getenv("JARVIS_TTS_PITCH", "-6Hz")
 STYLE = os.getenv("JARVIS_TTS_STYLE", "film").strip().lower()
+# "xtts": voce da jarvis_voice/refs tramite core/voice/xtts_server.py (processo
+# separato in .venv-xtts). Se il server non risponde si ripiega su edge-tts.
+ENGINE = os.getenv("JARVIS_TTS_ENGINE", "edge").strip().lower()
+XTTS_URL = os.getenv("JARVIS_XTTS_URL", "http://127.0.0.1:8766")
 # Import all'avvio: scipy a freddo costa ~2,5 s, non deve pesare sulla prima
 # frase pronunciata.
 from core.voice import voice_fx  # noqa: E402
@@ -72,7 +76,31 @@ def voice_settings() -> dict:
         _override.update(mtime=mtime, data=data if isinstance(data, dict) else {})
     data = _override["data"]
     return dict(voice=str(data.get("voice") or VOICE), rate=str(data.get("rate") or RATE),
-                pitch=str(data.get("pitch") or PITCH), style=str(data.get("style") or STYLE).strip().lower())
+                pitch=str(data.get("pitch") or PITCH), style=str(data.get("style") or STYLE).strip().lower(),
+                engine=str(data.get("engine") or ENGINE).strip().lower())
+
+
+def synthesis_timeout() -> float:
+    """XTTS su CPU impiega secondi per frase: 20 s bastano solo a edge-tts."""
+    return 60.0 if voice_settings()["engine"] == "xtts" else 20.0
+
+
+async def _xtts_audio(text: str) -> bytes:
+    timeout = aiohttp.ClientTimeout(total=55)
+    async with aiohttp.ClientSession(timeout=timeout) as session:
+        async with session.post(XTTS_URL + "/tts", json={"text": text}) as response:
+            response.raise_for_status()
+            return await response.read()
+
+
+async def _tts_audio(text: str) -> bytes:
+    """Audio (MP3 da edge-tts o WAV da XTTS) con il motore scelto."""
+    if voice_settings()["engine"] == "xtts":
+        try:
+            return await _xtts_audio(text)
+        except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+            print(f"(XTTS non disponibile, uso edge-tts: {type(e).__name__})")
+    return await _edge_tts_audio(text)
 
 # Il servizio edge-tts risponde 403 a caso: misurato il 2026-10-12, 1 richiesta
 # su 8 (le altre ok in 0,3-0,6 s), e JARVIS restava muto per quella risposta.
@@ -126,8 +154,9 @@ def _encode_mp3(data: np.ndarray, samplerate: int) -> bytes:
 
 async def synthesize_mp3(text: str) -> bytes:
     """MP3 con la voce scelta per chi riproduce altrove (dashboard privata)."""
-    raw = await _edge_tts_audio(text)
-    if voice_settings()["style"] != "film" or not raw:
+    raw = await _tts_audio(text)
+    # Il WAV di XTTS va comunque ricodificato: ~10 volte piu' pesante dell'MP3.
+    if not raw or (voice_settings()["style"] != "film" and not raw.startswith(b"RIFF")):
         return raw
 
     def styled() -> bytes:
@@ -275,7 +304,7 @@ class EdgeTTSEngine(TTSEngine):
         text = text.strip()
         if not text:
             return None
-        buf = io.BytesIO(await _edge_tts_audio(text))
+        buf = io.BytesIO(await _tts_audio(text))
 
         def decoded():
             data, rate = self._decode(buf)
@@ -284,10 +313,11 @@ class EdgeTTSEngine(TTSEngine):
         return await asyncio.to_thread(decoded)
 
     def _synthesize(self, text: str) -> Path:
-        fd, tmp_path = tempfile.mkstemp(suffix=".mp3")
+        audio = asyncio.run(_tts_audio(text))
+        fd, tmp_path = tempfile.mkstemp(suffix=".wav" if audio.startswith(b"RIFF") else ".mp3")
         os.close(fd)
         path = Path(tmp_path)
-        path.write_bytes(asyncio.run(_edge_tts_audio(text)))
+        path.write_bytes(audio)
         return path
 
     @staticmethod

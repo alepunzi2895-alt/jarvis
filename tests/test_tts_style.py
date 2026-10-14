@@ -96,3 +96,47 @@ def test_voice_override_file_applies_without_restart(monkeypatch):
     import os
     os.utime(tts.VOICE_OVERRIDE, (1, 1))
     assert tts.voice_settings()["voice"] == tts.VOICE
+
+
+def _wav_bytes(seconds=0.5):
+    import wave
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(SR)
+        w.writeframes((_tone(seconds) * 32767).astype(np.int16).tobytes())
+    return buf.getvalue()
+
+
+def test_xtts_engine_returns_wav_reencoded_as_mp3(monkeypatch):
+    calls = []
+
+    async def fake_xtts(text):
+        calls.append(text)
+        return _wav_bytes()
+
+    async def no_edge(text):
+        raise AssertionError("edge-tts non deve servire")
+
+    monkeypatch.setattr(tts, "_xtts_audio", fake_xtts)
+    monkeypatch.setattr(tts, "_edge_tts_audio", no_edge)
+    tts.VOICE_OVERRIDE.write_text('{"engine": "xtts", "style": "none"}', encoding="utf-8")
+    mp3 = asyncio.run(tts.synthesize_mp3("Buongiorno"))
+    assert calls == ["Buongiorno"] and not mp3.startswith(b"RIFF")
+    data, rate = tts.EdgeTTSEngine._decode(io.BytesIO(mp3))
+    assert rate == SR and data.shape[0] > SR // 4
+    assert tts.synthesis_timeout() == 60.0
+
+
+def test_xtts_down_falls_back_to_edge(monkeypatch):
+    async def down(text):
+        raise tts.aiohttp.ClientConnectionError("rifiutata")
+
+    async def edge(text):
+        return b"mp3-edge"
+
+    monkeypatch.setattr(tts, "_xtts_audio", down)
+    monkeypatch.setattr(tts, "_edge_tts_audio", edge)
+    tts.VOICE_OVERRIDE.write_text('{"engine": "xtts"}', encoding="utf-8")
+    assert asyncio.run(tts._tts_audio("Ciao")) == b"mp3-edge"

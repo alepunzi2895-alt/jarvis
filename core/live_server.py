@@ -317,7 +317,8 @@ class LiveServer:
                 async def audio():
                     while (text := await queue.get()) is not None:
                         try:
-                            data = await asyncio.wait_for(self.engine.synthesize(text), 20)
+                            from core.voice.tts import synthesis_timeout
+                            data = await asyncio.wait_for(self.engine.synthesize(text), synthesis_timeout())
                             timings.setdefault("first_audio_ms", round((time.monotonic() - started) * 1000))
                             await send("audio", rid, data=base64.b64encode(data).decode())
                         except Exception:

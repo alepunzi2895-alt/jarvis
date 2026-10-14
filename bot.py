@@ -416,6 +416,9 @@ async def handle_telegram_message(msg):
     if (msg.get('from') or {}).get('id') != OWNER_ID:
         return
     text, voice = msg.get('text'), msg.get('voice')
+    # Traccia minima (mai il contenuto) per poter verificare dal log che i
+    # comandi Telegram arrivano: flush perche' stdout su file e' bufferizzato.
+    print(f"{dt.datetime.now():%H:%M:%S} Telegram: {'nota vocale' if voice else 'testo'} ricevuto", flush=True)
     if voice:
         if voice.get('duration', 0) > 180 or voice.get('file_size', 0) > 20 * 1024 * 1024:
             send('Invia una nota vocale di massimo 3 minuti e 20 MB.')
