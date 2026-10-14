@@ -320,7 +320,9 @@ class LiveServer:
                             timings.setdefault("first_audio_ms", round((time.monotonic() - started) * 1000))
                             await send("audio", rid, data=base64.b64encode(data).decode())
                         except Exception:
-                            LOG.warning("Sintesi voce non disponibile")
+                            # Con il dettaglio: un fallimento isolato del 2026-10-14
+                            # non era diagnosticabile dal solo messaggio.
+                            LOG.warning("Sintesi voce non disponibile", exc_info=True)
                             await send("notice", rid, message="Voce non disponibile; la risposta resta leggibile.")
 
                 speaker = asyncio.create_task(audio())
