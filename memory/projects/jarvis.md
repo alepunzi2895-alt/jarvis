@@ -1014,3 +1014,14 @@ Databricks: PRD leggibile in sola lettura per metadati job/run/dashboard.
 /published. Requests Lakeview in serie per host con Retry-After (SSLError in
 parallelo, 429 con richieste ravvicinate). SQL/Genie PRD restano su conferma.
 Senza ambiente indicato, Alessandro intende PRD per i job.
+
+## Sessioni aperte, voce italiana a caldo, XTTS opzionale (2026-10-14 pomeriggio)
+
+`coding_tasks` include `open_sessions` (core/agent_sessions.py): sessioni
+Claude Code/Codex aperte da Alessandro, dalla coda dei transcript locali.
+Voce default Giuseppe + film. `.tts-voice.json` (non versionato) cambia
+voce/stile/motore senza riavvii. Motore "xtts" (core/voice/xtts_server.py in
+`.venv-xtts`, clip `jarvis_voice/refs`) pronto ma spento: su CPU 15-27 s per
+frase. Diventa usabile con la GPU (driver NVIDIA aggiornato) o con
+ElevenLabs. Il bot scrive in logs/bot.log una riga per ogni messaggio
+Telegram ricevuto.
