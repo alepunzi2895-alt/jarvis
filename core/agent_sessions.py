@@ -49,6 +49,20 @@ def _first(path):
             return {}
 
 
+def _start_cwd(path):
+    """Cartella in cui e' partita la sessione: il cwd degli ultimi record segue
+    i cd dentro sottocartelle (es. "refs") e non dice piu' il progetto."""
+    with open(path, "rb") as handle:
+        for line in handle.read(_TAIL_BYTES).decode("utf-8", "replace").splitlines():
+            try:
+                cwd = json.loads(line).get("cwd")
+            except (ValueError, AttributeError):
+                continue
+            if cwd:
+                return cwd
+    return None
+
+
 def _texts(content):
     if isinstance(content, str):
         return content
@@ -73,7 +87,7 @@ def _claude(path, age):
     else:
         state = "ferma a meta' (interrotta o in attesa di un permesso)"
     client = next((r.get("entrypoint") for r in reversed(records) if r.get("entrypoint")), None)
-    return dict(provider="claude", client=client, cwd=info.get("cwd"),
+    return dict(provider="claude", client=client, cwd=_start_cwd(path) or info.get("cwd"),
                 branch=info.get("gitBranch"), title=title, state=state,
                 last_prompt=_clip(prompt), last_answer=_clip(answer, 600))
 
