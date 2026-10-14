@@ -7,6 +7,7 @@ core/voice/daemon.py.
 
 import contextlib
 import io
+import json
 import os
 import re
 import asyncio
@@ -40,14 +41,38 @@ from core.voice import resolve_output_device
 # al JARVIS dei film): Andrew Multilingual che parla italiano, rate/pitch
 # leggermente ridotti e catena effetti core/voice/voice_fx.py::film.
 # JARVIS_TTS_STYLE=none torna all'audio edge-tts senza effetti.
-VOICE = os.getenv("JARVIS_TTS_VOICE", "en-US-AndrewMultilingualNeural")
+# Poco dopo: "non mi piace l'accento inglese, ci vuole un italiano fluente
+# stile JARVIS" -> default Giuseppe (italiano nativo) con la stessa catena film.
+VOICE = os.getenv("JARVIS_TTS_VOICE", "it-IT-GiuseppeMultilingualNeural")
 RATE = os.getenv("JARVIS_TTS_RATE", "-2%")
-PITCH = os.getenv("JARVIS_TTS_PITCH", "-4Hz")
+PITCH = os.getenv("JARVIS_TTS_PITCH", "-6Hz")
 STYLE = os.getenv("JARVIS_TTS_STYLE", "film").strip().lower()
-if STYLE == "film":
-    # Import all'avvio: scipy a freddo costa ~2,5 s, non deve pesare sulla
-    # prima frase pronunciata.
-    from core.voice import voice_fx
+# Import all'avvio: scipy a freddo costa ~2,5 s, non deve pesare sulla prima
+# frase pronunciata.
+from core.voice import voice_fx  # noqa: E402
+
+# Override a caldo (file non versionato): cambiare voce non richiede di
+# riavviare bot, daemon e LiveBridge, che Claude Code non puo' chiudere.
+# Esempio: {"voice": "it-IT-GiuseppeMultilingualNeural", "rate": "-4%",
+# "pitch": "-10Hz", "style": "film"}. Riletto quando cambia la data del file.
+VOICE_OVERRIDE = Path(__file__).resolve().parents[2] / ".tts-voice.json"
+_override = {"mtime": None, "data": {}}
+
+
+def voice_settings() -> dict:
+    try:
+        mtime = VOICE_OVERRIDE.stat().st_mtime
+    except OSError:
+        mtime = None
+    if mtime != _override["mtime"]:
+        try:
+            data = json.loads(VOICE_OVERRIDE.read_text(encoding="utf-8")) if mtime else {}
+        except (OSError, ValueError):
+            data = {}
+        _override.update(mtime=mtime, data=data if isinstance(data, dict) else {})
+    data = _override["data"]
+    return dict(voice=str(data.get("voice") or VOICE), rate=str(data.get("rate") or RATE),
+                pitch=str(data.get("pitch") or PITCH), style=str(data.get("style") or STYLE).strip().lower())
 
 # Il servizio edge-tts risponde 403 a caso: misurato il 2026-10-12, 1 richiesta
 # su 8 (le altre ok in 0,3-0,6 s), e JARVIS restava muto per quella risposta.
@@ -64,7 +89,8 @@ async def _edge_tts_audio(text: str) -> bytes:
     for attempt in range(_EDGE_TTS_ATTEMPTS):
         try:
             buf = io.BytesIO()
-            async for chunk in edge_tts.Communicate(text, VOICE, rate=RATE, pitch=PITCH).stream():
+            cfg = voice_settings()
+            async for chunk in edge_tts.Communicate(text, cfg["voice"], rate=cfg["rate"], pitch=cfg["pitch"]).stream():
                 if chunk["type"] == "audio":
                     buf.write(chunk["data"])
             return buf.getvalue()
@@ -77,7 +103,7 @@ async def _edge_tts_audio(text: str) -> bytes:
 def apply_style(data: np.ndarray, samplerate: int) -> np.ndarray:
     """Effetti della voce scelta su audio decodificato (frames, canali).
     Uscita mono float32 (frames, 1), pronta per sounddevice."""
-    if STYLE != "film":
+    if voice_settings()["style"] != "film":
         return data
     mono = data.mean(axis=1) if data.ndim == 2 else data
     return voice_fx.film(mono, samplerate).astype(np.float32)[:, None]
@@ -101,7 +127,7 @@ def _encode_mp3(data: np.ndarray, samplerate: int) -> bytes:
 async def synthesize_mp3(text: str) -> bytes:
     """MP3 con la voce scelta per chi riproduce altrove (dashboard privata)."""
     raw = await _edge_tts_audio(text)
-    if STYLE != "film" or not raw:
+    if voice_settings()["style"] != "film" or not raw:
         return raw
 
     def styled() -> bytes:

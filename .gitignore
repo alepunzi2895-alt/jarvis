@@ -34,3 +34,6 @@ node_modules/
 # Launcher .vbs generati a runtime da setup_autostart.ps1 (path assoluti
 # specifici di questa macchina, non codice)
 /scripts/
+
+# Voce TTS scelta a caldo (core/voice/tts.py::voice_settings)
+.tts-voice.json
