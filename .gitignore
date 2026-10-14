@@ -37,3 +37,7 @@ node_modules/
 
 # Voce TTS scelta a caldo (core/voice/tts.py::voice_settings)
 .tts-voice.json
+
+# Voce XTTS locale: ambiente separato e clip di riferimento (audio, non codice)
+/.venv-xtts/
+/jarvis_voice/
