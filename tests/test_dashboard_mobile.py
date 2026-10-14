@@ -204,6 +204,27 @@ def test_weather_header_stays_below_topbar_on_desktop(mobile_page):
         assert box["y"] + box["height"] < height
 
 
+def test_weather_starts_closed_on_desktop_and_uses_svg_icons(mobile_page):
+    page = mobile_page
+    page.set_viewport_size({"width": 1366, "height": 768})
+    page.reload()
+    page.locator("#app.visible").wait_for()
+    page.wait_for_timeout(300)
+    assert not page.evaluate("document.querySelector('#win-weather').classList.contains('open')")
+    page.evaluate("""() => {
+      const original = api;
+      api = async (action) => action === 'weather_forecast' ? {forecast: {place:'Torino', days:
+        [0, 2, 3, 45, 53, 63, 73, 95, 7].map((code, i) => ({date:`2026-10-${10+i}`, code, high:20, low:10}))
+      }} : original(action);
+    }""")
+    page.locator('[data-toggle="win-weather"]').click()
+    page.wait_for_function("document.querySelectorAll('.weather-day').length === 9")
+    kinds = page.evaluate("[...document.querySelectorAll('.weather-day svg.weather-icon')].map(s => s.getAttribute('class'))")
+    assert kinds == [f"weather-icon wx-{k}" for k in ["sun", "partly", "cloud", "fog", "drizzle", "rain", "snow", "storm", "cloud"]]
+    assert page.locator(".weather-day svg title").first.text_content() == "Sereno"
+    assert not page.evaluate(r"/\p{Extended_Pictographic}/u.test(document.querySelector('#weather-days').textContent)")
+
+
 def test_mobile_mic_waits_for_tap_and_releases_on_interruption(mobile_page):
     page = mobile_page
     assert page.evaluate("mediaCalls") == []

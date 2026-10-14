@@ -10,6 +10,9 @@
   --border: rgba(255, 255, 255, 0.10);
   --accent: #3987e5;
   --accent-dim: rgba(57, 135, 229, 0.14);
+  --wx-card: #222220;
+  --wx-cloud: #d9d8d0;
+  --wx-sun: #f5b941;
   --good: #0ca30c;
   --warning: #fab219;
   --critical: #d03b3b;
@@ -471,6 +474,8 @@ header::after {
 .data-table table { width: 100%; border-collapse: collapse; font-size: 11px; }
 .data-table th, .data-table td { text-align: left; padding: 8px 5px; border-bottom: 1px solid var(--border); }
 .data-table td:first-child { overflow-wrap: anywhere; max-width: 155px; }
+/* Meteo desktop: 7 giorni su una riga, finestra piu' bassa e meno sovrapposta. */
+@media (min-width: 861px) { #win-weather { width: min(560px, 92vw); min-height: 0; } }
 @media (min-width: 861px) { #win-projects { width: min(540px, 88vw); max-height: calc(var(--app-height,100vh) - 190px); } }
 
 @media (max-width: 640px) {
@@ -720,7 +725,7 @@ header::after {
   gap: 6px;
   padding: 10px 4px;
   border-radius: 8px;
-  background: var(--surface-1);
+  background: var(--wx-card);
   border: 1px solid var(--border);
 }
 
@@ -731,31 +736,55 @@ header::after {
   color: var(--text-muted);
 }
 
+/* Icone SVG (app.js::weatherIcon): tratto chiaro sul fondo della card, il
+   riempimento delle nuvole usa lo stesso colore della card per coprire il
+   sole dietro. Si anima solo la parte che si muove. */
 .weather-icon {
-  font-size: 26px;
-  line-height: 1;
-  display: inline-block;
-  animation: wx-float 3.5s ease-in-out infinite;
+  width: 36px;
+  height: 36px;
+  overflow: visible;
+  fill: none;
+  stroke: var(--wx-cloud);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
+.wx-cloud-shape { fill: var(--wx-card); }
+.wx-sun-core { stroke: var(--wx-sun); fill: rgba(245, 185, 65, 0.18); }
+.wx-rays { stroke: var(--wx-sun); }
+.wx-drops { stroke: var(--accent); }
+.wx-flakes { stroke: var(--text-primary); stroke-width: 2.4; }
+.wx-bolt { stroke: var(--wx-sun); }
+.wx-fog-lines { stroke: var(--text-muted); }
 
-.weather-icon.wx-sun { animation: wx-spin-slow 9s linear infinite; }
-.weather-icon.wx-storm { animation: wx-shake 0.6s ease-in-out infinite; }
-.weather-icon.wx-rain { animation: wx-float 1.6s ease-in-out infinite; }
-.weather-icon.wx-snow { animation: wx-float 4.5s ease-in-out infinite; }
+.wx-sun .wx-rays {
+  transform-box: view-box;
+  transform-origin: 12px 12px;
+  animation: wx-spin-slow 14s linear infinite;
+}
+.weather-icon.wx-partly, .weather-icon.wx-cloud, .weather-icon.wx-fog { animation: wx-float 4s ease-in-out infinite; }
+.wx-drops { animation: wx-fall 1.2s ease-in infinite; }
+.wx-flakes { animation: wx-fall 2.8s ease-in-out infinite; }
+.wx-bolt { animation: wx-flash 2.4s steps(1, end) infinite; }
 
 @keyframes wx-float {
   0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-4px); }
+  50% { transform: translateY(-2px); }
 }
 
 @keyframes wx-spin-slow {
   to { transform: rotate(360deg); }
 }
 
-@keyframes wx-shake {
-  0%, 100% { transform: translateX(0) rotate(0deg); }
-  25% { transform: translateX(-2px) rotate(-3deg); }
-  75% { transform: translateX(2px) rotate(3deg); }
+@keyframes wx-fall {
+  0% { transform: translateY(-1.5px); opacity: 0.4; }
+  50% { opacity: 1; }
+  100% { transform: translateY(1.5px); opacity: 0.4; }
+}
+
+@keyframes wx-flash {
+  0%, 82%, 90% { opacity: 1; }
+  86%, 94% { opacity: 0.25; }
 }
 
 .wx-temps {

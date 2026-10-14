@@ -936,21 +936,49 @@ function timeAgo(iso) {
 // ── Meteo settimanale animato ("come il vero JARVIS di Iron Man") ──────
 // Dati scritti da bot.py::weather_forecast_loop() su Turso (il browser non
 // puo' chiamare Open-Meteo con la posizione configurata in .env — quella
-// vive solo lato Python). Icone animate per categoria WMO: il sole ruota,
-// il temporale trema, gli altri fluttuano piano — vedi CSS .weather-icon.
-const WX_ICON = {
-  0: { e: "☀️", cls: "wx-sun" }, 1: { e: "🌤️", cls: "wx-sun" },
-  2: { e: "⛅", cls: "wx-cloud" }, 3: { e: "☁️", cls: "wx-cloud" },
-  45: { e: "🌫️", cls: "wx-fog" }, 48: { e: "🌫️", cls: "wx-fog" },
-  51: { e: "🌦️", cls: "wx-rain" }, 53: { e: "🌦️", cls: "wx-rain" }, 55: { e: "🌦️", cls: "wx-rain" },
-  56: { e: "🌧️", cls: "wx-rain" }, 57: { e: "🌧️", cls: "wx-rain" },
-  61: { e: "🌧️", cls: "wx-rain" }, 63: { e: "🌧️", cls: "wx-rain" }, 65: { e: "🌧️", cls: "wx-rain" },
-  66: { e: "🌧️", cls: "wx-rain" }, 67: { e: "🌧️", cls: "wx-rain" },
-  71: { e: "🌨️", cls: "wx-snow" }, 73: { e: "🌨️", cls: "wx-snow" }, 75: { e: "🌨️", cls: "wx-snow" }, 77: { e: "🌨️", cls: "wx-snow" },
-  80: { e: "🌦️", cls: "wx-rain" }, 81: { e: "🌧️", cls: "wx-rain" }, 82: { e: "⛈️", cls: "wx-storm" },
-  85: { e: "🌨️", cls: "wx-snow" }, 86: { e: "🌨️", cls: "wx-snow" },
-  95: { e: "⛈️", cls: "wx-storm" }, 96: { e: "⛈️", cls: "wx-storm" }, 99: { e: "⛈️", cls: "wx-storm" },
+// vive solo lato Python). Icone animate per categoria WMO: i raggi del sole
+// ruotano, gocce/fiocchi scendono, il fulmine lampeggia — vedi CSS
+// .weather-icon. SVG inline invece delle emoji (2026-10-14): su Windows/Edge
+// la nebbia 🌫️ diventava un quadrato bianco e le nuvole erano minuscole e
+// poco contrastate. Tracciati delle nuvole in stile Feather Icons (MIT).
+function _wxRays(cx, cy, r1, r2, angles) {
+  const f = (n) => n.toFixed(2);
+  return angles.map((deg) => {
+    const a = (deg * Math.PI) / 180;
+    return `<line x1="${f(cx + r1 * Math.cos(a))}" y1="${f(cy + r1 * Math.sin(a))}" x2="${f(cx + r2 * Math.cos(a))}" y2="${f(cy + r2 * Math.sin(a))}"/>`;
+  }).join("");
+}
+const WX_CLOUD = '<path class="wx-cloud-shape" d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/>';
+const WX_SVG = {
+  sun: `<circle class="wx-sun-core" cx="12" cy="12" r="4"/><g class="wx-rays">${_wxRays(12, 12, 6.8, 9.3, [0, 45, 90, 135, 180, 225, 270, 315])}</g>`,
+  partly: `<circle class="wx-sun-core" cx="8" cy="8" r="3.2"/><g class="wx-rays">${_wxRays(8, 8, 5, 6.8, [0, 135, 180, 225, 270, 315])}</g>`
+    + `<g transform="translate(5 6) scale(.75)" stroke-width="2.13">${WX_CLOUD}</g>`,
+  cloud: WX_CLOUD,
+  fog: `<g transform="translate(3 0) scale(.75)" stroke-width="2.13">${WX_CLOUD}</g><path class="wx-fog-lines" d="M4 18.5h16M7 22h10"/>`,
+  drizzle: '<path d="M20 16.58A5 5 0 0 0 18 7h-1.26A8 8 0 1 0 4 15.25"/>'
+    + '<g class="wx-drops"><path d="M8 13v2M8 19v2M12 15v2M12 21v2M16 13v2M16 19v2"/></g>',
+  rain: '<path d="M20 16.58A5 5 0 0 0 18 7h-1.26A8 8 0 1 0 4 15.25"/>'
+    + '<g class="wx-drops"><path d="M8 13v8M12 15v8M16 13v8"/></g>',
+  snow: '<path d="M20 17.58A5 5 0 0 0 18 8h-1.26A8 8 0 1 0 4 16.25"/>'
+    + '<g class="wx-flakes"><path d="M8 16h.01M8 20h.01M12 18h.01M12 22h.01M16 16h.01M16 20h.01"/></g>',
+  storm: '<path d="M19 16.9A5 5 0 0 0 18 7h-1.26a8 8 0 1 0-11.62 9"/><polyline class="wx-bolt" points="13 11 9 17 15 17 11 23"/>',
 };
+const WX_KIND = {
+  0: "sun", 1: "sun", 2: "partly", 3: "cloud", 45: "fog", 48: "fog",
+  51: "drizzle", 53: "drizzle", 55: "drizzle", 56: "drizzle", 57: "drizzle",
+  61: "rain", 63: "rain", 65: "rain", 66: "rain", 67: "rain", 80: "rain", 81: "rain", 82: "rain",
+  71: "snow", 73: "snow", 75: "snow", 77: "snow", 85: "snow", 86: "snow",
+  95: "storm", 96: "storm", 99: "storm",
+};
+const WX_LABEL = {
+  sun: "Sereno", partly: "Parzialmente nuvoloso", cloud: "Nuvoloso", fog: "Nebbia",
+  drizzle: "Pioviggine", rain: "Pioggia", snow: "Neve", storm: "Temporale",
+};
+
+function weatherIcon(code) {
+  const kind = WX_KIND[code] || "cloud";
+  return `<svg class="weather-icon wx-${kind}" viewBox="0 0 24 24" role="img" aria-label="${WX_LABEL[kind]}"><title>${WX_LABEL[kind]}</title>${WX_SVG[kind]}</svg>`;
+}
 const GIORNI_BREVI = ["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"];
 
 function _dayShortName(dateStr) {
@@ -969,11 +997,10 @@ async function refreshWeatherForecast() {
     $("#weather-place").textContent = forecast.place;
     container.innerHTML = forecast.days
       .map((d) => {
-        const icon = WX_ICON[d.code] || { e: "🌡️", cls: "wx-cloud" };
         return `
           <div class="weather-day">
             <div class="wx-day-name">${_dayShortName(d.date)}</div>
-            <div class="weather-icon ${icon.cls}">${icon.e}</div>
+            ${weatherIcon(d.code)}
             <div class="wx-temps"><span class="wx-high">${d.high ?? "—"}°</span><span class="wx-low">${d.low ?? "—"}°</span></div>
           </div>`;
       })
@@ -1560,7 +1587,6 @@ async function boot() {
     $("#refresh-data-btn").onclick = refreshConnectedData;
     setInterval(() => { if (!document.hidden && $("#win-projects").classList.contains("open")) refreshConnectedData(); }, 60000);
   });
-  _bootStep("weather-window", () => { if (!compactLayout.matches) openWindow("win-weather"); });
   _bootStep("camera", setupCamera);
   _bootStep("clock", () => {
     tickClock();

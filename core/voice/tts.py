@@ -43,6 +43,9 @@ VOICE = os.getenv("JARVIS_TTS_VOICE", "it-IT-GiuseppeMultilingualNeural")
 # Causa non isolata: l'orologio del PC e' avanti di ~114 s, ma correggere lo
 # skew del token non ha cambiato l'esito. Ritentare subito basta — workaround,
 # non fix della causa.
+# 2026-10-14: 403 diventato 12 su 12 con edge-tts 7.2.8 (voce muta ovunque,
+# promemoria riunione compreso). Il servizio ora richiede il token
+# Sec-MS-GEC versione 2, introdotto in edge-tts 7.3.x: requirements >=7.3.1.
 _EDGE_TTS_ATTEMPTS = 3
 
 
