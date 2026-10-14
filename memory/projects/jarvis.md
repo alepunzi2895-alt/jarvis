@@ -977,3 +977,22 @@ in attesa del "fatto". Script di verifica dopo il riavvio:
 `.tmp/verify_voice_coding_ready.py` (API autenticata e audio sintetico completo),
 `.tmp/verify_connected_ready.py` (fonti collegate). Nessun codice modificato
 dopo l'avvio dei due servizi.
+
+## Voce edge-tts 7.3.1 e meteo SVG (2026-10-14)
+
+La voce era muta su tutti i canali: edge-tts 7.2.8 riceveva 403 su ogni
+richiesta perché il servizio Microsoft ora vuole il token Sec-MS-GEC v2
+(edge-tts 7.3.x). Il promemoria riunione è quindi arrivato solo su Telegram.
+Requirements `edge-tts>=7.3.1`, venv aggiornato. Il retry su 403 resta.
+Se la voce torna muta, controllare prima `logs/bot.log` per il 403 e la
+versione di edge-tts su PyPI.
+
+Meteo dashboard: icone SVG inline al posto delle emoji (`app.js::weatherIcon`,
+mappatura WMO in `WX_KIND`). Pannello chiuso al boot desktop, si apre dal
+dock o chiedendo il meteo. Su desktop 7 giorni su una riga, posizione
+`--x:160px` per non coprire la conversazione. Commit a8fd9f0, merge b33d9f8.
+
+Voce "vera" di JARVIS: trovati solo cloni community non licenziati di Paul
+Bettany, solo inglese (Piper ONNX, RVC). Nessun modello italiano. Non
+installati: clone di un attore vivente senza consenso, e RVC senza GPU
+utilizzabile aggiungerebbe latenza.
