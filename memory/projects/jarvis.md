@@ -996,3 +996,21 @@ Voce "vera" di JARVIS: trovati solo cloni community non licenziati di Paul
 Bettany, solo inglese (Piper ONNX, RVC). Nessun modello italiano. Non
 installati: clone di un attore vivente senza consenso, e RVC senza GPU
 utilizzabile aggiungerebbe latenza.
+
+## Voce film, pulsanti non interrotti, Databricks PRD (2026-10-14)
+
+Voce: Andrew Multilingual in italiano + `core/voice/voice_fx.py::film`, scelta
+da Alessandro tra campioni ascoltati (`.tmp/voci_jarvis/`). Variabili
+`JARVIS_TTS_VOICE/RATE/PITCH/STYLE`. Dashboard: audio con effetti ricodificato
+MP3 64 kbps.
+
+Dashboard privata: nascondere la pagina non annulla più il comando sul PC
+(prima `visibilitychange` → `cancel`, causa probabile degli "Interrotto." su
+analisi lunghe). Il server logga sostituzioni e Stop.
+
+Databricks: PRD leggibile in sola lettura per metadati job/run/dashboard.
+`runs_summary` aggrega tutte le run del periodo nel codice (max 1000).
+`compare_dashboards` abbina PRD e QAS per nome normalizzato e legge lo stato
+/published. Requests Lakeview in serie per host con Retry-After (SSLError in
+parallelo, 429 con richieste ravvicinate). SQL/Genie PRD restano su conferma.
+Senza ambiente indicato, Alessandro intende PRD per i job.
