@@ -355,6 +355,32 @@ def test_direct_text_stream_audio_stop_and_no_cloud_fallback(mobile_page):
     assert "scollegato" in page.locator(".live-controls span").inner_text()
 
 
+def test_direct_hidden_page_keeps_long_command_and_labels_superseded(mobile_page):
+    page = mobile_page
+    page.locator("#console-text").fill("analizza i job")
+    page.locator(".send-btn").click()
+    page.wait_for_function("liveMessages.some(m => m.type === 'text')")
+    page.evaluate("""() => {
+      window.firstId = liveMessages.find(m => m.type === 'text').id;
+      liveSocket.emit({type:'accepted', id:firstId, prompt:'analizza i job'});
+      Object.defineProperty(document, 'hidden', {value: true, configurable: true});
+      document.dispatchEvent(new Event('visibilitychange'));
+      Object.defineProperty(document, 'hidden', {value: false, configurable: true});
+    }""")
+    assert not page.evaluate("liveMessages.some(m => m.type === 'cancel')")
+    page.evaluate("liveSocket.emit({type:'sentence', id:firstId, text:'Analisi pronta.'})")
+    assert "Analisi pronta." in page.locator(".entry .result").last.inner_text()
+    page.locator("#console-text").fill("organizza oggi")
+    page.locator(".send-btn").click()
+    page.wait_for_function("liveMessages.filter(m => m.type === 'text').length === 2")
+    page.evaluate("""() => {
+      const second = liveMessages.filter(m => m.type === 'text')[1].id;
+      liveSocket.emit({type:'accepted', id:second, prompt:'organizza oggi'});
+      liveSocket.emit({type:'cancelled', id:firstId});
+    }""")
+    assert page.get_by_text("Sostituito dal comando successivo.").count() == 1
+
+
 @pytest.mark.parametrize('volume', [.2, .025])
 def test_direct_mic_sends_wav_only_over_websocket(mobile_page, volume):
     page = mobile_page

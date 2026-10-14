@@ -3,7 +3,7 @@
   if (!window.JARVIS_LOCAL) return;
   let socket, connecting, context, nextAudio = 0, current = null;
   let playback = Promise.resolve();
-  const entries = new Map(), sources = new Set();
+  const entries = new Map(), sources = new Set(), superseded = new Set();
   let status, replay, stop;
   let sttReady = false;
 
@@ -34,6 +34,7 @@
     if (!entry) return;
     if (error && entry.classList.contains("pending")) fillEntry(entry, { status: "error", result: error });
     entries.delete(id);
+    superseded.delete(id);
   }
 
   function cancel() {
@@ -77,6 +78,8 @@
     switch (data.type) {
       case "accepted":
         silence();
+        // Il server annulla il comando precedente: dirlo invece di un generico "Interrotto".
+        for (const id of entries.keys()) if (id !== data.id) superseded.add(id);
         current = data.id;
         entry.querySelector(".prompt").textContent = data.prompt;
         handleVoiceUiCommand(data.prompt);
@@ -102,7 +105,7 @@
       case "ignored": entry.remove(); finish(data.id); setStatus("Audio ricevuto. Di’ Jarvis e poi il comando."); break;
       case "cancelled":
         if (current === data.id) silence();
-        finish(data.id, "Interrotto."); break;
+        finish(data.id, superseded.has(data.id) ? "Sostituito dal comando successivo." : "Interrotto."); break;
       case "error": finish(data.id, data.message); setStatus(data.message); break;
       case "notice": setStatus(data.message); break;
     }
@@ -166,7 +169,11 @@
     setInterval(() => {
       if (!sttReady && !document.hidden && socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: "status" }));
     }, 10000);
-    document.addEventListener("visibilitychange", () => { if (document.hidden) cancel(); });
+    // Pagina nascosta (altra scheda, finestra coperta: Chrome/Edge su Windows
+    // la marcano hidden) = solo silenzio. Le analisi lunghe continuano sul PC
+    // e il testo arriva comunque; annullare resta compito di Stop. 2026-10-14:
+    // "Analizza i job"/"Organizza oggi" finivano in "Interrotto." cosi'.
+    document.addEventListener("visibilitychange", () => { if (document.hidden) silence(); });
     window.addEventListener("pagehide", () => { cancel(); socket?.close(); });
   }
   window.JarvisDirect = { start, submit, unlock, cancel, get speaking() { return sources.size > 0; } };
