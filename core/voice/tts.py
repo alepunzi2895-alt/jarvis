@@ -36,7 +36,18 @@ from core.voice import resolve_output_device
 # stesso personaggio. Se lo switch di lingua torna a dare fastidio, le
 # uniche alternative reali sono Diego (gia' provato, scartato) o una voce
 # femminile (Elsa/Isabella, mai provate).
-VOICE = os.getenv("JARVIS_TTS_VOICE", "it-IT-GiuseppeMultilingualNeural")
+# 2026-10-14: Alessandro sceglie il campione `8_andrew_film` (voce piu' vicina
+# al JARVIS dei film): Andrew Multilingual che parla italiano, rate/pitch
+# leggermente ridotti e catena effetti core/voice/voice_fx.py::film.
+# JARVIS_TTS_STYLE=none torna all'audio edge-tts senza effetti.
+VOICE = os.getenv("JARVIS_TTS_VOICE", "en-US-AndrewMultilingualNeural")
+RATE = os.getenv("JARVIS_TTS_RATE", "-2%")
+PITCH = os.getenv("JARVIS_TTS_PITCH", "-4Hz")
+STYLE = os.getenv("JARVIS_TTS_STYLE", "film").strip().lower()
+if STYLE == "film":
+    # Import all'avvio: scipy a freddo costa ~2,5 s, non deve pesare sulla
+    # prima frase pronunciata.
+    from core.voice import voice_fx
 
 # Il servizio edge-tts risponde 403 a caso: misurato il 2026-10-12, 1 richiesta
 # su 8 (le altre ok in 0,3-0,6 s), e JARVIS restava muto per quella risposta.
@@ -53,7 +64,7 @@ async def _edge_tts_audio(text: str) -> bytes:
     for attempt in range(_EDGE_TTS_ATTEMPTS):
         try:
             buf = io.BytesIO()
-            async for chunk in edge_tts.Communicate(text, VOICE).stream():
+            async for chunk in edge_tts.Communicate(text, VOICE, rate=RATE, pitch=PITCH).stream():
                 if chunk["type"] == "audio":
                     buf.write(chunk["data"])
             return buf.getvalue()
@@ -61,6 +72,43 @@ async def _edge_tts_audio(text: str) -> bytes:
             if e.status != 403 or attempt == _EDGE_TTS_ATTEMPTS - 1:
                 raise
             await asyncio.sleep(0.2)
+
+
+def apply_style(data: np.ndarray, samplerate: int) -> np.ndarray:
+    """Effetti della voce scelta su audio decodificato (frames, canali).
+    Uscita mono float32 (frames, 1), pronta per sounddevice."""
+    if STYLE != "film":
+        return data
+    mono = data.mean(axis=1) if data.ndim == 2 else data
+    return voice_fx.film(mono, samplerate).astype(np.float32)[:, None]
+
+
+def _encode_mp3(data: np.ndarray, samplerate: int) -> bytes:
+    out = io.BytesIO()
+    with av.open(out, "w", format="mp3") as container:
+        stream = container.add_stream("libmp3lame", rate=samplerate, layout="mono")
+        stream.bit_rate = 64000
+        pcm = np.ascontiguousarray(data.reshape(1, -1), dtype=np.float32)
+        frame = av.AudioFrame.from_ndarray(pcm, format="flt", layout="mono")
+        frame.sample_rate = samplerate
+        for packet in stream.encode(frame):
+            container.mux(packet)
+        for packet in stream.encode(None):
+            container.mux(packet)
+    return out.getvalue()
+
+
+async def synthesize_mp3(text: str) -> bytes:
+    """MP3 con la voce scelta per chi riproduce altrove (dashboard privata)."""
+    raw = await _edge_tts_audio(text)
+    if STYLE != "film" or not raw:
+        return raw
+
+    def styled() -> bytes:
+        data, rate = EdgeTTSEngine._decode(io.BytesIO(raw))
+        return _encode_mp3(apply_style(data, rate), rate)
+
+    return await asyncio.to_thread(styled)
 
 # --------------------------------------------------------------------------- stato "sto parlando" (dashboard)
 #
@@ -134,6 +182,7 @@ class EdgeTTSEngine(TTSEngine):
         _set_speaking_bg(True)
         try:
             data, samplerate = self._decode(path)
+            data = apply_style(data, samplerate)
             sd.play(data, samplerate, device=resolve_output_device())
             sd.wait()
         finally:
@@ -201,7 +250,12 @@ class EdgeTTSEngine(TTSEngine):
         if not text:
             return None
         buf = io.BytesIO(await _edge_tts_audio(text))
-        return await asyncio.to_thread(self._decode, buf)
+
+        def decoded():
+            data, rate = self._decode(buf)
+            return apply_style(data, rate), rate
+
+        return await asyncio.to_thread(decoded)
 
     def _synthesize(self, text: str) -> Path:
         fd, tmp_path = tempfile.mkstemp(suffix=".mp3")
