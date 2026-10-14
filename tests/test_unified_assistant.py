@@ -196,3 +196,96 @@ def test_live_conversation_shared_across_projects_and_model_routing(catalog_root
     assert {c[1] for c in calls} == {"_conversation"}
     assert calls[0][2] == calls[1][2] == claude_bridge.API_MODEL
     assert calls[2][2] == claude_bridge.API_MODEL_ALIASES.get(claude_bridge.VOICE_MODEL, claude_bridge.VOICE_MODEL)
+
+
+def _run(run_id, job_id, name, state, start, end, message=""):
+    return {"run_id": run_id, "job_id": job_id, "run_name": name, "start_time": start, "end_time": end,
+            "state": {"result_state": state, "state_message": message}, "run_page_url": f"https://prd/run/{run_id}"}
+
+
+def test_prd_limited_to_job_and_dashboard_metadata(monkeypatch):
+    monkeypatch.setattr(databricks_catalog.db, "_env_config", lambda env: pytest.fail("nessuna chiamata"))
+    for kind in ("notebook", "workspace"):
+        with pytest.raises(ValueError):
+            databricks_catalog.inspect(kind, path="/Repos", env="prd")
+    with pytest.raises(ValueError):
+        databricks_catalog.inspect("jobs", env="dev")
+
+
+def test_runs_summary_reads_all_pages_and_aggregates_per_job(monkeypatch):
+    pages = [
+        {"runs": [_run(1, 10, "Gold", "FAILED", 1000, 61000, "boom"), _run(2, 10, "Gold", "SUCCESS", 2000, 12000)],
+         "next_page_token": "p2"},
+        {"runs": [_run(3, 20, "Silver", "SUCCESS", 3000, 4000), _run(4, 10, "Gold", "FAILED", 5000, 6000, "ultimo")]},
+    ]
+    calls = []
+    monkeypatch.setattr(databricks_catalog, "_client", lambda env: (f"https://{env}", {}))
+    monkeypatch.setattr(databricks_catalog, "_get", lambda host, headers, endpoint, params: calls.append((host, params)) or pages[len(calls) - 1])
+    result = databricks_catalog.runs_summary("prd", 7)
+    assert result["source"] == "Databricks PRD" and result["complete"] and result["pages_read"] == 2
+    assert calls[1][1]["page_token"] == "p2" and calls[0][0] == "https://prd"
+    gold, silver = result["jobs"]
+    assert (gold["name"], gold["runs"], gold["failed"], gold["max_elapsed_seconds"]) == ("Gold", 3, 2, 60.0)
+    assert gold["last_failure"]["message"] == "ultimo"
+    assert silver["failed"] == 0 and silver["last_failure"] is None
+    assert result["overall"]["sample_runs"] == 4 and result["overall"]["failed"] == 2
+
+
+def test_runs_summary_declares_partial_coverage_at_page_cap(monkeypatch):
+    monkeypatch.setattr(databricks_catalog, "_MAX_RUN_PAGES", 2)
+    monkeypatch.setattr(databricks_catalog, "_client", lambda env: ("https://prd", {}))
+    monkeypatch.setattr(databricks_catalog, "_get", lambda *a: {"runs": [_run(1, 1, "J", "SUCCESS", 1, 2)], "next_page_token": "more"})
+    result = databricks_catalog.runs_summary("prd", 7)
+    assert not result["complete"] and result["coverage"].startswith("Parziale")
+
+
+def test_compare_dashboards_matches_names_and_flags_publication(monkeypatch):
+    data = {
+        "qas": [dict(name="[QAS] Sales", published=True, published_at="2026-10-02T10:00:00Z", draft_updated="2026-10-02T09:00:00Z"),
+                dict(name="Only test", published=True, published_at="2026-09-01T00:00:00Z", draft_updated=None),
+                dict(name="Fleet", published=True, published_at="2026-09-01T00:00:00Z", draft_updated=None)],
+        "prd": [dict(name="Sales PRD", published=True, published_at="2026-09-20T10:00:00Z", draft_updated="2026-09-25T00:00:00Z"),
+                dict(name="Fleet", published=False, published_at=None, draft_updated="2026-09-01T00:00:00Z"),
+                dict(name="Prod only", published=True, published_at="2026-08-01T00:00:00Z", draft_updated="2026-07-01T00:00:00Z")],
+    }
+    monkeypatch.setattr(databricks_catalog, "_dashboards_with_publication", lambda env: (data[env], False))
+    result = databricks_catalog.compare_dashboards()
+    status = {row["name"]: row["status"] for row in result["dashboards"]}
+    assert status == {"Sales PRD": "qas_pubblicata_dopo_prd", "Fleet": "prd_non_pubblicata",
+                      "Only test": "solo_qas", "Prod only": "solo_prd"}
+    assert next(r for r in result["dashboards"] if r["name"] == "Sales PRD")["prd_bozza_piu_recente"]
+    assert result["qas_count"] == 3 and result["prd_count"] == 3
+
+
+def test_compare_dashboards_keeps_other_env_when_one_fails(monkeypatch):
+    def load(env):
+        if env == "prd":
+            raise RuntimeError("403")
+        return [dict(name="A", published=True, published_at="x", draft_updated=None)], False
+    monkeypatch.setattr(databricks_catalog, "_dashboards_with_publication", load)
+    result = databricks_catalog.compare_dashboards()
+    assert "403" in result["prd_error"] and result["counts"] == {"solo_qas": 1}
+
+
+def test_dashboard_publication_handles_404_and_rate_limit(monkeypatch):
+    def response(status, body=None, headers=None):
+        r = Mock(status_code=status, headers=headers or {})
+        r.json.return_value = body or {}
+        if status >= 400:
+            r.raise_for_status.side_effect = databricks_catalog.requests.HTTPError(response=r)
+        return r
+    replies = iter([
+        response(429, headers={"Retry-After": "0"}),
+        response(200, {"dashboards": [{"dashboard_id": "a", "display_name": "A"}, {"dashboard_id": "b", "display_name": "B"}]}),
+        response(200, {"path": "/a", "update_time": "2026-10-01"}), response(200, {"revision_create_time": "2026-10-02"}),
+        response(200, {"path": "/b", "update_time": "2026-10-01"}), response(404),
+    ])
+    session = Mock()
+    session.headers = {}
+    session.get.side_effect = lambda *a, **k: next(replies)
+    monkeypatch.setattr(databricks_catalog.requests, "Session", lambda: session)
+    monkeypatch.setattr(databricks_catalog, "_client", lambda env: ("https://prd", {"Authorization": "Bearer x"}))
+    monkeypatch.setattr(databricks_catalog.time, "sleep", lambda s: None)
+    items, partial = databricks_catalog._dashboards_with_publication("prd")
+    assert not partial
+    assert [(i["name"], i["published"], i["published_at"]) for i in items] == [("A", True, "2026-10-02"), ("B", False, None)]

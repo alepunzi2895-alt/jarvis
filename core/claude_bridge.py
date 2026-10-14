@@ -230,12 +230,14 @@ SYSTEM = (
     "se cambia la decisione. Non diagnosticare personalita' o disturbi. Registra/completa "
     "obiettivi solo quando Alessandro lo chiede o conferma; mai dedurli come fatti. "
     "Ricorda decisioni e preferenze durature con brain, distinguendole dai suggerimenti. "
-    "Per Databricks usa inspect_databricks: dashboard, cartelle/notebook, job e run QAS. "
+    "Per Databricks usa inspect_databricks: job, run e dashboard di QAS e PRD (sola lettura), "
+    "cartelle/notebook solo QAS. Per i job usa runs_summary; senza ambiente indicato "
+    "Alessandro intende PRD. Per dashboard pubblicate PRD contro QAS usa compare_dashboards. "
     "Leggi il sorgente di un notebook solo se pertinente alla richiesta. Non presumere "
     "di vedere tutto: valgono i permessi del service principal e la paginazione. "
     "Per SQL di analisi usa query_databricks e interpreta il risultato prima di rispondere, "
-    "senza aggiungere un secondo blocco dbsql per la stessa query. PRD conserva la conferma "
-    "dedicata esistente.\n\n"
+    "senza aggiungere un secondo blocco dbsql per la stessa query. SQL e Genie su PRD "
+    "conservano la conferma dedicata esistente.\n\n"
     "Per rispondere/scrivere su TEAMS, se la pagina e' gia' aperta/loggata nel "
     "browser di JARVIS (controlla con ```browser``` {\"action\":\"read\"} "
     "prima — altrimenti ripiega su una bozza a parole), scrivi con "
@@ -512,7 +514,7 @@ TOOLS += [
     _tool("read_project_file", "Elenca cartelle o legge un file testuale in un progetto scoperto, sola lettura; percorso relativo. Non legge segreti noti.", {"project": _STRING, "path": _STRING}, ("project",)),
     _tool("get_work_overview", "Agenda Outlook, tempo occupato senza sovrapposizioni, numero mail non lette, Git e obiettivi espliciti. Dati mancanti non sono zero.", {"start": {"type": "string", "description": "YYYY-MM-DD, default oggi"}, "days": {"type": "integer", "minimum": 1, "maximum": 7}}),
     _tool("focus_items", "Elenca obiettivi personali/lavorativi. Aggiungi o completa SOLO su richiesta/conferma esplicita dell'utente, mai per una tua proposta. Nessun promemoria automatico.", {"action": {"type": "string", "enum": ["list", "add", "complete"]}, "title": _STRING, "item_id": _STRING, "project": _STRING, "due": {"type": "string", "description": "Scadenza YYYY-MM-DD facoltativa"}}, ("action",)),
-    _tool("inspect_databricks", "Legge inventario o metriche QAS: jobs, runs (1-30 giorni), dashboards (elenco AI/BI), dashboard (query e definizione), workspace (cartella), notebook (sorgente richiesto), job (dettaglio). Nessun avvio/modifica. Segui next_page_token, dichiara campioni parziali.", {"kind": {"type": "string", "enum": ["jobs", "runs", "dashboards", "dashboard", "workspace", "notebook", "job"]}, "path": _STRING, "item_id": _STRING, "days": {"type": "integer", "minimum": 1, "maximum": 30}, "page_token": _STRING}, ("kind",)),
+    _tool("inspect_databricks", "Legge inventario o metriche Databricks, solo GET. env qas (default) o prd. runs_summary: tutte le run del periodo (1-30 giorni) aggregate per job con falliti, durate, ultimo errore e copertura: preferiscilo per analisi job. compare_dashboards: dashboard AI/BI PRD contro QAS con stato di pubblicazione (env ignorato). Altri kind: jobs, runs (pagina da 25), dashboards, dashboard (definizione), job (dettaglio); workspace e notebook solo QAS. Nessun avvio/modifica. Dichiara campioni parziali.", {"kind": {"type": "string", "enum": ["runs_summary", "compare_dashboards", "jobs", "runs", "dashboards", "dashboard", "workspace", "notebook", "job"]}, "env": {"type": "string", "enum": ["qas", "prd"]}, "path": _STRING, "item_id": _STRING, "days": {"type": "integer", "minimum": 1, "maximum": 30}, "page_token": _STRING}, ("kind",)),
     _tool("query_databricks", "Query SQL QAS sola lettura, massimo 100 righe. Interpreta il campione; per totali usa aggregazioni SQL. Non usare anche il blocco dbsql.", {"sql": _STRING}, ("sql",)),
 ]
 
