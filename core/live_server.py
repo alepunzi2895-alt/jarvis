@@ -216,7 +216,8 @@ class LiveServer:
             return web.json_response({"memories": await asyncio.to_thread(memory.entries)})
         if action == 'coding_tasks':
             from core import coding_tasks
-            return web.json_response({'jobs': await asyncio.to_thread(coding_tasks.list_tasks)})
+            data = await asyncio.to_thread(coding_tasks.overview)
+            return web.json_response({'jobs': data['jarvis_jobs'], 'sessions': data['open_sessions']})
         if action == "memory_forget":
             try:
                 return web.json_response(await finish_thread(memory.forget, body.get('id', '')))

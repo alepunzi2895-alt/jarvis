@@ -73,3 +73,26 @@ def test_synthesize_mp3_applies_style_and_stays_decodable(monkeypatch):
     assert rate == SR and data.shape[0] > SR
     monkeypatch.setattr(tts, "STYLE", "none")
     assert asyncio.run(tts.synthesize_mp3("Ciao")) == raw
+
+
+def test_voice_override_file_applies_without_restart(monkeypatch):
+    seen = []
+
+    class FakeCommunicate:
+        def __init__(self, text, voice, rate, pitch):
+            seen.append((voice, rate, pitch))
+
+        async def stream(self):
+            yield {"type": "audio", "data": b"mp3"}
+
+    monkeypatch.setattr(tts.edge_tts, "Communicate", FakeCommunicate)
+    asyncio.run(tts._edge_tts_audio("Ciao"))
+    tts.VOICE_OVERRIDE.write_text('{"voice": "it-IT-DiegoNeural", "pitch": "-10Hz", "style": "none"}', encoding="utf-8")
+    asyncio.run(tts._edge_tts_audio("Ciao"))
+    assert seen == [(tts.VOICE, tts.RATE, tts.PITCH), ("it-IT-DiegoNeural", tts.RATE, "-10Hz")]
+    stereo = np.zeros((10, 2), dtype=np.float32)
+    assert tts.apply_style(stereo, SR) is stereo
+    tts.VOICE_OVERRIDE.write_text("non json", encoding="utf-8")
+    import os
+    os.utime(tts.VOICE_OVERRIDE, (1, 1))
+    assert tts.voice_settings()["voice"] == tts.VOICE
