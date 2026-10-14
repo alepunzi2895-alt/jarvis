@@ -10,6 +10,10 @@ def _isolate_personal_memory_and_tradepilot(monkeypatch, tmp_path):
     monkeypatch.setattr('core.tradepilot._cache', {'at': 0, 'value': None, 'key': ''})
     monkeypatch.setattr('core.azure_devops.CONFIG', tmp_path / 'azure-devops.json')
     monkeypatch.setattr('core.azure_devops._cache', {'at': 0, 'value': None, 'key': ''})
+    monkeypatch.setattr('core.agent_sessions.CLAUDE_DIR', tmp_path / 'claude-projects')
+    monkeypatch.setattr('core.agent_sessions.CODEX_DIR', tmp_path / 'codex-sessions')
+    monkeypatch.setattr('core.voice.tts.VOICE_OVERRIDE', tmp_path / 'tts-voice.json')
+    monkeypatch.setattr('core.voice.tts._override', {'mtime': None, 'data': {}})
 
 
 @pytest.fixture(autouse=True)

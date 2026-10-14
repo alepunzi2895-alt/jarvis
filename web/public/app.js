@@ -114,12 +114,20 @@ async function refreshConnectedData() {
       api("devops_data").then(renderDevOps).catch(() => { $("#devops-data").textContent = "Azure DevOps non disponibile."; }),
       api("coding_tasks").then(data => {
         const target = $("#coding-jobs"); target.replaceChildren();
-        if (!data.jobs?.length) target.textContent = "Nessun lavoro. Chiedi a JARVIS di inviare un prompt a Codex o Claude Code.";
+        if (!data.jobs?.length && !data.sessions?.length) target.textContent = "Nessun lavoro. Chiedi a JARVIS di inviare un prompt a Codex o Claude Code.";
         for (const job of data.jobs || []) {
           const row = document.createElement("article"); row.className = "data-note";
           const status = ({running:"in corso",done:"risposta disponibile",blocked:"serve attenzione",error:"errore",interrupted:"interrotto"})[job.status] || job.status;
           const title = document.createElement("strong"); title.textContent = `${job.provider} · ${job.project} · ${status}`;
           const result = document.createElement("p"); result.textContent = job.result || job.prompt;
+          row.append(title, result); target.append(row);
+        }
+        // Sessioni aperte da Alessandro in VS Code/terminale/Codex, non avviate da JARVIS.
+        for (const session of data.sessions || []) {
+          const row = document.createElement("article"); row.className = "data-note";
+          const title = document.createElement("strong");
+          title.textContent = `${session.provider} · ${session.project || "?"} · ${session.state} · ${session.minutes_ago} min fa`;
+          const result = document.createElement("p"); result.textContent = session.title || session.last_prompt;
           row.append(title, result); target.append(row);
         }
       }).catch(() => { $("#coding-jobs").textContent = "Stato lavori non disponibile."; })

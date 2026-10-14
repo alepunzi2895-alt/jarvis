@@ -215,3 +215,17 @@ def _run(ident):
     if job['channel'] == 'telegram':
         from core.telegram import send_to_owner
         send_to_owner(f"{job['provider']} · {job['project']} · {status}\n{result}\nLavoro {ident}")
+
+
+def overview(job_id='', project=''):
+    """Lavori avviati da JARVIS + sessioni aperte da Alessandro in VS Code,
+    terminale o app Codex (core/agent_sessions.py)."""
+    from core import agent_sessions
+    jobs = list_tasks(job_id, project)
+    sessions = [] if job_id else agent_sessions.recent_sessions(exclude_ids={j['session_id'] for j in jobs if j.get('session_id')})
+    if project:
+        key = projects.canonical(project)
+        sessions = [s for s in sessions if s.get('project') and projects.canonical(s['project']) == key]
+    return {'jarvis_jobs': jobs, 'open_sessions': sessions,
+            'notice': 'open_sessions: sessioni Claude Code/Codex aperte da Alessandro, lette dai transcript locali '
+                      '(ultime 6 ore). "al lavoro" = file aggiornato negli ultimi 2 minuti.'}
