@@ -41,7 +41,7 @@ Object.defineProperty(navigator, 'locks', {value: {
 }, configurable: true});
 function node() { return {connect() {}, disconnect() {}, gain: {value: 1}}; }
 window.AudioContext = class {
-  constructor() { this.state = 'suspended'; this.sampleRate = 48000; window.fakeContext = this; mediaCalls.push('context'); }
+  constructor() { this.state = 'suspended'; this.sampleRate = 48000; window.fakeContext = this; (window.allContexts ||= []).push(this); mediaCalls.push('context'); }
   resume() { mediaCalls.push('resume'); this.state = 'running'; return Promise.resolve(); }
   close() { this.state = 'closed'; return Promise.resolve(); }
   createMediaStreamSource() { return node(); }
@@ -77,7 +77,10 @@ def mobile_page(request):
         if not Path(engine.executable_path).exists():
             pytest.skip(f"Playwright {request.param} non installato")
         browser = engine.launch()
-        context = browser.new_context(viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True)
+        if "direct_desktop" in request.node.name:
+            context = browser.new_context(viewport={"width": 1366, "height": 768})
+        else:
+            context = browser.new_context(viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True)
         context.add_init_script(MEDIA_STUB)
         if "direct" in request.node.name:
             context.add_init_script(DIRECT_STUB)
@@ -379,6 +382,27 @@ def test_direct_hidden_page_keeps_long_command_and_labels_superseded(mobile_page
       liveSocket.emit({type:'cancelled', id:firstId});
     }""")
     assert page.get_by_text("Sostituito dal comando successivo.").count() == 1
+
+
+def test_direct_desktop_plays_voice_with_hidden_window_and_wakes_audio_on_click(mobile_page):
+    page = mobile_page
+    page.locator("#console-text").fill("analizza i job")
+    page.locator(".send-btn").click()
+    page.wait_for_function("liveMessages.some(m => m.type === 'text')")
+    page.evaluate("""() => {
+      window.firstId = liveMessages.find(m => m.type === 'text').id;
+      liveSocket.emit({type:'accepted', id:firstId, prompt:'analizza i job'});
+      Object.defineProperty(document, 'hidden', {value: true, configurable: true});
+      document.dispatchEvent(new Event('visibilitychange'));
+      window.playedBefore = playedSources.length;
+      liveSocket.emit({type:'audio', id:firstId, data:btoa('mp3')});
+    }""")
+    page.wait_for_function("playedSources.length > playedBefore")
+    assert not page.evaluate("liveMessages.some(m => m.type === 'cancel')")
+    page.evaluate("Object.defineProperty(document, 'hidden', {value: false, configurable: true})")
+    page.evaluate("allContexts.forEach(c => c.state = 'suspended')")
+    page.locator("#orb-canvas").dispatch_event("pointerdown")
+    assert page.evaluate("allContexts[0].state") == "running"
 
 
 @pytest.mark.parametrize('volume', [.2, .025])

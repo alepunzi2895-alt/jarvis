@@ -170,10 +170,17 @@
       if (!sttReady && !document.hidden && socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: "status" }));
     }, 10000);
     // Pagina nascosta (altra scheda, finestra coperta: Chrome/Edge su Windows
-    // la marcano hidden) = solo silenzio. Le analisi lunghe continuano sul PC
-    // e il testo arriva comunque; annullare resta compito di Stop. 2026-10-14:
-    // "Analizza i job"/"Organizza oggi" finivano in "Interrotto." cosi'.
-    document.addEventListener("visibilitychange", () => { if (document.hidden) silence(); });
+    // la marcano hidden): il comando continua sul PC, annullare resta compito
+    // di Stop. 2026-10-14: "Analizza i job"/"Organizza oggi" finivano in
+    // "Interrotto." cosi'. Solo su telefono si zittisce: sul desktop la voce
+    // deve arrivare anche con la finestra coperta, come dalle casse del PC.
+    const coarse = window.matchMedia("(pointer: coarse)").matches;
+    document.addEventListener("visibilitychange", () => { if (document.hidden && coarse) silence(); });
+    // Dopo un reload il browser tiene l'audio sospeso fino al primo gesto:
+    // qualunque clic o tasto lo riattiva, anche senza "Attiva audio".
+    const wake = () => { if (context && context.state !== "running") context.resume().catch(() => {}); };
+    document.addEventListener("pointerdown", wake, true);
+    document.addEventListener("keydown", wake, true);
     window.addEventListener("pagehide", () => { cancel(); socket?.close(); });
   }
   window.JarvisDirect = { start, submit, unlock, cancel, get speaking() { return sources.size > 0; } };
