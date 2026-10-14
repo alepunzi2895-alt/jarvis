@@ -58,3 +58,10 @@ def test_coding_tasks_overview_adds_open_sessions():
     data = coding_tasks.overview()
     assert data["jarvis_jobs"] == [] and data["open_sessions"][0]["project"] == "tradepilot-ai"
     assert coding_tasks.overview(project="vmscout")["open_sessions"] == []
+
+
+def test_project_comes_from_session_start_not_last_cd():
+    records = _claude(r"C:\x\jarvis", "inizio", "ok")
+    records.append({"type": "user", "cwd": r"C:\x\jarvis\jarvis_voice\refs", "message": {"role": "user", "content": "ls"}})
+    _write(agent_sessions.CLAUDE_DIR / "j" / "f.jsonl", records)
+    assert agent_sessions.recent_sessions()[0]["project"] == "jarvis"
