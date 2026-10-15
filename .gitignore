@@ -41,3 +41,6 @@ node_modules/
 # Voce XTTS locale: ambiente separato e clip di riferimento (audio, non codice)
 /.venv-xtts/
 /jarvis_voice/
+
+# Console dashboard aperta sul PC (core/console_presence.py)
+.console-presence.*

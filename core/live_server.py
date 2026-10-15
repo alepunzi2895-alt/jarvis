@@ -25,7 +25,7 @@ from aiohttp import web, WSMsgType, ClientSession, ClientTimeout
 ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(ROOT / ".env")
 from core.voice.streaming import finish_thread
-from core import conversation_memory as memory, tradepilot, azure_devops
+from core import conversation_memory as memory, tradepilot, azure_devops, console_presence
 
 LOG = logging.getLogger(__name__)
 COOKIE = "jarvis_live"
@@ -143,6 +143,8 @@ class LiveServer:
         self.command_lock = asyncio.Lock()
         self.stt_lock = asyncio.Lock()
         self.sockets = set()
+        # Console desktop collegate: il daemon vocale ascolta la wake word solo se > 0.
+        self.consoles = set()
 
     @web.middleware
     async def boundary(self, request, handler):
@@ -280,6 +282,9 @@ class LiveServer:
         await socket.prepare(request)
         registration = (socket, request.cookies[COOKIE])
         self.sockets.add(registration)
+        if request.query.get("pc") == "1":
+            self.consoles.add(registration)
+            console_presence.write(len(self.consoles))
         active = incoming = transcribing = None
         wake_until = 0
 
@@ -437,6 +442,9 @@ class LiveServer:
             await cancel(incoming)
             await cancel(active)
             self.sockets.discard(registration)
+            if registration in self.consoles:
+                self.consoles.discard(registration)
+                console_presence.write(len(self.consoles))
         return socket
 
 
@@ -462,13 +470,20 @@ def create_app(password, origins, engine=None, warm=True):
                 except Exception:
                     LOG.warning('Campione TradePilot non disponibile')
                 await asyncio.sleep(60)
+        async def console_heartbeat():
+            while True:
+                console_presence.write(len(server.consoles))
+                await asyncio.sleep(console_presence.HEARTBEAT_SEC)
         if warm:
             tasks.append(asyncio.create_task(collect_equity()))
+            tasks.append(asyncio.create_task(console_heartbeat()))
         yield
         await asyncio.gather(*(s.close(code=1001) for s, _ in list(server.sockets)))
         for task in tasks:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
+        if warm:
+            console_presence.write(0)
     app.cleanup_ctx.append(lifecycle)
     return app
 

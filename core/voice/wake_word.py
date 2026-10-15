@@ -11,6 +11,7 @@ ufficiale del progetto openWakeWord, nessun training necessario.
 import os
 import threading
 import time
+from collections.abc import Callable
 
 import sounddevice as sd
 from openwakeword.model import Model
@@ -27,14 +28,19 @@ class WakeWordListener:
     def __init__(self):
         self.model = Model(wakeword_models=[WAKE_WORD_MODEL], inference_framework="onnx")
 
-    def wait(self, timeout: float | None = None, cancel_event: threading.Event | None = None) -> bool:
+    def wait(
+        self,
+        timeout: float | None = None,
+        cancel_event: threading.Event | None = None,
+        active: Callable[[], bool] | None = None,
+    ) -> bool:
         """Ascolta finché non rileva la wake word, scade il timeout, o scatta
         `cancel_event` (es. una hotkey manuale premuta altrove).
 
         Ritorna True se rilevata (o se cancel_event è scattato — per chi
-        chiama è comunque un "via libera"), False solo per timeout scaduto
-        senza rilevamento (con timeout=None blocca finché non succede uno
-        dei due).
+        chiama è comunque un "via libera"), False per timeout scaduto senza
+        rilevamento o quando `active()` diventa False (es. console chiusa):
+        in entrambi i casi il microfono viene rilasciato.
         """
         detected = threading.Event()
 
@@ -53,12 +59,14 @@ class WakeWordListener:
             device=resolve_input_device(),
             callback=callback,
         ):
-            if cancel_event is None:
+            if cancel_event is None and active is None:
                 detected.wait(timeout=timeout)
             else:
                 start = time.monotonic()
-                while not detected.is_set() and not cancel_event.is_set():
+                while not detected.is_set() and not (cancel_event and cancel_event.is_set()):
                     if timeout is not None and (time.monotonic() - start) > timeout:
+                        break
+                    if active is not None and not active():
                         break
                     detected.wait(timeout=0.1)
 
