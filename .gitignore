@@ -1,5 +1,6 @@
 .env
 .live-password
+.watch-token
 .live-config.json
 .project-catalog.json
 .focus.sqlite3*

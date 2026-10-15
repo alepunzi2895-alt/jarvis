@@ -414,3 +414,29 @@ def test_console_presence_stale_heartbeat_counts_as_closed(monkeypatch):
     assert not console_presence.read_open()
     console_presence.PATH.write_text("non json")
     assert not console_presence.read_open()
+
+
+def test_watch_endpoint_uses_bearer_token_without_cookie_or_origin():
+    async def scenario():
+        engine = FakeEngine()
+        app = create_app("test-password", [], engine=engine, warm=False, watch_token="watch-secret")
+        server = next(v for v in app.values() if isinstance(v, LiveServer))
+        client = TestClient(TestServer(app))
+        await client.start_server()
+        server.hosts.add(client.make_url("/").host_port_subcomponent)
+        async with client:
+            assert (await client.post("/watch/ask", json={"text": "ciao"})).status == 401
+            wrong = {"Authorization": "Bearer sbagliato"}
+            assert (await client.post("/watch/ask", headers=wrong, json={"text": "ciao"})).status == 401
+            good = {"Authorization": "Bearer watch-secret"}
+            assert (await client.post("/watch/ask", headers=good, json={})).status == 400
+            response = await client.post("/watch/ask", headers=good, json={"text": "che ore sono"})
+            assert response.status == 200
+            assert await response.text() == "Prima frase. Seconda frase."
+            assert engine.commands == ["che ore sono"]
+            # Il resto dell'API resta protetto da Origin e cookie.
+            assert (await client.post("/api/jarvis", json={"action": "tasks_recent"})).status == 403
+            for _ in range(8):
+                await client.post("/watch/ask", headers=wrong, json={"text": "x"})
+            assert (await client.post("/watch/ask", headers=good, json={"text": "x"})).status == 429
+    asyncio.run(scenario())

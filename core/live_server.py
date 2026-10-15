@@ -31,6 +31,10 @@ LOG = logging.getLogger(__name__)
 COOKIE = "jarvis_live"
 TTL = 12 * 3600
 MAX_FRAME = 4 * 1024 * 1024
+# Apple Watch (Comandi Rapidi): token Bearer, niente cookie ne' Origin.
+WATCH_PATH = "/watch/ask"
+WATCH_TIMEOUT = 55  # sotto il timeout di "Ottieni contenuto URL"
+WATCH_IDLE_SEC = 15 * 60  # dopo un quarto d'ora di silenzio si riparte da zero
 
 
 class Engine:
@@ -133,8 +137,11 @@ class Engine:
 
 
 class LiveServer:
-    def __init__(self, password, origins, engine=None):
+    def __init__(self, password, origins, engine=None, watch_token=None):
         self.password_hash = hashlib.sha256(password.encode()).digest()
+        self.watch_hash = hashlib.sha256(watch_token.encode()).digest() if watch_token else None
+        self.watch_conversations = {}
+        self.watch_seen = 0.0
         self.origins = set(origins)
         self.hosts = {urlsplit(origin).netloc for origin in origins}
         self.engine = engine or Engine()
@@ -151,7 +158,7 @@ class LiveServer:
         if request.host not in self.hosts:
             raise web.HTTPForbidden()
         if request.method != "GET" or request.path == "/live/ws":
-            if request.headers.get("Origin") not in self.origins:
+            if request.path != WATCH_PATH and request.headers.get("Origin") not in self.origins:
                 raise web.HTTPForbidden()
         response = await handler(request)
         response.headers["Cache-Control"] = "no-store"
@@ -266,6 +273,44 @@ class LiveServer:
                 ("DELETE FROM brain_nodes WHERE id=?", [node_id])])
             return web.json_response({"ok": True})
         return web.json_response({"error": "Azione non disponibile nel collegamento diretto"}, status=400)
+
+    async def watch(self, request):
+        """Domanda dal Watch: JSON {"text": ...}, risposta in testo semplice
+        da mostrare o leggere. Stesso Engine e stessa memoria della dashboard."""
+        now = time.monotonic()
+        while self.failures and self.failures[0] < now - 60:
+            self.failures.popleft()
+        if len(self.failures) >= 10:
+            return web.Response(text="Troppi tentativi. Attendi un minuto.", status=429)
+        supplied = request.headers.get("Authorization", "").removeprefix("Bearer ").strip()
+        if not self.watch_hash or not hmac.compare_digest(
+                hashlib.sha256(supplied.encode()).digest(), self.watch_hash):
+            self.failures.append(now)
+            return web.Response(text="Token non valido.", status=401)
+        try:
+            body = await request.json()
+            prompt = body.get("text") if isinstance(body, dict) else None
+        except (ValueError, TypeError):
+            prompt = None
+        if not isinstance(prompt, str) or not prompt.strip() or len(prompt) > 4000:
+            return web.Response(text="Non ho ricevuto la domanda.", status=400)
+        if now - self.watch_seen > WATCH_IDLE_SEC:
+            self.watch_conversations = {}
+        self.watch_seen = now
+
+        async def sentence(text):
+            pass
+
+        try:
+            async with asyncio.timeout(WATCH_TIMEOUT):
+                async with self.command_lock:
+                    result = await self.engine.respond(prompt.strip(), None, self.watch_conversations, sentence)
+        except TimeoutError:
+            return web.Response(text="Ci sto mettendo troppo. Riprova con una domanda più breve.", status=504)
+        except Exception:
+            LOG.exception("Comando dal Watch fallito")
+            return web.Response(text="Comando non completato.", status=500)
+        return web.Response(text=result["result"])
 
     async def tradeflow(self, request):
         self.session(request)
@@ -448,14 +493,15 @@ class LiveServer:
         return socket
 
 
-def create_app(password, origins, engine=None, warm=True):
-    server = LiveServer(password, origins, engine)
+def create_app(password, origins, engine=None, warm=True, watch_token=None):
+    server = LiveServer(password, origins, engine, watch_token)
     app = web.Application(middlewares=[server.boundary], client_max_size=MAX_FRAME)
     app[web.AppKey("live", LiveServer)] = server
     app.router.add_get("/", server.index)
     app.router.add_post("/api/jarvis", server.api)
     app.router.add_post("/api/tradeflow", server.tradeflow)
     app.router.add_get("/live/ws", server.websocket)
+    app.router.add_post(WATCH_PATH, server.watch)
     for name in ("app.js", "live.js", "orb.js", "style.css"):
         async def asset(request, filename=name):
             return web.FileResponse(ROOT / "web/public" / filename)
@@ -497,10 +543,14 @@ def main():
     if not password_path.exists():
         password_path.write_text(secrets.token_urlsafe(24), encoding="utf-8")
     password = os.getenv("JARVIS_LIVE_PASSWORD") or password_path.read_text(encoding="utf-8").strip()
+    watch_path = ROOT / ".watch-token"
+    if not watch_path.exists():
+        watch_path.write_text(secrets.token_urlsafe(24), encoding="utf-8")
+    watch_token = os.getenv("JARVIS_WATCH_TOKEN") or watch_path.read_text(encoding="utf-8").strip()
     origins = {f"http://127.0.0.1:{port}", f"http://localhost:{port}"}
     if config.get("origin"):
         origins.add(config["origin"])
-    web.run_app(create_app(password, origins), host="127.0.0.1", port=port, access_log=None)
+    web.run_app(create_app(password, origins, watch_token=watch_token), host="127.0.0.1", port=port, access_log=None)
 
 
 if __name__ == "__main__":
