@@ -1,0 +1,7 @@
+// Copia questo file in Config.swift (non versionato) e inserisci i tuoi valori.
+enum JarvisConfig {
+    /// Indirizzo della dashboard privata (lo stesso che apri sull'iPhone), senza "/" finale.
+    static let baseURL = "https://NOME-PC.TAILNET.ts.net:8443"
+    /// Contenuto del file .watch-token nella cartella jarvis sul PC.
+    static let token = "INCOLLA-QUI-IL-TOKEN"
+}

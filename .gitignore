@@ -45,3 +45,6 @@ node_modules/
 
 # Console dashboard aperta sul PC (core/console_presence.py)
 .console-presence.*
+
+# Configurazione locale app Watch (URL e token)
+watch/JarvisWatch/Config.swift
