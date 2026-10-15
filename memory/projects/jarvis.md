@@ -1025,3 +1025,18 @@ voce/stile/motore senza riavvii. Motore "xtts" (core/voice/xtts_server.py in
 frase. Diventa usabile con la GPU (driver NVIDIA aggiornato) o con
 ElevenLabs. Il bot scrive in logs/bot.log una riga per ogni messaggio
 Telegram ricevuto.
+
+## Wake word solo con console aperta (2026-10-15)
+
+Il daemon vocale non ascolta piu' in continuo: apre il microfono per la wake
+word solo quando una console della dashboard e' aperta sul PC
+(`core/console_presence.py`, file `.console-presence.json` scritto da
+LiveBridge, WebSocket `?pc=1` solo da puntatore fine). A console chiusa resta
+la hotkey Ctrl+Alt+J, senza stream aperto. `JARVIS_WAKE_WORD_MODE=always` per
+tornare indietro. Verificato sul servizio reale. Merge da2e49d.
+
+Aperta la domanda "JARVIS a PC spento": la parte personale (Telegram, API
+Claude, memoria, progetti, TradePilot) puo' girare su una VPS; Outlook COM,
+Teams, file locali e sessioni Claude Code/Codex restano legati al PC. Il
+lavoro Iveco a PC spento richiede percorsi approvati dall'IT (app Graph nel
+tenant, Databricks da IP esterno, oppure un Cloud PC aziendale).
