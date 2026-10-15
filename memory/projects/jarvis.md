@@ -1040,3 +1040,12 @@ Claude, memoria, progetti, TradePilot) puo' girare su una VPS; Outlook COM,
 Teams, file locali e sessioni Claude Code/Codex restano legati al PC. Il
 lavoro Iveco a PC spento richiede percorsi approvati dall'IT (app Graph nel
 tenant, Databricks da IP esterno, oppure un Cloud PC aziendale).
+
+## Apple Watch (2026-10-15)
+
+Alessandro ha un Mac e un Apple Watch Ultra senza SIM (funziona via iPhone o
+Wi-Fi conosciuto). Percorso scelto: prima Comandi Rapidi, poi l'eventuale app
+watchOS nativa. `POST /watch/ask` su LiveBridge con token Bearer, verificato
+dal PC via Tailscale. Da verificare: se il Watch raggiunge il tailnet tramite
+l'iPhone. Procedura: `memory/playbooks/apple-watch-comandi-rapidi.md`.
+
