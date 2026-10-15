@@ -3,14 +3,28 @@
 Video della sfera: `watch/tools/render_orb_video.py` (venv JARVIS: playwright,
 av, numpy). Usa `web/public/orb.js` con rotazioni modificate per un periodo
 esatto di 3600 passi: loop di 60 s a 30 fps, giunzione con dissolvenza di 30
-fotogrammi (salto misurato 3,7 contro 3,3-4,2 dei passi normali). Esce in due
-versioni: `jarvis_orb.mp4` (solo sfera) e `jarvis_orb_label.mp4` (scritta
-JARVIS sopra il centro). Default 410x502 (Ultra/Ultra 2), argomenti `422 514`
-per Ultra 3. Con crf 25 pesa circa 8,5 MB.
+fotogrammi. Esce in due versioni: `jarvis_orb_<stile>.mp4` (solo sfera) e
+`jarvis_orb_<stile>_label.mp4` (scritta JARVIS sopra il centro). Default
+410x502 (Ultra/Ultra 2), argomenti `422 514` per Ultra 3.
+
+Stili (`--stile`, default `liscia`):
+- `liscia`: 170 nodi a raggio costante, bordo e alone circolari, raggio 0,37
+  dello schermo. Circa 3,5 MB.
+- `globo`: nodi su 12 paralleli, bordo e alone. Circa 2,6 MB.
+- `originale`: sfera della dashboard cosi' com'e' (rifiutata il 2026-10-16:
+  "non sembra un cerchio perfetto", raggio irregolare e bordo a poligono).
 
 ```
-.venv/Scripts/python -I watch/tools/render_orb_video.py . .tmp/watch_face
+.venv/Scripts/python -I watch/tools/render_orb_video.py . .tmp/watch_face_v2 --stile liscia
 ```
+
+Lampi: con la propagazione degli impulsi della dashboard (0,7) la rete entra
+in cascata e l'intera sfera si accende ogni ~1 s (5-30% dei passi). Gli stili
+rotondi usano 0,32 (liscia) e 0,26 (globo), scelti con una simulazione di
+7200 passi: mai oltre il 30% dei nodi accesi insieme. Dopo ogni modifica
+misura il video: differenza media tra fotogrammi consecutivi (scala di
+grigi), la giunzione deve stare nel p5-p95 dei passi normali e il massimo
+non deve superare ~3 volte il p95 (un lampo vale 20+).
 
 Consegna sull'iPhone: `sendDocument` al bot owner (carica prima `.env` con
 load_dotenv, altrimenti `core.telegram.TOKEN` è vuoto → 404).

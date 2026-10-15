@@ -1051,4 +1051,9 @@ l'iPhone. Procedura: `memory/playbooks/apple-watch-comandi-rapidi.md`.
 App watchOS "quadrante" (sfera della dashboard, JARVIS e ora digitale dentro,
 tocco per dettare) su branch `feature/watch-app`, guida `watch/README.md`. Non
 ancora compilata (scritta su Windows): merge dopo il primo build sul Mac.
+Quadrante Clockology senza Mac: video in loop della sfera
+(`watch/tools/render_orb_video.py`, playbook `clockology-jarvis-face.md`).
+Il 2026-10-16 la sfera originale e' stata rifiutata (non abbastanza rotonda):
+inviati via Telegram gli stili `liscia` e `globo`, in attesa della scelta.
+Lo stile scelto va portato anche in `OrbView.swift` dell'app nativa.
 
