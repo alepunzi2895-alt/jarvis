@@ -1048,4 +1048,7 @@ Wi-Fi conosciuto). Percorso scelto: prima Comandi Rapidi, poi l'eventuale app
 watchOS nativa. `POST /watch/ask` su LiveBridge con token Bearer, verificato
 dal PC via Tailscale. Da verificare: se il Watch raggiunge il tailnet tramite
 l'iPhone. Procedura: `memory/playbooks/apple-watch-comandi-rapidi.md`.
+App watchOS "quadrante" (sfera della dashboard, JARVIS e ora digitale dentro,
+tocco per dettare) su branch `feature/watch-app`, guida `watch/README.md`. Non
+ancora compilata (scritta su Windows): merge dopo il primo build sul Mac.
 
