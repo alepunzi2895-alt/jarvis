@@ -6,6 +6,8 @@
   const entries = new Map(), sources = new Set(), superseded = new Set();
   let status, replay, stop;
   let sttReady = false;
+  // PC (puntatore fine): la console aperta abilita la wake word del daemon vocale.
+  const coarse = window.matchMedia("(pointer: coarse)").matches;
 
   function setStatus(text) { if (status) status.textContent = text; }
 
@@ -116,7 +118,7 @@
     if (connecting) return connecting;
     setConn("connecting");
     connecting = new Promise((resolve, reject) => {
-      const ws = socket = new WebSocket(`${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/live/ws`);
+      const ws = socket = new WebSocket(`${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/live/ws${coarse ? "" : "?pc=1"}`);
       const timer = setTimeout(() => ws.close(), 8000);
       ws.onopen = () => {
         if (ws !== socket) return;
@@ -168,13 +170,15 @@
     connect().catch(error => setStatus(error.message));
     setInterval(() => {
       if (!sttReady && !document.hidden && socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: "status" }));
+      // Sul PC si ricollega da solo (es. dopo un riavvio di LiveBridge):
+      // senza, la console resta aperta ma la wake word spenta.
+      if (!coarse && !connecting && (!socket || socket.readyState === WebSocket.CLOSED)) connect().catch(() => {});
     }, 10000);
     // Pagina nascosta (altra scheda, finestra coperta: Chrome/Edge su Windows
     // la marcano hidden): il comando continua sul PC, annullare resta compito
     // di Stop. 2026-10-14: "Analizza i job"/"Organizza oggi" finivano in
     // "Interrotto." cosi'. Solo su telefono si zittisce: sul desktop la voce
     // deve arrivare anche con la finestra coperta, come dalle casse del PC.
-    const coarse = window.matchMedia("(pointer: coarse)").matches;
     document.addEventListener("visibilitychange", () => { if (document.hidden && coarse) silence(); });
     // Dopo un reload il browser tiene l'audio sospeso fino al primo gesto:
     // qualunque clic o tasto lo riattiva, anche senza "Attiva audio".

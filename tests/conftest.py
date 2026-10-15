@@ -14,6 +14,8 @@ def _isolate_personal_memory_and_tradepilot(monkeypatch, tmp_path):
     monkeypatch.setattr('core.agent_sessions.CODEX_DIR', tmp_path / 'codex-sessions')
     monkeypatch.setattr('core.voice.tts.VOICE_OVERRIDE', tmp_path / 'tts-voice.json')
     monkeypatch.setattr('core.voice.tts._override', {'mtime': None, 'data': {}})
+    monkeypatch.setattr('core.console_presence.PATH', tmp_path / 'console-presence.json')
+    monkeypatch.setattr('core.console_presence._cache', {'at': 0.0, 'value': False})
 
 
 @pytest.fixture(autouse=True)

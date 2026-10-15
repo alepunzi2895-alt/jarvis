@@ -381,3 +381,36 @@ def test_text_command_supersedes_audio_still_transcribing():
             assert engine.commands == ["ciao"]
             await socket.close()
     asyncio.run(scenario())
+
+
+def test_desktop_console_presence_gates_pc_wake_word():
+    from core import console_presence
+    async def scenario():
+        client, server = await client_for()
+        async with client:
+            await login(client)
+            phone = await client.ws_connect("/live/ws")
+            await until(phone, "ready")
+            assert not console_presence.read_open()
+            pc = await client.ws_connect("/live/ws?pc=1")
+            await until(pc, "ready")
+            assert console_presence.read_open()
+            await pc.close()
+            for _ in range(50):
+                if not console_presence.read_open():
+                    break
+                await asyncio.sleep(0.02)
+            assert not console_presence.read_open()
+            await phone.close()
+    asyncio.run(scenario())
+
+
+def test_console_presence_stale_heartbeat_counts_as_closed(monkeypatch):
+    import json
+    from core import console_presence
+    console_presence.write(1)
+    assert console_presence.read_open()
+    console_presence.PATH.write_text(json.dumps({"clients": 1, "ts": time.time() - console_presence.STALE_SEC - 1}))
+    assert not console_presence.read_open()
+    console_presence.PATH.write_text("non json")
+    assert not console_presence.read_open()

@@ -19,7 +19,7 @@ import uuid
 import anthropic
 import keyboard
 
-from core import turso, intents, screen_context, telegram, conversation_memory
+from core import turso, intents, screen_context, telegram, conversation_memory, console_presence
 from core.claude_bridge import load_state
 from core.executor_singleton import executor
 from core.voice import camera, stt, tts, agent
@@ -39,6 +39,10 @@ sys.stdout.reconfigure(encoding="utf-8", errors="replace", line_buffering=True)
 sys.stderr.reconfigure(encoding="utf-8", errors="replace", line_buffering=True)
 
 HOTKEY = os.getenv("JARVIS_HOTKEY", "ctrl+alt+j")
+# "console" (default): microfono aperto per la wake word solo con la console
+# della dashboard aperta sul PC; la hotkey funziona sempre. "always": come
+# prima del 2026-10-15, wake word sempre in ascolto.
+WAKE_WORD_MODE = os.getenv("JARVIS_WAKE_WORD_MODE", "console").strip().lower()
 
 # Tetto di sicurezza per il "watcher" che ascolta un'interruzione mentre
 # JARVIS parla: la persona vocale è vincolata a risposte brevi (max due
@@ -47,6 +51,22 @@ HOTKEY = os.getenv("JARVIS_HOTKEY", "ctrl+alt+j")
 # microfono aperto in più per il tempo restante — nessun effetto collaterale
 # oltre a un uso leggermente ridondante del microfono.
 INTERRUPT_WATCH_SECONDS = 15
+
+
+def _wake_word_allowed() -> bool:
+    return WAKE_WORD_MODE == "always" or console_presence.is_open()
+
+
+def _wait_activation(listener: WakeWordListener, hotkey_pressed: threading.Event) -> bool:
+    """True = attivazione (wake word o hotkey). False = la console si e'
+    aperta o chiusa: il chiamante ricontrolla e riprova."""
+    if _wake_word_allowed():
+        return listener.wait(cancel_event=hotkey_pressed, active=_wake_word_allowed)
+    # Console chiusa: nessuno stream microfono aperto, solo la hotkey.
+    while not hotkey_pressed.wait(timeout=1):
+        if _wake_word_allowed():
+            return False
+    return True
 
 
 def _voice_enabled() -> bool:
@@ -146,13 +166,20 @@ def main() -> None:
     voice_loop = asyncio.new_event_loop()
     print(
         f'daemon vocale attivo — di\' "hey jarvis" oppure premi {HOTKEY} '
-        f"(modello: {WakeWordListener.__module__})"
+        f"(modello: {WakeWordListener.__module__}, wake word: {WAKE_WORD_MODE})"
     )
 
+    wake_state = None
     while True:
         try:
             hotkey_pressed.clear()
-            listener.wait(cancel_event=hotkey_pressed)
+            allowed = _wake_word_allowed()
+            if allowed != wake_state:
+                wake_state = allowed
+                print("console aperta: wake word in ascolto" if allowed
+                      else f"console chiusa: microfono spento, resta {HOTKEY}")
+            if not _wait_activation(listener, hotkey_pressed):
+                continue
 
             if not _voice_enabled():
                 print("attivazione rilevata ma voce in pausa (/voce off) — ignoro")
