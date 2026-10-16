@@ -61,15 +61,46 @@ _WMO_DESCRIPTIONS = {
 }
 
 _cache: dict = {"line": None, "ts": 0.0, "ok": False}
+# Posizione dell'ultimo dispositivo con cui Alessandro ha parlato (Apple Watch,
+# PC tramite il ponte VPS): prevale su .env e IP finche' e' recente (2026-10-16).
+DEVICE_LOCATION_SECONDS = 12 * 3600
+_device: dict = {"location": None, "at": 0.0}
 
 
 def _describe(code: int) -> str:
     return _WMO_DESCRIPTIONS.get(code, "condizioni non disponibili")
 
 
-def _resolve_location() -> tuple[float, float, str] | None:
+def parse_location(lat, lon, place=None) -> tuple[float, float, str] | None:
+    """Coordinate da un dispositivo, validate; None se mancanti o fuori scala."""
+    try:
+        lat, lon = float(str(lat).replace(",", ".")), float(str(lon).replace(",", "."))
+    except (TypeError, ValueError):
+        return None
+    if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+        return None
+    name = place.strip()[:60] if isinstance(place, str) and place.strip() else "posizione attuale"
+    return round(lat, 4), round(lon, 4), name
+
+
+def set_device_location(location: tuple[float, float, str] | None) -> None:
+    if not location:
+        return
+    if _device["location"] != location:
+        _cache["ts"] = 0.0  # meteo di un altro posto: niente cache vecchia
+    _device.update(location=location, at=time.time())
+
+
+def base_location() -> tuple[float, float, str] | None:
+    """Posizione di questa macchina (.env o IP), senza quella dei dispositivi."""
+    return _resolve_location(include_device=False)
+
+
+def _resolve_location(include_device: bool = True) -> tuple[float, float, str] | None:
     """Posizione (lat, lon, nome-per-display). None se nulla di configurato e
     la geolocalizzazione IP non risponde."""
+    if include_device and _device["location"] and time.time() - _device["at"] < DEVICE_LOCATION_SECONDS:
+        return _device["location"]
     lat, lon = os.getenv("JARVIS_WEATHER_LAT", ""), os.getenv("JARVIS_WEATHER_LON", "")
     if lat and lon:
         return float(lat), float(lon), os.getenv("JARVIS_WEATHER_CITY", "posizione salvata")

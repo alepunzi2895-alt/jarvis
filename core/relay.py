@@ -14,6 +14,7 @@ from collections import deque
 from datetime import datetime
 import hashlib
 import hmac
+import json
 import logging
 import os
 from pathlib import Path
@@ -35,6 +36,8 @@ PC_GRACE_SEC = 6        # tempo dato al PC per prendere un messaggio Telegram
 PC_ALIVE_SEC = 75       # il PC interroga ogni <= 50 s: oltre, lo considero spento
 PC_WATCH_TIMEOUT = 57   # il PC risponde entro 55 s; il Comando Rapido attende ~60 s
 CLAIM_TTL_SEC = 600
+LOCATION_FILE = ROOT / ".relay-location.json"
+WATCH_LOCATION_SEC = 12 * 3600  # il Watch e' al polso: vince sul PC finche' e' recente
 HISTORY_TURNS = 8
 TEXT_MODEL = os.getenv("JARVIS_RELAY_TEXT_MODEL", "claude-sonnet-5")
 WATCH_MODEL = os.getenv("JARVIS_RELAY_WATCH_MODEL", "claude-haiku-4-5")
@@ -67,6 +70,38 @@ class Relay:
         self.answer = answer or self.answer_locally
         self.send = send or self.send_telegram
         self.session = None
+        self.locations = self.load_locations()
+
+    # ── posizione per il meteo: Watch se recente, altrimenti PC ─────────
+    @staticmethod
+    def load_locations():
+        try:
+            data = json.loads(LOCATION_FILE.read_text(encoding="utf-8"))
+            return {k: (tuple(v["location"]), v["at"]) for k, v in data.items() if k in {"watch", "pc"}}
+        except (OSError, ValueError, KeyError, TypeError):
+            return {}
+
+    def remember_location(self, source, lat, lon, place=None):
+        from core import weather
+        location = weather.parse_location(lat, lon, place)
+        if not location:
+            return
+        changed = (self.locations.get(source) or (None,))[0] != location
+        self.locations[source] = (location, time.time())
+        if changed:
+            try:
+                LOCATION_FILE.write_text(json.dumps(
+                    {k: {"location": list(loc), "at": at} for k, (loc, at) in self.locations.items()}), encoding="utf-8")
+            except OSError:
+                LOG.warning("Posizione non salvata")
+
+    def current_location(self):
+        watch, pc = self.locations.get("watch"), self.locations.get("pc")
+        if watch and time.time() - watch[1] < WATCH_LOCATION_SEC:
+            return watch[0]
+        if pc:
+            return pc[0]
+        return watch[0] if watch else None
 
     # ── autenticazione ──────────────────────────────────────────────────
     def authorized(self, request, expected):
@@ -129,6 +164,8 @@ class Relay:
         except ValueError:
             raise web.HTTPBadRequest(text="offset/timeout non validi")
         self.pc_seen = time.monotonic()
+        if "lat" in request.query:
+            self.remember_location("pc", request.query.get("lat"), request.query.get("lon"), request.query.get("city"))
         now = time.monotonic()
         for update_id in [k for k, v in self.pending.items()
                           if k < offset or (v["claimed"] and now - v["at"] > CLAIM_TTL_SEC)]:
@@ -189,9 +226,13 @@ class Relay:
             prompt = None
         if not isinstance(prompt, str) or not prompt.strip() or len(prompt) > 4000:
             return web.Response(text="Non ho ricevuto la domanda.", status=400)
+        forward = {"text": prompt.strip()}
+        if body.get("lat") not in (None, "") and body.get("lon") not in (None, ""):
+            self.remember_location("watch", body["lat"], body["lon"], body.get("city"))
+            forward.update({k: body[k] for k in ("lat", "lon", "city") if body.get(k) not in (None, "")})
         if self.pc_alive() and PC_WATCH_URL:
             try:
-                async with self.session.post(PC_WATCH_URL, json={"text": prompt.strip()},
+                async with self.session.post(PC_WATCH_URL, json=forward,
                                              headers={"Authorization": f"Bearer {self.pc_watch_token}"},
                                              timeout=ClientTimeout(total=PC_WATCH_TIMEOUT, sock_connect=5)) as response:
                     return web.Response(text=await response.text(), status=response.status)
@@ -222,8 +263,7 @@ class Relay:
         history.extend([{"role": "user", "content": text}, {"role": "assistant", "content": reply}])
         return reply
 
-    @staticmethod
-    def context(text):
+    def context(self, text):
         from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
         try:
             now = datetime.now(ZoneInfo(os.getenv("JARVIS_TIMEZONE", "Europe/Rome")))
@@ -233,6 +273,7 @@ class Relay:
         parts = [f"Data e ora: {day} {now:%d/%m/%Y %H:%M}."]
         try:
             from core import weather
+            weather.set_device_location(self.current_location())
             today, tomorrow = weather.get_weather_line(), weather.format_tomorrow_line()
             if today:
                 parts.append(f"Meteo ora: {today}. Domani: {tomorrow or 'non disponibile'}.")

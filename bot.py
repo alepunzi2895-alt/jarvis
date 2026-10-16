@@ -10,6 +10,7 @@ import sys
 import json
 import html
 import asyncio
+import time
 import datetime as dt
 
 import requests
@@ -445,12 +446,18 @@ async def telegram_loop() -> None:
     headers = {"Authorization": f"Bearer {os.getenv('JARVIS_RELAY_TOKEN', '')}"} if relay else {}
     send("JARVIS online. /help")
     offset = 0
+    place, place_at = {}, 0.0
     while True:
+        if relay and time.monotonic() - place_at > 1800:
+            # Posizione del PC (.env o IP) per il meteo del ponte quando il PC e' spento.
+            found = await asyncio.to_thread(weather.base_location)
+            place = {"lat": found[0], "lon": found[1], "city": found[2]} if found else {}
+            place_at = time.monotonic()
         try:
             r = await asyncio.to_thread(
                 lambda: requests.get(
                     source,
-                    params={"offset": offset, "timeout": 50},
+                    params={"offset": offset, "timeout": 50, **place},
                     headers=headers,
                     timeout=60,
                 ).json()

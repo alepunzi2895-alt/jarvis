@@ -130,3 +130,59 @@ def test_relay_imports_stay_light():
             "'sounddevice', 'core.claude_bridge') if m in sys.modules]; print(heavy)")
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, cwd=relay_module.ROOT)
     assert out.stdout.strip() == "[]", out.stderr
+
+
+def test_watch_location_beats_pc_and_is_forwarded(monkeypatch, tmp_path):
+    from core import weather
+    monkeypatch.setattr(relay_module, "LOCATION_FILE", tmp_path / "loc.json")
+    relay, _, _ = make_relay(monkeypatch)
+    relay.remember_location("pc", "45.07", "7.69", "Torino")
+    assert relay.current_location() == (45.07, 7.69, "Torino")
+    relay.remember_location("watch", "38,9067", "1.4206", "Ibiza")
+    assert relay.current_location() == (38.9067, 1.4206, "Ibiza")
+    assert Relay("a", "b").locations["watch"][0] == (38.9067, 1.4206, "Ibiza")  # sopravvive al riavvio
+    relay.locations["watch"] = (relay.locations["watch"][0], time.time() - 13 * 3600)
+    assert relay.current_location()[2] == "Torino"
+    relay.remember_location("watch", "999", "1", "x")  # coordinate impossibili: ignorate
+    assert relay.locations["watch"][0][2] == "Ibiza"
+    weather.set_device_location(None)
+
+
+def test_pc_poll_and_watch_body_update_locations(monkeypatch, tmp_path):
+    monkeypatch.setattr(relay_module, "LOCATION_FILE", tmp_path / "loc.json")
+    relay, _, _ = make_relay(monkeypatch)
+    received = []
+
+    async def pc_watch(request):
+        received.append(await request.json())
+        return web.Response(text="ok")
+    async def run():
+        pc = TestClient(TestServer(web.Application()))
+        pc.app.router.add_post("/watch/ask", pc_watch)
+        await pc.start_server()
+        monkeypatch.setattr(relay_module, "PC_WATCH_URL", str(pc.make_url("/watch/ask")))
+        client = await client_for(relay)
+        from aiohttp import ClientSession
+        relay.session = ClientSession()
+        async with client, pc:
+            await client.get("/telegram/updates?offset=0&timeout=0&lat=45.07&lon=7.69&city=Torino",
+                             headers={"Authorization": "Bearer relay-secret"})
+            assert relay.locations["pc"][0] == (45.07, 7.69, "Torino")
+            await client.post("/watch/ask", json={"text": "meteo", "lat": 38.9, "lon": 1.42, "city": "Ibiza"},
+                              headers={"Authorization": "Bearer watch-secret"})
+        await relay.session.close()
+    asyncio.run(run())
+    assert received == [{"text": "meteo", "lat": 38.9, "lon": 1.42, "city": "Ibiza"}]
+    assert relay.current_location() == (38.9, 1.42, "Ibiza")
+
+
+def test_weather_prefers_fresh_device_location(monkeypatch):
+    from core import weather
+    monkeypatch.setenv("JARVIS_WEATHER_LAT", "45.07")
+    monkeypatch.setenv("JARVIS_WEATHER_LON", "7.69")
+    weather.set_device_location((38.9, 1.42, "Ibiza"))
+    assert weather._resolve_location() == (38.9, 1.42, "Ibiza")
+    assert weather.base_location()[:2] == (45.07, 7.69)
+    weather._device["at"] -= weather.DEVICE_LOCATION_SECONDS + 1
+    assert weather._resolve_location()[:2] == (45.07, 7.69)
+    weather._device.update(location=None, at=0.0)

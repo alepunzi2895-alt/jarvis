@@ -331,6 +331,10 @@ class LiveServer:
             prompt = None
         if not isinstance(prompt, str) or not prompt.strip() or len(prompt) > 4000:
             return web.Response(text="Non ho ricevuto la domanda.", status=400)
+        if isinstance(body, dict) and body.get("lat") not in (None, "") and body.get("lon") not in (None, ""):
+            # Posizione del Watch (anche inoltrata dal ponte VPS): meteo da dove sei.
+            from core import weather
+            weather.set_device_location(weather.parse_location(body["lat"], body["lon"], body.get("city")))
         if now - self.watch_seen > WATCH_IDLE_SEC:
             self.watch_conversations = {}
         self.watch_seen = now
