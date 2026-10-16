@@ -438,14 +438,20 @@ async def telegram_loop() -> None:
     # (promemoria, recap), senza 409 Conflict.
     if os.getenv("JARVIS_TELEGRAM_POLLING", "1") == "0":
         return
+    # Ponte VPS (core/relay.py): Telegram lo legge la VPS, sempre accesa; il PC
+    # chiede a lei gli update nello stesso formato. A PC spento risponde la VPS.
+    relay = os.getenv("JARVIS_TELEGRAM_RELAY_URL", "").rstrip("/")
+    source = f"{relay}/telegram/updates" if relay else f"{API}/getUpdates"
+    headers = {"Authorization": f"Bearer {os.getenv('JARVIS_RELAY_TOKEN', '')}"} if relay else {}
     send("JARVIS online. /help")
     offset = 0
     while True:
         try:
             r = await asyncio.to_thread(
                 lambda: requests.get(
-                    f"{API}/getUpdates",
+                    source,
                     params={"offset": offset, "timeout": 50},
+                    headers=headers,
                     timeout=60,
                 ).json()
             )
