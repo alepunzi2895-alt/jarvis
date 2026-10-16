@@ -20,7 +20,7 @@ import os
 from pathlib import Path
 import time
 
-from aiohttp import ClientConnectorError, ClientSession, ClientTimeout, ConnectionTimeoutError, web
+from aiohttp import ClientConnectorError, ClientSession, ClientTimeout, ConnectionTimeoutError, TCPConnector, web
 from aiohttp import ClientError
 from dotenv import load_dotenv
 
@@ -306,7 +306,11 @@ def create_app(relay):
     app.router.add_post("/watch/ask", relay.watch)
 
     async def lifecycle(app):
-        relay.session = ClientSession()
+        # CA di certifi: lo store di Windows Server della VPS non ha tutte le radici
+        # (2026-10-16: ClientConnectorCertificateError verso api.telegram.org).
+        import ssl
+        import certifi
+        relay.session = ClientSession(connector=TCPConnector(ssl=ssl.create_default_context(cafile=certifi.where())))
         poller = asyncio.create_task(relay.poll_telegram())
         yield
         poller.cancel()
