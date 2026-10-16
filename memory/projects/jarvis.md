@@ -1088,3 +1088,10 @@ Lo stile scelto va portato anche in `OrbView.swift` dell'app nativa.
   Alessandro.
 - Ibrido VPS pianificato, non ancora eseguito: guida
   `memory/playbooks/jarvis-vps.md`. Inoltro VPS -> PC non costruito.
+
+## Ponte VPS attivo (2026-10-16, 15:25)
+
+Telegram e Apple Watch passano dalla VPS TradePilot (`core/relay.py`, porta
+9443 tailnet). PC acceso: gestisce tutto lui; PC spento: risponde la VPS con
+meteo, TradePilot e second brain. Dettagli e aggiornamento in
+`memory/playbooks/jarvis-vps.md`.
