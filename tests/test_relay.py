@@ -198,3 +198,16 @@ def test_dangling_long_poll_does_not_keep_pc_alive(monkeypatch):
     start = time.monotonic()
     seen = asyncio.run(run())
     assert seen - start < 0.5  # registrato all'inizio, non dopo l'attesa di 1 s
+
+
+def test_watch_token_tolerates_manual_entry(monkeypatch):
+    relay, _, answered = make_relay(monkeypatch)
+    async def run():
+        client = await client_for(relay)
+        async with client:
+            statuses = []
+            for header in ("Bearer watch-secret", "bearer watch-secret", "watch-secret", ' Bearer  "watch-secret" ', "Bearer altro"):
+                response = await client.post("/watch/ask", json={"text": "ciao"}, headers={"Authorization": header})
+                statuses.append(response.status)
+            return statuses
+    assert asyncio.run(run()) == [200, 200, 200, 200, 401]

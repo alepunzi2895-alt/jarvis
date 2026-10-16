@@ -112,9 +112,18 @@ class Relay:
             self.failures.popleft()
         if len(self.failures) >= 10:
             raise web.HTTPTooManyRequests(text="Troppi tentativi. Attendi un minuto.")
-        supplied = request.headers.get("Authorization", "").removeprefix("Bearer ").strip()
+        # Il Comando Rapido si compila a mano sull'iPhone: accetta "Bearer"/"bearer",
+        # il token da solo, spazi e virgolette in piu' (2026-10-16).
+        raw = request.headers.get("Authorization", "")
+        supplied = raw.strip().strip('"')
+        if supplied[:7].lower() == "bearer ":
+            supplied = supplied[7:].strip().strip('"')
         if not expected or not supplied or not hmac.compare_digest(_digest(supplied), expected):
             self.failures.append(now)
+            # Mai il token nel log: solo cosa e' arrivato.
+            LOG.warning("Accesso rifiutato su %s: %s", request.path,
+                        "intestazione Authorization assente" if not raw.strip()
+                        else f"token di {len(supplied)} caratteri non valido")
             raise web.HTTPUnauthorized(text="Token non valido.")
 
     def pc_alive(self):
