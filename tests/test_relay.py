@@ -186,3 +186,15 @@ def test_weather_prefers_fresh_device_location(monkeypatch):
     weather._device["at"] -= weather.DEVICE_LOCATION_SECONDS + 1
     assert weather._resolve_location()[:2] == (45.07, 7.69)
     weather._device.update(location=None, at=0.0)
+
+
+def test_dangling_long_poll_does_not_keep_pc_alive(monkeypatch):
+    relay, _, _ = make_relay(monkeypatch)
+    async def run():
+        client = await client_for(relay)
+        async with client:
+            await client.get("/telegram/updates?offset=0&timeout=1", headers={"Authorization": "Bearer relay-secret"})
+        return relay.pc_seen
+    start = time.monotonic()
+    seen = asyncio.run(run())
+    assert seen - start < 0.5  # registrato all'inizio, non dopo l'attesa di 1 s
