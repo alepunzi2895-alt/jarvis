@@ -4,3 +4,4 @@ python-dotenv==1.2.2
 PyYAML==6.0.3
 requests==2.34.2
 tzdata>=2024.1
+certifi>=2024.2.2
