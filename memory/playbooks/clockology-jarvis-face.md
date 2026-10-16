@@ -11,8 +11,13 @@ Stili (`--stile`, default `liscia`):
 - `liscia`: 170 nodi a raggio costante, bordo e alone circolari, raggio 0,37
   dello schermo. Circa 3,5 MB.
 - `globo`: nodi su 12 paralleli, bordo e alone. Circa 2,6 MB.
-- `originale`: sfera della dashboard cosi' com'e' (rifiutata il 2026-10-16:
+- `originale`: la sfera irregolare di prima (rifiutata il 2026-10-16:
   "non sembra un cerchio perfetto", raggio irregolare e bordo a poligono).
+
+Gli stili sono `ORB_STYLES` in `web/public/orb.js` (dal 2026-10-16 anche la
+dashboard usa `liscia`): lo script passa `{ style }` a `createJarvisOrb` e
+patcha solo le rotazioni per il loop esatto. Cambiare uno stile = cambiare
+`orb.js`, dashboard e video restano allineati.
 
 ```
 .venv/Scripts/python -I watch/tools/render_orb_video.py . .tmp/watch_face_v2 --stile liscia

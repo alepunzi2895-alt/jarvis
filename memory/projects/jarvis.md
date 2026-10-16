@@ -1057,3 +1057,19 @@ Il 2026-10-16 la sfera originale e' stata rifiutata (non abbastanza rotonda):
 inviati via Telegram gli stili `liscia` e `globo`, in attesa della scelta.
 Lo stile scelto va portato anche in `OrbView.swift` dell'app nativa.
 
+## Sfera rotonda, webcam LiveBridge, persona JARVIS (2026-10-16, branch feature/orb-camera-persona, mergiato in main d239b2d)
+
+- **Sfera dashboard**: `web/public/orb.js` ha `ORB_STYLES` (`liscia` default,
+  `globo`, `originale`); `createJarvisOrb(canvas, { style })`. URL
+  `?orb=globo` per confronto. Il renderer video Clockology usa gli stessi
+  stili (niente piu' patch del sorgente): una modifica a `orb.js` vale per
+  dashboard e quadrante insieme.
+- **Webcam**: `core/live_server.py::Engine.respond` cattura un frame OpenCV se
+  `camera.wants_camera(prompt)` e non c'e' gia' un'immagine. Copre dashboard
+  locale, telefono, `/watch/ask` e daemon (che usa lo stesso Engine). Dal
+  telefono "cosa vedi" usa la webcam del PC, non quella del telefono.
+  Gap noto, non fatto: la cattura schermo/Teams (`screen_context`) manca
+  ancora in LiveBridge, c'e' solo in web_bridge e daemon.
+- **Persona vocale** (`core/persona.py`): JARVIS dei film, del Lei,
+  "Signore" raro, ironia asciutta occasionale e solo su fatti del contesto.
+  Frasi fisse dei comandi rapidi senza ", Signore".
