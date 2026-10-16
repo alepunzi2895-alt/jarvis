@@ -45,3 +45,7 @@ node_modules/
 
 # Console dashboard aperta sul PC (core/console_presence.py)
 .console-presence.*
+
+# Recap IVECO per il daily (oggetti mail, dati di lavoro)
+.iveco-recap.json
+.iveco-recap.tmp

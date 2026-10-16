@@ -55,6 +55,7 @@ from core import (
     myfxbook,
     presence,
     vscode_actions,
+    iveco,
 )
 from core.executor_singleton import executor, vault
 from core.voice import camera, tts
@@ -432,6 +433,11 @@ async def handle_telegram_message(msg):
 
 
 async def telegram_loop() -> None:
+    # Un solo processo puo' leggere getUpdates per bot: con JARVIS anche sulla
+    # VPS, il PC mette JARVIS_TELEGRAM_POLLING=0 e continua solo a inviare
+    # (promemoria, recap), senza 409 Conflict.
+    if os.getenv("JARVIS_TELEGRAM_POLLING", "1") == "0":
+        return
     send("JARVIS online. /help")
     offset = 0
     while True:
@@ -616,6 +622,31 @@ async def calendar_reminder_loop() -> None:
         await asyncio.sleep(120)
 
 
+async def iveco_recap_loop() -> None:
+    """Recap IVECO lun-ven (JARVIS_IVECO_RECAP_TIME, default 09:30) per il daily
+    delle 10:00, su Telegram e nel pannello IVECO. "off" lo disattiva (VPS:
+    niente Outlook ne' Databricks Iveco). Controllo ogni minuto sull'orologio
+    reale: un unico sleep lungo slitterebbe dopo uno standby del portatile."""
+    if iveco.RECAP_TIME.lower() in {"", "off"}:
+        return
+    due = iveco.next_recap_at(dt.datetime.now())
+    while True:
+        await asyncio.sleep(60)
+        now = dt.datetime.now()
+        if now < due:
+            continue
+        late = now - due
+        due = iveco.next_recap_at(now)
+        if late > dt.timedelta(hours=3):
+            continue  # PC acceso dopo il daily: il recap non serve piu'
+        try:
+            record = await asyncio.to_thread(iveco.build_recap)
+            send("Recap per il daily delle 10:00\n\n" + record["text"])
+        except Exception as e:  # noqa: BLE001 — una fonte o l'API giu' non ferma il loop
+            print(f"recap IVECO fallito (ignorato): {telegram.safe_error(e)}")
+            send("Recap IVECO non generato. Riprova dal pannello IVECO della dashboard.")
+
+
 def _push_trading_status(data: list) -> None:
     turso.execute(
         "CREATE TABLE IF NOT EXISTS runtime_flags ("
@@ -677,6 +708,7 @@ async def main() -> None:
         asyncio.create_task(calendar_reminder_loop()),
         asyncio.create_task(trading_snapshot_loop()),
         asyncio.create_task(presence_loop()),
+        asyncio.create_task(iveco_recap_loop()),
     ]
     if web_bridge.ENABLED:
         tasks.append(asyncio.create_task(web_bridge.poll_web_queue()))

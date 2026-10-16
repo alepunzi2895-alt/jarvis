@@ -46,9 +46,19 @@ def gather_briefing_data(executor) -> dict:
     return data
 
 
+_GIORNI = ("lunedì", "martedì", "mercoledì", "giovedì", "venerdì", "sabato", "domenica")
+_MESI = ("gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno", "luglio",
+         "agosto", "settembre", "ottobre", "novembre", "dicembre")
+
+
 def format_briefing(data: dict, voice: bool) -> str:
-    now_str = data["now"].strftime("%d/%m %H:%M")
-    parts = [f"Buongiorno, Signore. Sono le {now_str}." if voice else f"Buongiorno — {now_str}"]
+    # Prima l'ora, poi la data (2026-10-16: "Sono le 16/10 11:59" suonava al contrario).
+    now = data["now"]
+    if voice:
+        day = f"{_GIORNI[now.weekday()]} {now.day} {_MESI[now.month - 1]}"
+        parts = [f"Buongiorno, Signore. Sono le {now:%H:%M} di {day}."]
+    else:
+        parts = [f"Buongiorno — {now:%H:%M} · {now:%d/%m}"]
 
     if data.get("weather"):
         parts.append(data["weather"] if voice else f"Meteo: {data['weather']}")

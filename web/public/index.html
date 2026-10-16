@@ -65,7 +65,6 @@
             <button type="button" data-prompt="Organizza la mia giornata usando agenda, progetti e obiettivi: proponi tre priorità concrete.">Organizza oggi</button>
             <button type="button" data-prompt="Analizza i job Databricks PRD degli ultimi sette giorni: falliti, durate, periodo e copertura. Poi confronta le dashboard pubblicate in PRD con quelle in QAS.">Analizza i job</button>
             <button type="button" data-prompt="Aiutami a scegliere su cosa concentrarmi tra lavoro, progetti e vita personale. Parti dai miei obiettivi e fammi una domanda utile.">Trova il focus</button>
-            <button type="button" id="show-data-btn" hidden>Equity e deploy</button>
           </div>
           <form class="console-input" id="console-form">
             <input type="text" id="console-text" placeholder="Chiedi a JARVIS…" aria-label="Messaggio per JARVIS" autocomplete="off" enterkeyhint="send" />
@@ -126,8 +125,6 @@
         <div class="fw-body">
           <div id="connected-data" hidden>
             <p class="panel-subheading">Dati collegati <button type="button" id="refresh-data-btn">Aggiorna</button></p>
-            <div id="tradepilot-data" aria-live="polite">Caricamento TradePilot…</div>
-            <div id="devops-data" aria-live="polite"></div>
             <details><summary>Lavori Codex e Claude Code</summary><div id="coding-jobs">Nessun lavoro caricato.</div></details>
           </div>
           <div class="project-cards" id="project-cards">
@@ -142,6 +139,55 @@
         </div>
       </section>
 
+      <section class="floating-window panel-window" id="win-tradepilot" style="--x:240px; --y:0px;">
+        <header class="fw-header">
+          <span class="fw-title">TradePilot</span>
+          <span class="fw-hint" id="tp-hint">sola lettura</span>
+          <button type="button" class="fw-close" data-close="win-tradepilot">✕</button>
+        </header>
+        <div class="fw-body">
+          <div class="panel-tabs" role="tablist" aria-label="TradePilot">
+            <button type="button" role="tab" aria-selected="true" aria-controls="tp-dashboard">Dashboard</button>
+            <button type="button" role="tab" aria-selected="false" aria-controls="tp-data">Dati</button>
+            <button type="button" role="tab" aria-selected="false" aria-controls="tp-experiments">Esperimenti</button>
+          </div>
+          <div class="panel-tab" id="tp-dashboard" role="tabpanel" aria-live="polite">Caricamento TradePilot…</div>
+          <div class="panel-tab" id="tp-data" role="tabpanel" hidden></div>
+          <div class="panel-tab" id="tp-experiments" role="tabpanel" hidden></div>
+        </div>
+      </section>
+
+      <section class="floating-window panel-window" id="win-iveco" style="--x:240px; --y:0px;">
+        <header class="fw-header">
+          <span class="fw-title">IVECO</span>
+          <span class="fw-hint" id="iveco-hint">sola lettura</span>
+          <button type="button" class="fw-close" data-close="win-iveco">✕</button>
+        </header>
+        <div class="fw-body">
+          <div class="panel-tabs" role="tablist" aria-label="IVECO">
+            <button type="button" role="tab" aria-selected="true" aria-controls="iveco-recap">Recap daily</button>
+            <button type="button" role="tab" aria-selected="false" aria-controls="iveco-jobs">Job</button>
+            <button type="button" role="tab" aria-selected="false" aria-controls="iveco-agent">IVGAgent</button>
+          </div>
+          <div class="panel-tab" id="iveco-recap" role="tabpanel">
+            <div id="iveco-recap-body" aria-live="polite">Caricamento recap…</div>
+            <button type="button" class="panel-action" id="iveco-recap-btn">Genera ora</button>
+          </div>
+          <div class="panel-tab" id="iveco-jobs" role="tabpanel" hidden>
+            <div id="iveco-jobs-body" aria-live="polite">Caricamento job…</div>
+            <div id="devops-data" aria-live="polite"></div>
+          </div>
+          <div class="panel-tab" id="iveco-agent" role="tabpanel" hidden>
+            <form class="agent-form" id="ivgagent-form">
+              <textarea id="ivgagent-text" rows="3" maxlength="16000" placeholder="Chiedi a IVGAgent (Databricks, sola lettura)…" aria-label="Richiesta per IVGAgent"></textarea>
+              <button type="submit" class="panel-action">Invia a IVGAgent</button>
+            </form>
+            <p class="panel-footnote">Sessione Claude Code nella cartella IVGAgent: legge job, tabelle e notebook in test e prod. Avvio job, import e scritture restano a te.</p>
+            <div id="ivgagent-tasks" aria-live="polite"></div>
+          </div>
+        </div>
+      </section>
+
     </div>
 
     <p class="voice-status" id="voice-status" role="status" aria-live="polite">Tocca il microfono per parlare</p>
@@ -152,6 +198,8 @@
       <button type="button" class="dock-btn" data-toggle="win-brain" title="Second brain">🧠</button>
       <button type="button" class="dock-btn" data-toggle="win-weather" title="Meteo">⛅</button>
       <button type="button" class="dock-btn" data-toggle="win-projects" title="Panoramica">🗂️</button>
+      <button type="button" class="dock-btn" data-toggle="win-tradepilot" title="TradePilot" hidden>📈</button>
+      <button type="button" class="dock-btn" data-toggle="win-iveco" title="IVECO" hidden>🚛</button>
     </div>
   </div>
 

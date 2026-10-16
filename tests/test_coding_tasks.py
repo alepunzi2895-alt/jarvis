@@ -123,3 +123,26 @@ def test_native_voice_uses_same_agent_and_propagates_failures(monkeypatch):
     monkeypatch.setattr(agent._engine, 'respond', AsyncMock(side_effect=ValueError('errore reale')))
     with pytest.raises(ValueError, match='errore reale'):
         asyncio.run(read())
+
+
+def test_ivgagent_runs_claude_read_only_with_dbx_wrapper_only(coding, monkeypatch):
+    monkeypatch.setattr(tasks, '_resolve', lambda project: (tasks.IVG_KEY, '.'))
+    with pytest.raises(ValueError, match='sola lettura'):
+        tasks.start_task('claude', 'IVGAgent', 'x', mode='edit', explicit=True)
+    with pytest.raises(ValueError, match='sola lettura'):
+        tasks.start_task('codex', 'IVGAgent', 'x', explicit=True)
+    # Il pulsante del pannello e' gia' la richiesta esplicita: nessuna conversazione serve.
+    job = tasks.start_task('claude', 'IVGAgent', 'Stato dei job in test', explicit=True)
+    assert job['project'] == tasks.IVG_KEY
+    cmd = tasks._command({'provider': 'claude', 'mode': 'read', 'session_id': '', 'project': tasks.IVG_KEY})
+    assert cmd[cmd.index('--permission-mode') + 1] == 'dontAsk'
+    assert cmd[cmd.index('--permission-prompts') + 1] == 'none'
+    allowed = cmd[cmd.index('--allowedTools') + 1:cmd.index('--append-system-prompt')]
+    assert [rule for rule in allowed if rule.startswith('Bash')] == [f'Bash(python {tasks.IVG_DBX} *)']
+    assert 'tools/dbx.py' not in ' '.join(allowed)
+    assert not any('bypass' in value or 'dangerously' in value for value in cmd)
+
+
+def test_explicit_flag_is_needed_without_conversation(coding):
+    with pytest.raises(ValueError, match='conversazione'):
+        tasks.start_task('claude', 'demo', 'Leggi')

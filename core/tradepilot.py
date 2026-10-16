@@ -33,6 +33,9 @@ def settings():
     if parsed.username or parsed.password or parsed.query or parsed.fragment or parsed.path not in {'', '/'}:
         raise ValueError('Usa solo l\'origine privata TradePilot')
     config['origin'] = config['origin'].rstrip('/')
+    # Dashboard pubblica in sola lettura (D042), solo come link nel pannello.
+    link = urlsplit(config.get('dashboard_url', ''))
+    config['dashboard_url'] = config['dashboard_url'] if link.scheme == 'https' and link.hostname else None
     return config
 
 
@@ -136,6 +139,7 @@ def snapshot():
             'research': {k: research.get(k) for k in ('updated', 'cumulative_trials', 'factory_trials', 'total_trials', 'eligible_strategies')},
             'experiments': research.get('experiments', []),
             'factory': {k: factory.get(k) for k in ('n_trials', 'batches', 'survivors', 'updated', 'last_batch', 'leaderboard')},
+            'dashboard_url': config['dashboard_url'],
             'notice': 'Dati della VPS TradePilot. Demo, shadow e ricerca sono distinti; nessun comando operativo da JARVIS.',
         }
         _cache.update(at=time.monotonic(), key=str(CONFIG) + config['origin'], value=out)

@@ -477,6 +477,31 @@ header::after {
 /* Meteo desktop: 7 giorni su una riga, finestra piu' bassa e meno sovrapposta. */
 @media (min-width: 861px) { #win-weather { width: min(560px, 92vw); min-height: 0; } }
 @media (min-width: 861px) { #win-projects { width: min(540px, 88vw); max-height: calc(var(--app-height,100vh) - 190px); } }
+@media (min-width: 861px) { .panel-window { width: min(580px, 90vw); max-height: calc(var(--app-height,100vh) - 190px); } }
+
+/* ── Pannelli con schede (TradePilot, IVECO) ───────────────────────────── */
+.dock-btn[hidden], .panel-tab[hidden] { display: none; }
+.panel-tabs { display: flex; gap: 6px; margin-bottom: 12px; border-bottom: 1px solid var(--border); }
+.panel-tabs [role="tab"] {
+  min-height: 40px; padding: 8px 12px; border: 0; border-bottom: 2px solid transparent;
+  background: transparent; color: var(--text-muted); font: inherit; font-size: 13px; cursor: pointer;
+}
+.panel-tabs [role="tab"][aria-selected="true"] { color: var(--accent); border-bottom-color: var(--accent); }
+.panel-tab { font-size: 13px; line-height: 1.5; }
+.recap-text { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; margin: 8px 0; }
+.panel-action {
+  min-height: 44px; margin-top: 10px; padding: 8px 14px; border-radius: 8px; border: 1px solid var(--accent);
+  background: var(--accent-dim); color: var(--accent); font: inherit; font-weight: 600; cursor: pointer;
+}
+.panel-action:hover:not(:disabled) { background: var(--accent); color: var(--page); }
+.panel-action:disabled { opacity: .6; cursor: progress; }
+.panel-link { display: inline-block; margin: 8px 0; color: var(--accent); }
+.agent-form { display: flex; flex-direction: column; }
+.agent-form textarea {
+  width: 100%; box-sizing: border-box; padding: 10px; border-radius: 8px; border: 1px solid var(--border);
+  background: var(--page); color: var(--text-primary); font: inherit; resize: vertical;
+}
+.agent-form textarea:focus { outline: none; border-color: var(--accent); }
 
 @media (max-width: 640px) {
   .floating-window { width: 92vw; }
