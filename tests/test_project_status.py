@@ -119,7 +119,7 @@ def test_format_report_voice_flags_known_issue():
         ),
     ]
     text = project_status.format_report(statuses, voice=True)
-    assert "Signore" in text
+    assert "Signore" not in text
     assert "problema noto" in text
 
 

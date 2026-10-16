@@ -295,6 +295,38 @@ def test_live_uses_voice_model_without_changing_text_model(monkeypatch):
     assert bridge.API_MODEL == old_text_model
 
 
+def test_live_captures_webcam_frame_when_asked_to_see(monkeypatch):
+    from core.live_server import Engine
+    from core import claude_bridge as bridge
+    from core.voice import camera
+    monkeypatch.setattr(bridge, "TEXT_ENGINE", "api")
+    monkeypatch.setattr(camera, "capture_frame_b64", lambda: "frame64")
+    answer = AsyncMock(return_value=("Vedo una scrivania.", None, .001))
+    monkeypatch.setattr(bridge, "_run_claude_api", answer)
+    engine = Engine()
+    engine.contexts["jarvis"] = "Contesto"
+    asyncio.run(engine.respond("cosa vedi dalla webcam", None, {}, AsyncMock()))
+    assert answer.call_args.args[3] == "frame64"
+    # Immagine gia' allegata dal pannello camera: nessuna seconda cattura.
+    monkeypatch.setattr(camera, "capture_frame_b64", Mock(side_effect=AssertionError))
+    asyncio.run(engine.respond("cosa vedi dalla webcam", "client64", {}, AsyncMock()))
+    assert answer.call_args.args[3] == "client64"
+
+
+def test_live_reports_missing_webcam_instead_of_asking_claude(monkeypatch):
+    from core.live_server import Engine
+    from core import claude_bridge as bridge
+    from core.voice import camera
+    monkeypatch.setattr(camera, "capture_frame_b64", lambda: None)
+    answer = AsyncMock()
+    monkeypatch.setattr(bridge, "_run_claude_api", answer)
+    spoken = AsyncMock()
+    result = asyncio.run(Engine().respond("scatta una foto", None, {}, spoken))
+    assert result["result"] == "Non riesco ad aprire la webcam del PC."
+    spoken.assert_awaited_once_with("Non riesco ad aprire la webcam del PC.")
+    answer.assert_not_called()
+
+
 def test_stop_during_replacement_never_launches_waiting_command():
     import threading
     async def scenario():

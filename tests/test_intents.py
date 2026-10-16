@@ -107,7 +107,7 @@ def test_execute_intent_weather_uses_weather_module(monkeypatch):
     executor = MagicMock()
     monkeypatch.setattr("core.weather.get_weather_line", lambda: "22°C, cielo sereno")
     result = intents.execute_intent({"type": "weather"}, executor, voice=True)
-    assert "22°C" in result and "Signore" in result
+    assert "22°C" in result and "Signore" not in result
 
 
 def test_execute_intent_weather_degrades_gracefully_when_unavailable(monkeypatch):

@@ -165,11 +165,10 @@ def attention_report(statuses: list[ProjectStatus]) -> dict:
     verified = sum(bool(s.branch) and not s.error for s in statuses)
     if highlights:
         sentences = [item[2] for item in highlights[:2]]
-        sentences[0] = "Signore, " + sentences[0]
     elif verified:
-        sentences = ["Nei repository controllati non emergono modifiche locali o errori di lettura, Signore."]
+        sentences = ["Nei repository controllati non emergono modifiche locali o errori di lettura."]
     else:
-        sentences = ["Non ho ancora uno stato Git verificabile dei progetti, Signore."]
+        sentences = ["Non ho ancora uno stato Git verificabile dei progetti."]
     return dict(reported_at=datetime.now().isoformat(), checked=len(statuses), verified_repositories=verified,
                 highlights=[dict(project=key, text=text) for _, key, text in highlights[:2]],
                 additional_items=max(0, len(highlights)-2), sentences=sentences,

@@ -1581,7 +1581,9 @@ async function boot() {
   _bootStep("viewport", setupViewport);
   _bootStep("direct-voice", () => window.JarvisDirect?.start());
   _bootStep("orb", () => {
-    window.JarvisOrb = window.createJarvisOrb($("#orb-canvas"));
+    // ?orb=globo|originale per confrontare gli stili; default "liscia".
+    const style = new URLSearchParams(location.search).get("orb") || undefined;
+    window.JarvisOrb = window.createJarvisOrb($("#orb-canvas"), { style });
     if (!document.hidden) window.JarvisOrb.start();
   });
   _bootStep("voice", setupVoice);

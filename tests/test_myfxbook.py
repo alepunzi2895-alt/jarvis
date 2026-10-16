@@ -72,12 +72,12 @@ def test_get_accounts_sync_logs_in_and_out(monkeypatch):
 
 def test_format_accounts_empty_list():
     assert "Nessun" in myfxbook.format_accounts([], voice=False)
-    assert "Signore" in myfxbook.format_accounts([], voice=True)
+    assert "Signore" not in myfxbook.format_accounts([], voice=True)
 
 
 def test_format_accounts_voice_mentions_equity_and_gain():
     text = myfxbook.format_accounts([_account()], voice=True)
-    assert "MFKK" in text and "10500" in text and "Signore" in text
+    assert "MFKK" in text and "10500" in text and "Signore" not in text
 
 
 def test_format_accounts_text_includes_winrate():

@@ -507,8 +507,8 @@ async def poll_web_queue() -> None:
                 )
             except asyncio.TimeoutError:
                 result, sid, cost = (
-                    "Ho impiegato troppo tempo su questa richiesta, mi fermo qui, "
-                    "Signore — riprova con qualcosa di più mirato.",
+                    "Ho impiegato troppo tempo su questa richiesta, mi fermo qui "
+                    "— riprova con qualcosa di più mirato.",
                     None, 0.0,
                 )
             tts.speak_if_enabled(result)
