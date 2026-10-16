@@ -1073,3 +1073,18 @@ Lo stile scelto va portato anche in `OrbView.swift` dell'app nativa.
 - **Persona vocale** (`core/persona.py`): JARVIS dei film, del Lei,
   "Signore" raro, ironia asciutta occasionale e solo su fatti del contesto.
   Frasi fisse dei comandi rapidi senza ", Signore".
+
+## Pannelli TradePilot e IVECO, recap daily, IVGAgent, ibrido VPS (2026-10-16, merge ce7303f)
+
+- Dock: 📈 TradePilot (Dashboard/Dati/Esperimenti) e 🚛 IVECO (Recap daily,
+  Job, IVGAgent), solo nella dashboard locale LiveBridge. Panoramica ora senza
+  TradePilot/DevOps.
+- Recap IVECO: `core/iveco.py`, lun-ven 09:30 da `bot.py::iveco_recap_loop`
+  (controllo ogni minuto, salta se il PC si accende oltre 3 h dopo),
+  `.iveco-recap.json` gitignored. Fonti: Databricks QAS/PRD, DevOps, Outlook.
+  Teams non collegato.
+- IVGAgent (cartella `Downloads/IVGAgent`, agente Claude Code Iveco): da JARVIS
+  solo lettura via `core/ivg_dbx.py`. Scritture e avvio job restano ad
+  Alessandro.
+- Ibrido VPS pianificato, non ancora eseguito: guida
+  `memory/playbooks/jarvis-vps.md`. Inoltro VPS -> PC non costruito.
