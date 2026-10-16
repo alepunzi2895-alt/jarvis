@@ -44,8 +44,10 @@ enum OrbState {
     }
 }
 
-/// Sfera di nodi/archi con impulsi luminosi: porting di web/public/orb.js.
-/// Meno nodi e impulsi che sul PC per la batteria del Watch.
+/// Sfera di nodi/archi con impulsi luminosi: porting di web/public/orb.js,
+/// stile "liscia" (2026-10-16): raggio dei nodi costante, bordo e alone
+/// circolari, propagazione sotto la soglia delle cascate. Meno nodi e impulsi
+/// che sul PC per la batteria del Watch.
 final class OrbModel {
     private struct Node {
         var x, y, z: Double
@@ -79,7 +81,7 @@ final class OrbModel {
     private var last: Date?
     private var pending = 0.0
 
-    init(count: Int = 80, neighbours: Int = 3) {
+    init(count: Int = 100, neighbours: Int = 3) {
         rot = OrbState.idle.rotation
         fire = OrbState.idle.fireRate
         speed = OrbState.idle.pulseSpeed
@@ -89,8 +91,7 @@ final class OrbModel {
             let y = 1 - Double(i) / Double(count - 1) * 2
             let r = (1 - y * y).squareRoot()
             let theta = golden * Double(i)
-            let jitter = 0.88 + Double.random(in: 0..<0.2)
-            nodes.append(Node(x: cos(theta) * r * jitter, y: y * jitter, z: sin(theta) * r * jitter,
+            nodes.append(Node(x: cos(theta) * r, y: y, z: sin(theta) * r,
                               phase: .random(in: 0..<6.28), hue: hue))
         }
         var seen = Set<Int>()
@@ -172,7 +173,19 @@ final class OrbModel {
             g.fill(Self.circle(n.sx, n.sy, r), with: .color(color))
         }
 
+        if !dimmed {
+            let halo = Gradient(stops: [
+                .init(color: Self.hsl(hue, 1, 0.6, 0), location: 0),
+                .init(color: Self.hsl(hue, 1, 0.62, 0.2), location: 0.35),
+                .init(color: Self.hsl(hue, 1, 0.5, 0), location: 1),
+            ])
+            g.fill(Self.circle(cx, cy, radius * 1.22),
+                   with: .radialGradient(halo, center: CGPoint(x: cx, y: cy), startRadius: radius * 0.94,
+                                         endRadius: radius * 1.22))
+        }
+
         g.blendMode = .normal
+        g.stroke(Self.circle(cx, cy, radius * 1.04), with: .color(Self.hsl(hue, 0.9, 0.7, 0.55 * dim)), lineWidth: 1)
         let rings: [(k: Double, speed: Double, length: Double, alpha: Double)] = [
             (1.1, 0.0025, 0.9, 0.3), (1.16, -0.004, 0.35, 0.18),
         ]
@@ -235,19 +248,19 @@ final class OrbModel {
         nodes[i].energy = 1
         nodes[i].refractory = 30
         nodes[i].hue = h
-        for j in nodes[i].neighbours where Double.random(in: 0..<1) < 0.7 {
+        for j in nodes[i].neighbours where Double.random(in: 0..<1) < 0.32 {
             pulses.append(Pulse(from: i, to: j, progress: 0, hue: h))
         }
     }
 
     private func project(_ size: CGSize) -> Double {
         let w = Double(size.width), h = Double(size.height)
-        let radius = min(w, h) * 0.42 * (1 + level * 0.18)
+        let radius = min(w, h) * 0.37 * (1 + level * 0.18)
         let cosY = cos(rotY), sinY = sin(rotY), cosX = cos(rotX), sinX = sin(rotX)
         let focal = radius * 3.2
         for i in nodes.indices {
             let n = nodes[i]
-            let wobble = 1 + sin(t * 0.02 + n.phase) * 0.025 + n.energy * 0.05
+            let wobble = 1 + sin(t * 0.02 + n.phase) * 0.006 + n.energy * 0.02
             let x = n.x * wobble, y = n.y * wobble, z = n.z * wobble
             let x1 = x * cosY - z * sinY, z1 = x * sinY + z * cosY
             let y1 = y * cosX - z1 * sinX, z2 = y * sinX + z1 * cosX
