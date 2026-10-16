@@ -58,14 +58,31 @@ def _iso_after(value, since: datetime) -> bool:
 
 
 def _workspace_changes(env: str, since: datetime) -> list[dict]:
+    import requests
     from core import databricks_catalog as catalog
     host, headers = catalog._client(env)
+    session = requests.Session()
+    session.headers.update(headers)
+
+    def listing(path):
+        # Una connessione riusata e un secondo tentativo: il proxy aziendale
+        # chiude a volte le connessioni nuove in serie con SSLError (2026-10-16).
+        for attempt in range(2):
+            try:
+                response = session.get(host + "/api/2.0/workspace/list", params={"path": path}, timeout=25)
+                response.raise_for_status()
+                return response.json().get("objects", [])
+            except requests.exceptions.SSLError:
+                if attempt:
+                    raise
+                session.close()
+
     since_ms = since.astimezone(timezone.utc).timestamp() * 1000
     queue, seen, changed = [WORKSPACE_ROOT], 0, []
     while queue and seen < _MAX_DIRS:
         path = queue.pop(0)
         seen += 1
-        for item in catalog._get(host, headers, "/api/2.0/workspace/list", {"path": path}).get("objects", []):
+        for item in listing(path):
             if item.get("object_type") in {"DIRECTORY", "REPO"}:
                 queue.append(item["path"])
             elif _ms(item.get("modified_at")) >= since_ms:
