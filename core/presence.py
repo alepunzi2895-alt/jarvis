@@ -32,8 +32,8 @@ COOLDOWN_SEC = 1800  # non risalutare piu' spesso di cosi', anche se sfarfalla
 
 _GREETINGS = [
     "Bentornato, Signore.",
-    "Eccola, Signore. Tutto pronto.",
-    "Buongiorno di nuovo, Signore.",
+    "Eccola. Tutto pronto, e quasi niente in fiamme.",
+    "Di nuovo qui. Ho tenuto il posto in caldo.",
 ]
 
 

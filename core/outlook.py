@@ -519,21 +519,21 @@ def format_email_detail(detail: EmailDetail) -> str:
 
 def format_unread_count(n: int, voice: bool) -> str:
     if n == 0:
-        return "Nessuna mail non letta, Signore." if voice else "Nessuna mail non letta."
+        return "Nessuna mail non letta."
     if n == 1:
-        return "Hai una mail non letta, Signore." if voice else "1 mail non letta."
-    return f"Hai {n} mail non lette, Signore." if voice else f"{n} mail non lette."
+        return "Ha una mail non letta." if voice else "1 mail non letta."
+    return f"Ha {n} mail non lette." if voice else f"{n} mail non lette."
 
 
 def format_summary(emails: list[EmailSummary], voice: bool) -> str:
     if not emails:
-        return "Nessuna mail in arrivo, Signore." if voice else "Nessuna mail trovata."
+        return "Nessuna mail in arrivo." if voice else "Nessuna mail trovata."
 
     if voice:
         n_unread = sum(1 for e in emails if e.unread)
         parts = [f"{e.sender}: {e.subject}" for e in emails[:3]]
         prefix = f"{n_unread} non lette. " if n_unread else ""
-        return f"{prefix}Ultime mail — {'; '.join(parts)}, Signore."
+        return f"{prefix}Ultime mail — {'; '.join(parts)}."
 
     lines = ["Posta in arrivo:", ""]
     for e in emails:
@@ -552,11 +552,11 @@ def format_events(events: list[CalendarEvent], voice: bool, day: str = "oggi") -
     get_upcoming_events_sync/get_events_for_day_sync."""
     label = "domani" if day == "domani" else "oggi"
     if not events:
-        return f"Nessun impegno in calendario per {label}, Signore." if voice else f"Nessun impegno trovato per {label}."
+        return f"Nessun impegno in calendario per {label}. Giornata libera, per una volta." if voice else f"Nessun impegno trovato per {label}."
 
     if voice:
         parts = [f"{e.subject} alle {e.start.strftime('%H:%M')}" for e in events[:3]]
-        return f"Impegni di {label} — {'; '.join(parts)}, Signore."
+        return f"Impegni di {label} — {'; '.join(parts)}."
 
     lines = [f"Impegni di {label}:", ""]
     for e in events:
@@ -571,5 +571,5 @@ def format_event_reminder(event: CalendarEvent, voice: bool) -> str:
     when = event.start.strftime("%H:%M")
     loc = f" ({event.location})" if event.location else ""
     if voice:
-        return f"Tra 15 minuti ha inizio: {event.subject}{loc}, Signore."
+        return f"Tra 15 minuti inizia {event.subject}{loc}."
     return f"📅 Tra 15 minuti: **{event.subject}** alle {when}{loc}."

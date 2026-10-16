@@ -190,7 +190,7 @@ def main() -> None:
             text = stt.transcribe(audio)
             if not text:
                 print("(silenzio, nessun comando)")
-                _speak_with_interrupt(engine, listener, "Non ho sentito bene, Signore. Mi ripeta pure.")
+                _speak_with_interrupt(engine, listener, "Non ho colto. Me lo ripete?")
                 continue
             print(f"> {text}")
 
@@ -228,7 +228,7 @@ def main() -> None:
                 spoken = True
             except anthropic.AuthenticationError:
                 response = (
-                    "Chiave API di Anthropic rifiutata, Signore. Alessandro deve "
+                    "Chiave API di Anthropic rifiutata. Alessandro deve "
                     "controllare ANTHROPIC_API_KEY nel file .env."
                 )
                 status = "error"
@@ -241,12 +241,12 @@ def main() -> None:
                 if "authentic" not in str(e).lower():
                     raise
                 response = (
-                    "Manca la chiave API di Anthropic, Signore. Alessandro deve "
+                    "Manca la chiave API di Anthropic. Alessandro deve "
                     "impostare ANTHROPIC_API_KEY nel file .env."
                 )
                 status = "error"
             except anthropic.APIError as e:
-                response = f"Errore nel contattare l'API di Claude, Signore: {e}"
+                response = f"Errore nel contattare l'API di Claude: {e}"
                 status = "error"
             print(f"< {response}")
 

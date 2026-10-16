@@ -79,6 +79,16 @@ class Engine:
             cleaned = memory.clean_output(text)
             if cleaned:
                 await speak(cleaned)
+        if not image:
+            from core.voice import camera
+            if camera.wants_camera(prompt):
+                # Dashboard e telefono mandano solo audio o testo: senza questa
+                # cattura "cosa vedi" arrivava a Claude senza immagine (2026-10-16).
+                image = await finish_thread(camera.capture_frame_b64)
+                if not image:
+                    result = "Non riesco ad aprire la webcam del PC."
+                    await sentence(result)
+                    return dict(result=result, workspace=ws, cost_usd=0)
         immediate = memory.handle_command(prompt, ws) if not image else None
         if immediate is not None:
             await sentence(immediate)

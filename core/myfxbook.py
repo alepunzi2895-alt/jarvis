@@ -100,14 +100,14 @@ def get_accounts_sync() -> list[AccountSnapshot]:
 
 def format_accounts(accounts: list[AccountSnapshot], voice: bool) -> str:
     if not accounts:
-        return "Nessun account Myfxbook trovato, Signore." if voice else "Nessun account Myfxbook trovato."
+        return "Nessun account Myfxbook trovato."
 
     if voice:
         parts = [
             f"{a.name}: equity {a.equity:.0f}, guadagno {a.gain:.1f} percento, drawdown {a.drawdown:.1f} percento"
             for a in accounts
         ]
-        return f"{'; '.join(parts)}, Signore."
+        return f"{'; '.join(parts)}."
 
     lines = ["Trading (Myfxbook):", ""]
     for a in accounts:

@@ -3,9 +3,10 @@
 
 Uso: python watch/tools/render_orb_video.py <repo> <out_dir> [larghezza altezza] [--stile liscia|globo|originale]
 Default 410x502 (Apple Watch Ultra/Ultra 2); Ultra 3: 422 514.
-Stili: "liscia" (default) sfera di nodi senza irregolarita' del raggio, con
-bordo e alone circolari; "globo" nodi su paralleli con bordo e alone;
-"originale" la sfera della dashboard cosi' com'e'.
+Stili: quelli di orb.js (ORB_STYLES). "liscia" (default, anche in dashboard)
+sfera di nodi senza irregolarita' del raggio, con bordo e alone circolari;
+"globo" nodi su paralleli con bordo e alone; "originale" la sfera irregolare
+di prima.
 Richiede il venv di JARVIS (playwright, av, numpy)."""
 import io
 import math
@@ -26,76 +27,11 @@ W, H = (int(args[2]), int(args[3])) if len(args) > 3 else (410, 502)
 FPS, PERIOD_STEPS, FADE = 30, 3600, 30
 FRAMES = PERIOD_STEPS // 2  # 2 passi da 1/60 s per fotogramma
 
-# Sfera rotonda: raggio dei nodi costante, oscillazione minima, raggio ridotto
-# perche' alone e bordo restino dentro lo schermo.
-SMOOTH = {
-    "const j = 0.88 + Math.random() * 0.2;": "const j = 1;",
-    "Math.sin(t * 0.02 + n.ph) * 0.025 + n.e * 0.05": "Math.sin(t * 0.02 + n.ph) * 0.006 + n.e * 0.02",
-    "Math.min(W, H) * 0.42": "Math.min(W, H) * 0.37",
-}
-RIM = {
-    '    cx.globalCompositeOperation = "source-over";\n    cx.lineWidth = 1;': """\
-    const halo = cx.createRadialGradient(W / 2, H / 2, R * 0.94, W / 2, H / 2, R * 1.22);
-    halo.addColorStop(0, `hsla(${hue},100%,60%,0)`);
-    halo.addColorStop(0.35, `hsla(${hue},100%,62%,0.20)`);
-    halo.addColorStop(1, `hsla(${hue},100%,50%,0)`);
-    cx.fillStyle = halo;
-    cx.beginPath(); cx.arc(W / 2, H / 2, R * 1.22, 0, 6.28); cx.fill();
-    cx.globalCompositeOperation = "source-over";
-    cx.lineWidth = 1;
-    cx.strokeStyle = `hsla(${hue},90%,70%,0.55)`;
-    cx.beginPath(); cx.arc(W / 2, H / 2, R * 1.04, 0, 6.28); cx.stroke();""",
-}
-# Nodi su 12 paralleli, archi lungo i paralleli e verso il nodo piu' vicino del
-# parallelo successivo.
-GLOBE = {
-    "const N = 110, K = 3;": "let N = 110, K = 3;",
-    "  function buildSphere() {": """\
-  function buildSphere() { return buildGlobe(); }
-  function buildGlobe() {
-    const rows = [], LAT = 12;
-    for (let a = 0; a < LAT; a++) {
-      const phi = -Math.PI / 2 + Math.PI * (a + 0.5) / LAT, r = Math.cos(phi), y = Math.sin(phi);
-      const M = Math.max(6, Math.round(22 * r)), row = [];
-      for (let b = 0; b < M; b++) {
-        const th = (2 * Math.PI * b) / M + a * 0.26;
-        row.push(nodes.length);
-        nodes.push({ x: Math.cos(th) * r, y, z: Math.sin(th) * r, e: 0, ref: 0, h: hue, sx: 0, sy: 0, sz: 0, ph: Math.random() * 6.28 });
-      }
-      rows.push(row);
-    }
-    rows.forEach((row) => row.forEach((i, b) => edges.push([i, row[(b + 1) % row.length]])));
-    for (let a = 0; a + 1 < rows.length; a++) rows[a].forEach((i) => {
-      const n = nodes[i];
-      let best = -1, bd = 9;
-      rows[a + 1].forEach((j) => { const m = nodes[j], d = (n.x - m.x) ** 2 + (n.z - m.z) ** 2; if (d < bd) { bd = d; best = j; } });
-      edges.push([i, best]);
-    });
-    N = nodes.length;
-    nodes.forEach((n, i) => { n.nb = edges.filter((e) => e[0] === i || e[1] === i).map((e) => (e[0] === i ? e[1] : e[0])); });
-  }
-  function buildKnnSphere() {""",
-}
-# Con la propagazione della dashboard (0.7) le cascate di impulsi diventano
-# lampi dell'intera sfera ogni ~1 s; sotto la soglia l'attivita' resta sparsa
-# (simulazione su 7200 passi, 3 prove: liscia a 0.32 e globo a 0.26 mai oltre
-# il 30% dei nodi accesi insieme; liscia 0.34 e globo 0.3 lampeggiano ancora).
-def propagation(p):
-    return {"if (Math.random() < 0.7) pulses.push": f"if (Math.random() < {p}) pulses.push"}
-
-
-STYLES = {
-    "originale": {},
-    "liscia": {**SMOOTH, **RIM, "const N = 110, K = 3;": "const N = 170, K = 3;", **propagation(0.32)},
-    "globo": {**SMOOTH, **RIM, **GLOBE, **propagation(0.26)},
-}
+assert style in ("liscia", "globo", "originale"), style
 
 repo, out_dir = Path(args[0]), Path(args[1])
 out_dir.mkdir(parents=True, exist_ok=True)
 source = (repo / "web/public/orb.js").read_text(encoding="utf-8")
-for old, new in STYLES[style].items():
-    assert source.count(old) == 1, old
-    source = source.replace(old, new)
 # Rotazioni con periodo esatto di 3600 passi: il fotogramma 1800 coincide col primo.
 replacements = {
     "rotY += P.rot * (1 + level * 2);": "rotY = t * (2 * Math.PI / 3600);",
@@ -116,7 +52,7 @@ page_html = f"""<!doctype html><html><body style="margin:0;background:#000">
 </body></html>"""
 
 harness = """
-window.orb = createJarvisOrb(document.getElementById('orb'));
+window.orb = createJarvisOrb(document.getElementById('orb'), { style: '__STYLE__' });
 orb.init();
 for (let i = 0; i < 3600; i++) orb.step();
 window.grab = (count) => {
@@ -144,7 +80,7 @@ window.grab = (count) => {
   }
   return out;
 };
-"""
+""".replace("__STYLE__", style)
 
 
 def decode(data_url):

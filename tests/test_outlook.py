@@ -89,7 +89,7 @@ def test_unread_count_re_matches_only_count_phrasings():
 
 def test_format_unread_count_zero():
     assert outlook.format_unread_count(0, voice=False) == "Nessuna mail non letta."
-    assert "Signore" in outlook.format_unread_count(0, voice=True)
+    assert "Signore" not in outlook.format_unread_count(0, voice=True)
 
 
 def test_format_unread_count_singular():
@@ -98,7 +98,7 @@ def test_format_unread_count_singular():
 
 def test_format_unread_count_plural():
     text = outlook.format_unread_count(5, voice=True)
-    assert "5" in text and "Signore" in text
+    assert "5" in text and "Signore" not in text
 
 
 def test_format_summary_voice_mentions_sender_and_unread_count():
@@ -108,7 +108,7 @@ def test_format_summary_voice_mentions_sender_and_unread_count():
     ]
     text = outlook.format_summary(emails, voice=True)
     assert "Mario Rossi" in text
-    assert "Signore" in text
+    assert "Signore" not in text
     assert "1 non lette" in text
 
 
@@ -125,7 +125,7 @@ def test_format_summary_text_flags_unread_and_includes_snippet():
 
 def test_format_summary_empty_list():
     assert "Nessuna" in outlook.format_summary([], voice=False)
-    assert "Signore" in outlook.format_summary([], voice=True)
+    assert "Signore" not in outlook.format_summary([], voice=True)
 
 
 # ── flusso interattivo "quale mail apro" (2026-09-16) — list_emails/read_email ──
@@ -201,13 +201,13 @@ def _make_event(subject="Sync settimanale", hour=10, minute=0, location=""):
 
 def test_format_events_empty_list():
     assert "Nessun" in outlook.format_events([], voice=False)
-    assert "Signore" in outlook.format_events([], voice=True)
+    assert "Signore" not in outlook.format_events([], voice=True)
 
 
 def test_format_events_voice_lists_subject_and_time():
     events = [_make_event(subject="Standup", hour=9, minute=30)]
     text = outlook.format_events(events, voice=True)
-    assert "Standup" in text and "09:30" in text and "Signore" in text
+    assert "Standup" in text and "09:30" in text and "Signore" not in text
 
 
 def test_format_events_text_includes_location_when_present():
@@ -228,7 +228,7 @@ def test_format_event_reminder_voice_and_text():
     event = _make_event(subject="Call cliente", hour=11, minute=45, location="Teams")
     voice = outlook.format_event_reminder(event, voice=True)
     text = outlook.format_event_reminder(event, voice=False)
-    assert "Call cliente" in voice and "Signore" in voice
+    assert "Call cliente" in voice and "Signore" not in voice
     assert "Call cliente" in text and "11:45" in text and "Teams" in text
 
 

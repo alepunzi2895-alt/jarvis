@@ -233,7 +233,6 @@ def execute_intent(
 
 def _execute(intent: dict, executor: SystemExecutor, voice: bool) -> str:
     kind = intent["type"]
-    sir = ", Signore" if voice else ""
 
     if kind == "stop":
         from core.voice import tts  # import qui: evita di caricare sounddevice/edge-tts se l'intent non serve mai
@@ -245,7 +244,7 @@ def _execute(intent: dict, executor: SystemExecutor, voice: bool) -> str:
         if voice:
             return (
                 "Per sicurezza non gestisco spegnimento, riavvio o logout da "
-                "comando vocale, Signore. Lo confermi da Telegram o dalla dashboard."
+                "comando vocale. Lo confermi da Telegram o dalla dashboard."
             )
         result = executor.power_action(intent["mode"])
         if result.needs_confirmation:
@@ -258,15 +257,15 @@ def _execute(intent: dict, executor: SystemExecutor, voice: bool) -> str:
 
     if kind == "volume":
         result = executor.volume(intent["direction"])
-        return f"Fatto{sir}." if result.ok else f"Errore volume: {result.stderr}"
+        return "Fatto." if result.ok else f"Errore volume: {result.stderr}"
 
     if kind == "lock":
         result = executor.lock_workstation()
-        return f"Schermo bloccato{sir}." if result.ok else f"Errore: {result.stderr}"
+        return "Schermo bloccato." if result.ok else f"Errore: {result.stderr}"
 
     if kind == "show_desktop":
         result = executor.show_desktop()
-        return f"Fatto{sir}." if result.ok else f"Errore: {result.stderr}"
+        return "Fatto." if result.ok else f"Errore: {result.stderr}"
 
     if kind == "screenshot":
         result = executor.screenshot()
@@ -274,11 +273,11 @@ def _execute(intent: dict, executor: SystemExecutor, voice: bool) -> str:
 
     if kind == "open_app":
         result = executor.open_app(intent["name"])
-        return f"Apro {intent['name']}{sir}." if result.ok else f"Non trovo {intent['name']}: {result.stderr}"
+        return f"Apro {intent['name']}." if result.ok else f"Non trovo {intent['name']}: {result.stderr}"
 
     if kind == "close_app":
         result = executor.close_app(intent["name"])
-        return f"Chiudo {intent['name']}{sir}." if result.ok else f"{intent['name']}: {result.stderr}"
+        return f"Chiudo {intent['name']}." if result.ok else f"{intent['name']}: {result.stderr}"
 
     if kind == "briefing":
         from core import briefing  # import qui: evita l'overhead (meteo/Outlook/git) se l'intent non serve mai
@@ -290,7 +289,7 @@ def _execute(intent: dict, executor: SystemExecutor, voice: bool) -> str:
 
         if not myfxbook.ENABLED:
             return (
-                "Myfxbook non configurato, Signore."
+                "Myfxbook non configurato."
                 if voice
                 else "Myfxbook non configurato — aggiungi MYFXBOOK_EMAIL/MYFXBOOK_PASSWORD al .env."
             )
@@ -305,15 +304,15 @@ def _execute(intent: dict, executor: SystemExecutor, voice: bool) -> str:
 
         now = datetime.now()
         giorno = _GIORNI_IT[now.weekday()]
-        return f"Sono le {now.strftime('%H:%M')} di {giorno} {now.strftime('%d/%m/%Y')}{sir}."
+        return f"Sono le {now.strftime('%H:%M')} di {giorno} {now.strftime('%d/%m/%Y')}."
 
     if kind == "weather":
         from core import weather  # import qui: evita l'overhead di rete/requests se l'intent non serve mai
 
         line = weather.format_tomorrow_line() if intent.get("day") == "domani" else weather.get_weather_line()
         if not line:
-            return f"Non riesco a controllare il meteo in questo momento{sir}."
-        return f"{line}{sir}."
+            return f"Non riesco a controllare il meteo in questo momento."
+        return f"{line}."
 
     if kind == "outlook":
         from core import outlook  # import qui: evita di caricare pywin32 se l'intent non serve mai
