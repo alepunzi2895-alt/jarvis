@@ -179,11 +179,11 @@ class Relay:
                 await asyncio.wait_for(self.arrived.wait(), deadline - time.monotonic())
             except TimeoutError:
                 break
-            self.pc_seen = time.monotonic()
+        # pc_seen solo all'inizio della richiesta: un'attesa rimasta appesa dopo
+        # lo spegnimento del PC non deve farlo sembrare ancora acceso.
         ready = sorted(k for k in self.pending if k >= offset)
         for update_id in ready:
             self.pending[update_id]["claimed"] = True
-        self.pc_seen = time.monotonic()
         return web.json_response({"ok": True, "result": [self.pending[k]["update"] for k in ready]})
 
     async def poll_telegram(self):

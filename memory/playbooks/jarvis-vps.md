@@ -1,64 +1,45 @@
-# JARVIS sempre attivo sulla VPS (ibrido VPS + PC)
+# JARVIS sulla VPS: ponte Telegram e Apple Watch
 
-VPS = la Windows di TradePilot sulla tailnet (`win-6gfp84o12pq.tail18e3c0.ts.net`).
-Gira gia' con task all'accesso dell'utente: JARVIS usa lo stesso schema.
+Attivo dal 2026-10-16. VPS = Windows Server 2022 di TradePilot
+(`win-6gfp84o12pq.tail18e3c0.ts.net`, SSH `tradepilot-vps`, utente
+Administrator). Solo 1,6 GB di RAM, gia' in paging con MT5 e TradePilot:
+sulla VPS gira SOLO `core/relay.py` (circa 40 MB), mai JARVIS completo.
 
-## Chi fa cosa
-- **VPS, sempre accesa**: Telegram (riceve i comandi), LiveBridge (dashboard da
-  telefono, endpoint Watch), API Claude, second brain Turso, TradePilot in
-  locale con curva equity continua.
-- **PC**: voce e wake word, webcam, Outlook, Iveco (Databricks, IVGAgent,
-  recap delle 09:30), controllo del PC. Continua a INVIARE su Telegram
-  (promemoria, recap) ma non legge piu' i comandi.
-- Mai sulla VPS: credenziali Databricks/Azure DevOps Iveco, `WS_IVECO`,
-  IVGAgent. Il lavoro Iveco resta sul PC aziendale (percorso approvato IT).
+## Come funziona
+- La VPS legge Telegram (getUpdates) e serve `/watch/ask` su
+  `https://win-6gfp84o12pq.tail18e3c0.ts.net:9443` (Tailscale Serve, solo tailnet;
+  443 e 8443 restano di TradePilot).
+- PC acceso: `bot.py` interroga `JARVIS_TELEGRAM_RELAY_URL/telegram/updates`
+  (stesso formato di getUpdates, Bearer `JARVIS_RELAY_TOKEN`) e gestisce tutto
+  come prima; risponde direttamente su Telegram. Le domande del Watch passano a
+  `JARVIS_PC_WATCH_URL` (LiveBridge del PC).
+- PC spento (nessuna interrogazione da 75 s) o messaggio non preso entro 6 s:
+  risponde la VPS (Sonnet per Telegram, Haiku per il Watch) con meteo,
+  TradePilot (loopback 127.0.0.1:8000), second brain Turso. Su Telegram le sue
+  risposte iniziano con ☁️. Comandi `/` e note vocali solo a PC acceso.
+- Meteo: posizione del Watch (lat/lon/city nel JSON) se arrivata nelle ultime
+  12 ore, altrimenti quella del PC (.env o IP, inviata a ogni interrogazione),
+  salvata in `C:\jarvis\.relay-location.json`.
 
-## Passaggi
-1. RDP sulla VPS. Controlla: Python 3.12 x64 (`py -3.12 --version`), Git,
-   Tailscale collegato con MagicDNS. RAM libera ~1,5 GB (whisper small CPU).
-2. Clona: `git clone https://github.com/alepunzi2895-alt/jarvis.git C:\jarvis`
-   (repo privato: login GitHub o token una tantum).
-3. `cd C:\jarvis`, poi `py -3.12 -m venv .venv` e
-   `.venv\Scripts\python.exe -m pip install -r requirements.txt`.
-4. Crea `C:\jarvis\.env` copiando DAL PC solo: `TELEGRAM_TOKEN`,
-   `TELEGRAM_OWNER_ID`, `ANTHROPIC_API_KEY`, `TURSO_JARVIS_DB_URL`,
-   `TURSO_JARVIS_AUTH_TOKEN`, `GITHUB_TOKEN`, `VERCEL_TOKEN`. Aggiungi:
-   ```
-   JARVIS_ALLOWED_DIRS=C:\jarvis
-   JARVIS_CALENDAR_REMINDER_MINUTES=0
-   JARVIS_IVECO_RECAP_TIME=off
-   JARVIS_WEB_QUEUE=0
-   JARVIS_DAILY_DIGEST_HOUR=-1
-   JARVIS_LIVE_PASSWORD=<la stessa password della dashboard del PC>
-   ```
-   Copia il file via RDP (appunti/cartella condivisa), mai in chat.
-5. `C:\jarvis\.tradepilot.json`:
-   `{"origin": "http://127.0.0.1:8000", "dashboard_url": "https://tradepilot-ai-weld.vercel.app"}`
-   (porta del backend TradePilot; se `TRADEPILOT_REMOTE=1` aggiungi
-   `"remote_key"` con la stessa chiave del backend).
-6. Dashboard: `powershell -NoProfile -ExecutionPolicy Bypass -File .\setup_live.ps1 -Start`
-   -> `https://win-6gfp84o12pq.tail18e3c0.ts.net:8443` (Tailscale Serve, solo
-   tailnet; la 443 di TradePilot non viene toccata).
-7. Telegram, in quest'ordine (un solo lettore per bot, altrimenti 409):
-   a. sul PC aggiungi `JARVIS_TELEGRAM_POLLING=0` al `.env` e riavvia il task
-      `\JARVIS\Bot` del PC;
-   b. sulla VPS: `powershell -NoProfile -ExecutionPolicy Bypass -File .\setup_autostart.ps1 -BotOnly`
-      poi `Start-ScheduledTask -TaskPath '\JARVIS\' -TaskName Bot`.
-8. Sempre attivo dopo un riavvio: accesso automatico di Windows sulla VPS
-   (Sysinternals Autologon), come gia' serve a TradePilot/MT5. Chiudi RDP
-   con la X (disconnetti), mai "Disconnetti utente".
-9. Su Telegram invia `/voce off`: la VPS non ha casse, cosi' non prova a
-   leggere le risposte ad alta voce.
-10. Verifica: con il PC spento, `/help` su Telegram risponde; dal telefono la
-   dashboard della VPS fa login e risponde; `logs\bot.log` e `logs\live.log`
-   senza errori.
-11. Watch: nel comando rapido URL della VPS + `C:\jarvis\.watch-token`.
+## File sulla VPS
+- `C:\jarvis` (clone da git bundle, ramo main), `.venv` con
+  `requirements-relay.txt`, `.env` con solo Telegram, Anthropic, Turso, token
+  ponte/Watch, URL PC (ACL: Administrator e SYSTEM).
+- Task `\JARVIS\Relay`: all'avvio di Windows, S4U (non serve login), riavvio
+  ogni minuto se cade. Log `C:\jarvis\logs\relay.log`.
 
-## Aggiornare
-`git pull` in `C:\jarvis`, poi Stop/Start-ScheduledTask di `Bot` e `LiveBridge`.
+## Aggiornare il ponte (dal PC)
+1. `git bundle create <scratch>/jarvis.bundle main`
+2. `scp jarvis.bundle install_relay.ps1 update_relay.ps1 tradepilot-vps:C:/Windows/Temp/`
+3. `ssh tradepilot-vps 'powershell -NoProfile -ExecutionPolicy Bypass -File C:\Windows\Temp\update_relay.ps1'`
+   (ferma il task, uccide il processo, pull dal bundle, pip, riavvia).
+Gli script stanno nello scratchpad della sessione del 2026-10-16; se mancano,
+ricrearli da questa descrizione. Il classificatore di Claude Code chiede un
+permesso esplicito per scp/ssh in scrittura verso la VPS.
 
-## Limiti noti
-- Dalla VPS niente Outlook, Iveco, webcam, voce PC: JARVIS risponde che non ha
-  la fonte. Inoltro VPS -> PC (quando il PC e' acceso) non costruito.
-- "Apri Chrome" da Telegram agisce sulla VPS, non sul PC.
-- Memoria conversazione SQLite separata per macchina; second brain condiviso.
+## Problemi gia' visti
+- `ClientConnectorCertificateError` verso Telegram: lo store di Windows Server
+  non ha tutte le radici; il ponte usa il bundle certifi.
+- `RuntimeError` getUpdates = 409: un altro processo legge Telegram (bot.py del
+  PC senza `JARVIS_TELEGRAM_RELAY_URL`).
+- Bundle senza HEAD: clonare con `-b main`.
