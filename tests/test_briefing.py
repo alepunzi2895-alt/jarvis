@@ -69,3 +69,9 @@ def test_format_briefing_includes_trading_section_when_present():
     text = briefing.format_briefing(data, voice=False)
 
     assert "MFKK" in text
+
+
+def test_format_briefing_says_time_before_date():
+    data = {"now": dt.datetime(2026, 10, 16, 11, 59), "weather": None, "events": None, "unread": None, "statuses": None}
+    assert briefing.format_briefing(data, voice=True).startswith("Buongiorno, Signore. Sono le 11:59 di venerdì 16 ottobre.")
+    assert briefing.format_briefing(data, voice=False) == "Buongiorno — 11:59 · 16/10"

@@ -162,6 +162,7 @@ class LiveServer:
         self.sockets = set()
         # Console desktop collegate: il daemon vocale ascolta la wake word solo se > 0.
         self.consoles = set()
+        self.recap_task = None  # recap IVECO generato su richiesta dal pannello
 
     @web.middleware
     async def boundary(self, request, handler):
@@ -246,6 +247,32 @@ class LiveServer:
             return web.json_response(await asyncio.to_thread(tradepilot.snapshot))
         if action == "devops_data":
             return web.json_response(await asyncio.to_thread(azure_devops.snapshot))
+        if action == "iveco_jobs":
+            from core import iveco
+            return web.json_response(await asyncio.to_thread(iveco.jobs_panel))
+        if action == "iveco_recap":
+            from core import iveco
+            running = bool(self.recap_task and not self.recap_task.done())
+            return web.json_response({"recap": await asyncio.to_thread(iveco.latest), "running": running,
+                                      "schedule": f"lun-ven {iveco.RECAP_TIME}"})
+        if action == "iveco_recap_run":
+            from core import iveco
+            if not (self.recap_task and not self.recap_task.done()):
+                self.recap_task = asyncio.create_task(asyncio.to_thread(iveco.build_recap))
+            return web.json_response({"running": True})
+        if action in {"ivgagent_ask", "ivgagent_tasks"}:
+            from core import coding_tasks
+            try:
+                if action == "ivgagent_ask":
+                    prompt, previous = body.get("prompt"), body.get("previous_job", "")
+                    if not isinstance(prompt, str) or not isinstance(previous, str):
+                        raise ValueError("Richiesta non valida")
+                    await asyncio.to_thread(coding_tasks.start_task, "claude", "IVGAgent", prompt, "read",
+                                            previous, True)
+                tasks = await asyncio.to_thread(coding_tasks.list_tasks, "", "IVGAgent")
+                return web.json_response({"tasks": tasks})
+            except ValueError as error:
+                return web.json_response({"error": str(error)}, status=400)
         if action == "project_status_data":
             from core import project_status
             from core.executor_singleton import executor

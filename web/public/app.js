@@ -83,25 +83,158 @@ function equityGraph(points) {
   return `<svg class="equity-chart" viewBox="0 0 500 150" role="img" aria-label="Equity osservata del conto, asse orizzontale tempo"><polyline points="${coords}" fill="none" stroke="currentColor" stroke-width="2"/></svg><p class="panel-footnote">Min ${dataNumber(low)} · max ${dataNumber(high)} · ${rows.length} campioni<br>${dataDate(rows[0].at)} → ${dataDate(rows.at(-1).at)}</p>`;
 }
 
+// ── TradePilot (finestra dedicata): dashboard, dati, esperimenti ─────────
+function tradePilotMetric(label, value) {
+  return `<div><small>${label}</small><strong>${value}</strong></div>`;
+}
+
 function renderTradePilot(data) {
-  const target = $("#tradepilot-data");
-  if (!data.connected) { target.textContent = data.error || "TradePilot non raggiungibile. I dati del conto non sono disponibili."; return; }
-  const account = data.account || {}, research = data.research || {};
+  const dash = $("#tp-dashboard"), table = $("#tp-data"), lab = $("#tp-experiments");
+  if (!data.connected) {
+    const message = dataEscape(data.error || "TradePilot non raggiungibile. I dati del conto non sono disponibili.");
+    for (const target of [dash, table, lab]) target.innerHTML = `<p class="panel-footnote">${message}</p>`;
+    return;
+  }
+  const account = data.account || {}, research = data.research || {}, factory = data.factory || {};
   const healthy = account.status === "ok";
   const money = value => healthy ? `${dataNumber(value)} ${dataEscape(account.currency)}` : "N/A";
-  const metric = (label, value) => `<div><small>${label}</small><strong>${value}</strong></div>`;
-  const stats = data.strategy_stats || [];
-  target.innerHTML = `<p class="panel-subheading">TradePilot · ${dataEscape(account.mode)} · sola lettura</p>
-    <p class="panel-footnote">VPS · ${dataDate(data.observed_at)}${healthy ? "" : " · conto non disponibile"}</p>
-    <div class="data-metrics">${metric("Equity conto", money(account.equity))}${metric("Saldo", money(account.balance))}${metric("Variazione giorno", dataNumber(account.guard?.day_pct)+"%")}${metric("Drawdown dal picco", dataNumber(account.guard?.drawdown_pct)+"%")}</div>
+  const pct = value => typeof value === "number" ? `${dataNumber(value)}%` : "N/A";
+  const counts = data.strategy_counts || {};
+  const last = factory.last_batch || {};
+  $("#tp-hint").textContent = `${account.mode || "?"} · sola lettura`;
+  const link = data.dashboard_url ? `<a class="panel-link" href="${dataEscape(data.dashboard_url)}" target="_blank" rel="noopener noreferrer">Apri dashboard TradePilot ↗</a>` : "";
+  dash.innerHTML = `<p class="panel-footnote">VPS · ${dataDate(data.observed_at)}${healthy ? "" : " · conto non disponibile"}</p>
+    <div class="data-metrics">${tradePilotMetric("Equity", money(account.equity))}${tradePilotMetric("Saldo", money(account.balance))}${tradePilotMetric("Giorno", pct(account.guard?.day_pct))}${tradePilotMetric("Settimana", pct(account.guard?.week_pct))}${tradePilotMetric("Drawdown dal picco", pct(account.guard?.drawdown_pct))}${tradePilotMetric("Strategie eligible", dataNumber(research.eligible_strategies, 0))}</div>
     ${equityGraph(data.curve)}<p class="panel-footnote">${dataEscape(data.curve_note)}</p>
-    <details><summary>Ricerche e strategie</summary>
-      <p class="panel-footnote">Registro VPS aggiornato: ${dataEscape(research.updated || "N/A")}. Può differire dal lavoro ancora sul PC.</p>
-      <div class="data-metrics">${metric("Tentativi registrati",dataNumber(research.total_trials,0))}${metric("Strategie eligible",dataNumber(research.eligible_strategies,0))}</div>
-      ${(data.experiments || []).slice(-6).reverse().map(e=>`<article class="data-note"><strong>${dataEscape(e.id)} · ${dataEscape(e.title)}</strong><p>${dataEscape(e.verdict)} · ${dataEscape(e.headline)}</p></article>`).join("")}
-      <p class="panel-footnote">Statistiche distinte per modalità. R = rischio iniziale; N = operazioni. Prime ${Math.min(stats.length,30)} di ${stats.length} righe.</p>
-      <div class="data-table"><table><thead><tr><th>Strategia / modalità</th><th>N</th><th>Win %</th><th>PF</th><th>Media R</th></tr></thead><tbody>${stats.slice(0,30).map(s=>`<tr><td>${dataEscape(s.strategy_id)}<br><b>${dataEscape(s.mode)}</b></td><td>${dataNumber(s.trades,0)}</td><td>${dataNumber(typeof s.win_rate==='number'?s.win_rate*100:null,1)}</td><td>${dataNumber(s.profit_factor)}</td><td>${dataNumber(s.expectancy_r,3)}</td></tr>`).join("")}</tbody></table></div>
-    </details><p class="panel-footnote">${dataEscape(data.notice)}${Object.keys(data.errors || {}).length ? " Fonti parziali: "+dataEscape(Object.keys(data.errors).join(", ")) : ""}</p>`;
+    <p class="panel-subheading">Strategie</p>
+    <p class="panel-footnote">${Object.entries(counts).map(([k, v]) => `${dataEscape(k)} ${v}`).join(" · ") || "Nessuna strategia"}</p>
+    <p class="panel-subheading">Factory</p>
+    <div class="data-metrics">${tradePilotMetric("Tentativi", dataNumber(factory.n_trials, 0))}${tradePilotMetric("Batch", dataNumber(factory.batches, 0))}${tradePilotMetric("Sopravvissute", dataNumber(factory.survivors, 0))}${tradePilotMetric("Ultimo batch", last.at ? `${dataDate(last.at)} · ${dataEscape(last.experiment)}` : "N/A")}</div>
+    ${link}<p class="panel-footnote">${dataEscape(data.notice)}${Object.keys(data.errors || {}).length ? " Fonti parziali: " + dataEscape(Object.keys(data.errors).join(", ")) : ""}</p>`;
+  const stats = [...(data.strategy_stats || [])].sort((a, b) => String(a.mode).localeCompare(String(b.mode)) || (b.trades || 0) - (a.trades || 0));
+  table.innerHTML = `<p class="panel-footnote">Statistiche per modalità, mai sommate tra demo, shadow e counterfactual. R = rischio iniziale; N = operazioni.</p>
+    <div class="data-table"><table><thead><tr><th>Strategia / modalità</th><th>N</th><th>Win %</th><th>PF</th><th>Media R</th><th>Tot R</th></tr></thead><tbody>${stats.map(s => `<tr><td>${dataEscape(s.strategy_id)}<br><b>${dataEscape(s.mode)}</b></td><td>${dataNumber(s.trades, 0)}</td><td>${dataNumber(typeof s.win_rate === "number" ? s.win_rate * 100 : null, 1)}</td><td>${dataNumber(s.profit_factor)}</td><td>${dataNumber(s.expectancy_r, 3)}</td><td>${dataNumber(s.total_r, 2)}</td></tr>`).join("")}</tbody></table></div>
+    <p class="panel-subheading">Stato strategie</p>
+    ${(data.strategies || []).map(s => `<article class="data-note"><strong>${dataEscape(s.id)} · ${dataEscape(s.status)}</strong><p>${dataEscape(s.evidence || "")}${s.suspension ? " · sospesa: " + dataEscape(s.suspension) : ""}</p></article>`).join("")}`;
+  const experiments = [...(data.experiments || [])].reverse();
+  lab.innerHTML = `<div class="data-metrics">${tradePilotMetric("Esperimenti", experiments.length)}${tradePilotMetric("Tentativi totali", dataNumber(research.total_trials, 0))}</div>
+    <p class="panel-footnote">Registro VPS aggiornato: ${dataEscape(research.updated || "N/A")}. Può differire dal lavoro ancora sul PC.</p>
+    ${experiments.map(e => `<article class="data-note"><strong>${dataEscape(e.id)} · ${dataEscape(e.date)} · ${dataEscape(e.verdict)}</strong><p>${dataEscape(e.title)}</p><p class="panel-footnote">${dataEscape(e.headline)}${e.trials ? ` · ${e.trials} tentativi` : ""}</p></article>`).join("")}`;
+}
+
+let tradePilotBusy = false;
+async function refreshTradePilot() {
+  if (!window.JarvisDirect || tradePilotBusy) return;
+  tradePilotBusy = true;
+  try { renderTradePilot(await api("tradepilot_data")); }
+  catch { $("#tp-dashboard").textContent = "TradePilot non disponibile. Riprova."; }
+  finally { tradePilotBusy = false; }
+}
+
+// ── IVECO: recap per il daily, job Databricks/deploy, IVGAgent ───────────
+let recapPoll = null;
+async function refreshIvecoRecap() {
+  const body = $("#iveco-recap-body"), button = $("#iveco-recap-btn");
+  try {
+    const {recap, running, schedule} = await api("iveco_recap");
+    button.disabled = running;
+    button.textContent = running ? "Generazione in corso (2-4 min)…" : "Genera ora";
+    body.replaceChildren();
+    if (!recap) { body.textContent = `Nessun recap ancora. Arriva da solo ${schedule}, anche su Telegram.`; }
+    else {
+      const meta = document.createElement("p"); meta.className = "panel-footnote";
+      meta.textContent = `Generato ${recap.generated_at} · dal ${recap.since} · automatico ${schedule}`;
+      const text = document.createElement("pre"); text.className = "recap-text"; text.textContent = recap.text;
+      const missing = Object.entries(recap.sources || {}).filter(([, v]) => v !== "ok").map(([k, v]) => `${k}: ${v}`);
+      body.append(meta, text);
+      if (missing.length) { const note = document.createElement("p"); note.className = "panel-footnote"; note.textContent = "Fonti mancanti — " + missing.join(" · "); body.append(note); }
+    }
+    clearTimeout(recapPoll);
+    if (running) recapPoll = setTimeout(refreshIvecoRecap, 10000);
+  } catch { body.textContent = "Recap non disponibile. Riprova."; }
+}
+
+async function refreshIvecoJobs() {
+  const target = $("#iveco-jobs-body");
+  try {
+    const data = await api("iveco_jobs");
+    target.replaceChildren();
+    for (const env of ["prd", "qas"]) {
+      const row = data[env] || {};
+      const head = document.createElement("p"); head.className = "panel-subheading";
+      head.textContent = `Databricks ${env.toUpperCase()} · ultime 24 ore`;
+      target.append(head);
+      const note = document.createElement("p"); note.className = "panel-footnote";
+      const o = row.overall || {};
+      note.textContent = row.error || `${o.sample_runs ?? 0} run · ${o.succeeded ?? 0} riuscite · ${o.failed ?? 0} fallite · ${o.canceled ?? 0} annullate${row.complete === false ? " · copertura parziale" : ""}`;
+      target.append(note);
+      for (const job of row.failing_jobs || []) {
+        const item = document.createElement("article"); item.className = "data-note";
+        const title = document.createElement("strong"); title.textContent = `${job.job} · ${job.failed}/${job.runs} fallite`;
+        const error = document.createElement("p"); error.textContent = job.last_error || "Nessun messaggio di errore.";
+        item.append(title, error); target.append(item);
+      }
+    }
+  } catch { target.textContent = "Job Databricks non disponibili. Riprova."; }
+  api("devops_data").then(renderDevOps).catch(() => { $("#devops-data").textContent = "Azure DevOps non disponibile."; });
+}
+
+let agentPoll = null;
+function renderIvgAgent(tasks) {
+  const target = $("#ivgagent-tasks");
+  target.replaceChildren();
+  const labels = {running: "in corso", done: "risposta pronta", blocked: "risposta con azioni negate", error: "errore", interrupted: "interrotto"};
+  for (const task of tasks) {
+    const item = document.createElement("article"); item.className = "data-note";
+    const title = document.createElement("strong"); title.textContent = `${labels[task.status] || task.status} · ${dataDate(task.created_at)}`;
+    const prompt = document.createElement("p"); prompt.className = "panel-footnote"; prompt.textContent = task.prompt;
+    const result = document.createElement("pre"); result.className = "recap-text"; result.textContent = task.result || "IVGAgent sta lavorando…";
+    item.append(title, prompt, result); target.append(item);
+  }
+  if (!tasks.length) target.textContent = "Nessuna richiesta a IVGAgent.";
+  clearTimeout(agentPoll);
+  if (tasks.some(t => t.status === "running")) agentPoll = setTimeout(refreshIvgAgent, 8000);
+}
+
+async function refreshIvgAgent() {
+  try { renderIvgAgent((await api("ivgagent_tasks")).tasks || []); }
+  catch { $("#ivgagent-tasks").textContent = "Elenco IVGAgent non disponibile."; }
+}
+
+function refreshIveco() {
+  refreshIvecoRecap();
+  refreshIvecoJobs();
+  refreshIvgAgent();
+}
+
+function setupIveco() {
+  $("#iveco-recap-btn").addEventListener("click", async () => {
+    $("#iveco-recap-btn").disabled = true;
+    try { await api("iveco_recap_run"); } finally { refreshIvecoRecap(); }
+  });
+  $("#ivgagent-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const field = $("#ivgagent-text"), prompt = field.value.trim();
+    if (!prompt) return;
+    const button = event.submitter; if (button) button.disabled = true;
+    try { renderIvgAgent((await api("ivgagent_ask", {prompt})).tasks || []); field.value = ""; }
+    catch (error) { $("#ivgagent-tasks").textContent = error.message || "Invio non riuscito."; }
+    finally { if (button) button.disabled = false; }
+  });
+}
+
+// Schede dei pannelli: un solo pannello visibile per finestra.
+function setupPanelTabs() {
+  document.querySelectorAll(".panel-tabs").forEach((bar) => {
+    const tabs = [...bar.querySelectorAll('[role="tab"]')];
+    tabs.forEach((tab) => tab.addEventListener("click", () => {
+      for (const other of tabs) {
+        const selected = other === tab;
+        other.setAttribute("aria-selected", String(selected));
+        document.getElementById(other.getAttribute("aria-controls")).hidden = !selected;
+      }
+    }));
+  });
 }
 
 let connectedDataBusy = false;
@@ -110,8 +243,6 @@ async function refreshConnectedData() {
   connectedDataBusy = true;
   try {
     await Promise.all([
-      api("tradepilot_data").then(renderTradePilot).catch(() => { $("#tradepilot-data").textContent = "TradePilot non disponibile. Riprova."; }),
-      api("devops_data").then(renderDevOps).catch(() => { $("#devops-data").textContent = "Azure DevOps non disponibile."; }),
       api("coding_tasks").then(data => {
         const target = $("#coding-jobs"); target.replaceChildren();
         if (!data.jobs?.length && !data.sessions?.length) target.textContent = "Nessun lavoro. Chiedi a JARVIS di inviare un prompt a Codex o Claude Code.";
@@ -195,6 +326,8 @@ function openWindow(id) {
   dockBtnFor(id)?.setAttribute("aria-pressed", "true");
   if (id === "win-brain") { startBrainGraph(); refreshMemories(); }
   if (id === "win-projects") refreshConnectedData();
+  if (id === "win-tradepilot") refreshTradePilot();
+  if (id === "win-iveco") refreshIveco();
   if (id === "win-camera") startCamera();
   if (id === "win-weather") {
     fitWeatherWindow();
@@ -511,6 +644,14 @@ function handleVoiceUiCommand(text) {
   if (wants(/\b(tradeflow|trading)\b/)) {
     if (wants(verb)) { openWindow("win-projects"); return true; }
     if (wants(closeVerb)) { closeWindow("win-projects"); return true; }
+  }
+  if (wants(/\btrade\s*pilot\b/) && window.JarvisDirect) {
+    if (wants(verb)) { openWindow("win-tradepilot"); return true; }
+    if (wants(closeVerb)) { closeWindow("win-tradepilot"); return true; }
+  }
+  if (wants(/\b(iveco|ivg\s*agent)\b/) && window.JarvisDirect) {
+    if (wants(verb)) { openWindow("win-iveco"); return true; }
+    if (wants(closeVerb)) { closeWindow("win-iveco"); return true; }
   }
   // Meteo/progetti: si aprono anche solo chiedendo ("che tempo fa", "come
   // siamo messi con i progetti") senza dover dire esplicitamente "apri" —
@@ -1590,12 +1731,19 @@ async function boot() {
   _bootStep("windows", setupWindows);
   _bootStep("connected-data", () => {
     if (!window.JarvisDirect) return;
-    $("#show-data-btn").hidden = false;
     $("#connected-data").hidden = false;
     $("#learned-memory").hidden = false;
-    $("#show-data-btn").onclick = () => { openWindow("win-projects"); $("#connected-data").scrollIntoView({block:"start"}); };
+    // TradePilot e IVECO leggono dati privati del PC: solo dalla dashboard locale.
+    document.querySelectorAll('[data-toggle="win-tradepilot"], [data-toggle="win-iveco"]').forEach((b) => { b.hidden = false; });
     $("#refresh-data-btn").onclick = refreshConnectedData;
-    setInterval(() => { if (!document.hidden && $("#win-projects").classList.contains("open")) refreshConnectedData(); }, 60000);
+    setupPanelTabs();
+    setupIveco();
+    const isOpen = (id) => !document.hidden && $("#" + id).classList.contains("open");
+    setInterval(() => {
+      if (isOpen("win-projects")) refreshConnectedData();
+      if (isOpen("win-tradepilot")) refreshTradePilot();
+      if (isOpen("win-iveco")) refreshIvecoJobs();
+    }, 60000);
   });
   _bootStep("camera", setupCamera);
   _bootStep("clock", () => {

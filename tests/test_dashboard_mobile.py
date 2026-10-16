@@ -481,10 +481,17 @@ def test_direct_connected_data_memory_and_chart_are_mobile_safe(mobile_page):
         return {ok:true,nodes:[],edges:[],projects:[]};
       };
     }""")
-    page.get_by_role('button',name='Equity e deploy',exact=True).click()
+    page.locator('[data-toggle="win-tradepilot"]').click()
     page.locator('.equity-chart').wait_for()
-    assert 'demo' in page.locator('#tradepilot-data').inner_text().casefold()
-    assert 'Accesso Microsoft richiesto' in page.locator('#devops-data').inner_text()
+    assert 'demo' in page.locator('#tp-hint').inner_text().casefold()
+    page.get_by_role('tab',name='Esperimenti',exact=True).click()
+    assert 'EXP-1' in page.locator('#tp-experiments').inner_text()
+    assert page.locator('#win-tradepilot img, #win-tradepilot script').count() == 0
+    bounds=page.locator('#win-tradepilot').bounding_box()
+    assert bounds['x'] >= 0 and bounds['x']+bounds['width'] <= 391
+    page.locator('[data-toggle="win-iveco"]').click()
+    page.get_by_role('tab',name='Job',exact=True).click()
+    page.wait_for_function("document.querySelector('#devops-data').innerText.includes('Accesso Microsoft richiesto')")
     page.evaluate("""renderDevOps({connected:true,stages:[
       {name:'Deploy to PROD',status:'succeeded',build_number:'20261013.11',at:'2026-10-13T14:21:57Z'},
       {name:'Deploy to QAS',status:'skipped',build_number:'20261013.11'}],
@@ -492,8 +499,7 @@ def test_direct_connected_data_memory_and_chart_are_mobile_safe(mobile_page):
     assert 'Deploy to PROD · riuscita' in page.locator('#devops-data').inner_text()
     assert 'Deploy to QAS · non eseguita' in page.locator('#devops-data').inner_text()
     assert '1 avvisi' in page.locator('#devops-data').inner_text()
-    assert page.locator('#tradepilot-data img, #tradepilot-data script').count() == 0
-    bounds=page.locator('#win-projects').bounding_box()
+    bounds=page.locator('#win-iveco').bounding_box()
     assert bounds['x'] >= 0 and bounds['x']+bounds['width'] <= 391
     assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
     page.locator('[data-toggle="win-brain"]').click()

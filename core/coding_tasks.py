@@ -24,6 +24,15 @@ GUIDANCE = ('Sei un agente delegato da JARVIS sul progetto indicato. Segui le re
             'Non modificare credenziali o permessi. Se serve una conferma fermati e spiega cosa manca. '
             'Rispondi in italiano con massimo sei righe: esito, modifiche/risultati, verifiche, eventuali blocchi. '
             'Non dichiarare eseguite azioni che non hai verificato.\n\nRichiesta di Alessandro:\n')
+IVG_KEY = 'ivgagent'
+# IVGAgent lavora su Databricks Iveco: in sessione delegata niente conferme
+# possibili, quindi solo il wrapper di lettura al posto di tools/dbx.py.
+IVG_DBX = (ROOT / 'core' / 'ivg_dbx.py').as_posix()
+IVG_GUIDANCE = (f'Sessione in sola lettura avviata dal pannello IVECO di JARVIS. Per Databricks usa '
+                f'`python {IVG_DBX}` al posto di `python tools/dbx.py`, con gli stessi argomenti '
+                '(--env test|prod prima del comando): consente solo comandi di lettura e SQL SELECT. '
+                'Niente Chrome/Qlik, import, avvio job o scritture: se servono, scrivi il comando esatto '
+                'che Alessandro deve lanciare. Indica sempre l\'ambiente usato.\n')
 
 
 def _db():
@@ -104,8 +113,12 @@ def list_tasks(job_id='', project=''):
         return output
 
 
-def start_task(provider, project, prompt, mode='read', previous_job=''):
+def start_task(provider, project, prompt, mode='read', previous_job='', explicit=False):
+    """explicit: richiesta da un pulsante dedicato (pannello IVECO), non da una
+    conversazione: il clic e' gia' la richiesta esplicita di delega."""
     key, path = _resolve(project)
+    if key == IVG_KEY and (provider != 'claude' or mode != 'read'):
+        raise ValueError('IVGAgent da JARVIS: solo Claude Code in sola lettura.')
     _binary(provider)
     if mode not in {'read', 'edit'} or not isinstance(prompt, str) or not 1 <= len(prompt.strip()) <= 16000:
         raise ValueError('Prompt o modalita non validi')
@@ -119,10 +132,10 @@ def start_task(provider, project, prompt, mode='read', previous_job=''):
         if previous[0]['status'] == 'running' or not previous[0]['session_id']:
             raise ValueError('Sessione non ancora riprendibile.')
         session_id = previous[0]['session_id']
-    request = memory.current_request()
+    request = {'prompt': prompt, 'channel': 'web'} if explicit else memory.current_request()
     if request is None:
         raise ValueError('La delega richiede una conversazione utente attiva.')
-    if not previous_job and not re.search(r'\b(codex|claude|vscode|vs code|visual studio|vs studio)\b', request['prompt'], re.I):
+    if not explicit and not previous_job and not re.search(r'\b(codex|claude|vscode|vs code|visual studio|vs studio)\b', request['prompt'], re.I):
         raise ValueError('Delega un nuovo lavoro solo su richiesta esplicita di usare Codex o Claude Code.')
     if mode == 'edit' and not re.search(r'\b(modifica|modificare|correggi|sistema|implementa|crea|scrivi|fix|aggiorna)\b', request['prompt'], re.I):
         raise ValueError('La richiesta utente non autorizza modifiche: usa read.')
@@ -148,6 +161,14 @@ def _command(job):
         if os.name == 'nt':
             cmd += ['-c', 'windows.sandbox="unelevated"']
         return cmd + ['--ignore-user-config', '--json', '--skip-git-repo-check', '-']
+    if job.get('project') == IVG_KEY:
+        cmd = [_binary('claude'), '-p', '--output-format', 'json', '--max-turns', '40',
+               '--agent', 'iveco-data-agent', '--permission-mode', 'dontAsk',
+               '--permission-prompts', 'none', '--strict-mcp-config',
+               '--tools', 'Bash,Read,Glob,Grep,Skill',
+               '--allowedTools', f'Bash(python {IVG_DBX} *)', 'Read', 'Glob', 'Grep', 'Skill',
+               '--append-system-prompt', IVG_GUIDANCE]
+        return cmd + (['--resume', job['session_id']] if job['session_id'] else [])
     tools = 'Read,Glob,Grep' + (',Edit,Write' if job['mode'] == 'edit' else '')
     cmd = [_binary('claude'), '-p', '--output-format', 'json', '--max-turns', '20',
            '--permission-mode', 'acceptEdits' if job['mode'] == 'edit' else 'plan',

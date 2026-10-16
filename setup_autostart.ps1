@@ -8,7 +8,9 @@
 # -Force su Register-ScheduledTask). Non tocca start.bat/start_voice.bat,
 # che restano il modo di avviare JARVIS a mano.
 #
-# Uso: powershell -ExecutionPolicy Bypass -File setup_autostart.ps1
+# Uso: powershell -ExecutionPolicy Bypass -File setup_autostart.ps1 [-BotOnly]
+# -BotOnly: solo \JARVIS\Bot (VPS senza microfono ne' casse).
+param([switch]$BotOnly)
 
 $ErrorActionPreference = 'Stop'
 
@@ -112,6 +114,7 @@ $tasks = @(
     @{ Name = "Bot";         Vbs = $botVbs;   Descr = "JARVIS - bridge Telegram/web (bot.py)" }
     @{ Name = "VoiceDaemon"; Vbs = $voiceVbs; Descr = "JARVIS - daemon vocale nativo" }
 )
+if ($BotOnly) { $tasks = @($tasks[0]) }
 
 foreach ($t in $tasks) {
     $action = New-ScheduledTaskAction -Execute "wscript.exe" -Argument "$Q$($t.Vbs)$Q" -WorkingDirectory $RepoRoot

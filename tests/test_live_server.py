@@ -472,3 +472,37 @@ def test_watch_endpoint_uses_bearer_token_without_cookie_or_origin():
                 await client.post("/watch/ask", headers=wrong, json={"text": "x"})
             assert (await client.post("/watch/ask", headers=good, json={"text": "x"})).status == 429
     asyncio.run(scenario())
+
+
+def test_iveco_panel_actions_require_login_and_run_recap_once(monkeypatch):
+    from core import iveco, coding_tasks
+    calls = []
+    def build():
+        calls.append(1)
+        time.sleep(0.2)
+        return {"text": "ok"}
+    monkeypatch.setattr(iveco, "build_recap", build)
+    monkeypatch.setattr(iveco, "latest", lambda: {"text": "ultimo"})
+    monkeypatch.setattr(iveco, "jobs_panel", lambda: {"prd": {"overall": {"sample_runs": 1}}})
+    started = []
+    monkeypatch.setattr(coding_tasks, "start_task", lambda *a: started.append(a))
+    monkeypatch.setattr(coding_tasks, "list_tasks", lambda job_id, project: [{"project": project}])
+    async def run():
+        client, server = await client_for()
+        async with client:
+            for action in ("iveco_recap", "iveco_recap_run", "iveco_jobs", "ivgagent_ask", "ivgagent_tasks"):
+                assert (await client.post("/api/jarvis", json={"action": action})).status == 401
+            await login(client)
+            post = lambda **body: client.post("/api/jarvis", json=body)
+            assert (await (await post(action="iveco_recap")).json())["recap"]["text"] == "ultimo"
+            await post(action="iveco_recap_run")
+            await post(action="iveco_recap_run")  # gia' in corso: nessuna seconda generazione
+            assert (await (await post(action="iveco_recap")).json())["running"]
+            await server.recap_task
+            assert calls == [1]
+            assert (await (await post(action="iveco_jobs")).json())["prd"]["overall"]["sample_runs"] == 1
+            assert (await post(action="ivgagent_ask", prompt=7)).status == 400
+            tasks = await (await post(action="ivgagent_ask", prompt="stato job")).json()
+            assert started == [("claude", "IVGAgent", "stato job", "read", "", True)]
+            assert tasks["tasks"] == [{"project": "IVGAgent"}]
+    asyncio.run(run())
