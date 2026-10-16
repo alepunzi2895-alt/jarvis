@@ -41,6 +41,8 @@ WATCH_LOCATION_SEC = 12 * 3600  # il Watch e' al polso: vince sul PC finche' e' 
 HISTORY_TURNS = 8
 TEXT_MODEL = os.getenv("JARVIS_RELAY_TEXT_MODEL", "claude-sonnet-5")
 WATCH_MODEL = os.getenv("JARVIS_RELAY_WATCH_MODEL", "claude-haiku-4-5")
+WATCH_STYLE = ("\n\nRisposta letta dall'Apple Watch: massimo tre frasi brevi, la prima risponde "
+               "subito in meno di 15 parole. Dettagli solo se chiesti.")
 TRADING_WORDS = ("tradepilot", "trading", "equity", "conto", "strategi", "esperiment", "drawdown", "factory")
 
 SYSTEM = (
@@ -255,9 +257,12 @@ class Relay:
         context = await asyncio.to_thread(self.context, text)
         history = self.histories.setdefault(channel, deque(maxlen=HISTORY_TURNS * 2))
         messages = [*history, {"role": "user", "content": text}]
+        system = f"{SYSTEM}\n\n{context}\n\n{persona.PERSONA}"
+        if channel == "watch":
+            system += WATCH_STYLE
         response = await anthropic.AsyncAnthropic().messages.create(
             model=WATCH_MODEL if channel == "watch" else TEXT_MODEL, max_tokens=4000,
-            system=f"{SYSTEM}\n\n{context}\n\n{persona.PERSONA}", messages=messages)
+            system=system, messages=messages)
         reply = "".join(block.text for block in response.content if block.type == "text").strip()
         reply = reply or "Non ho una risposta utile."
         history.extend([{"role": "user", "content": text}, {"role": "assistant", "content": reply}])
