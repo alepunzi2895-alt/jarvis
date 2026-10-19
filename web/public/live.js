@@ -6,6 +6,7 @@
   const entries = new Map(), sources = new Set(), superseded = new Set();
   let status, replay, stop;
   let sttReady = false;
+  let micEnabled = false;
   // PC (puntatore fine): la console aperta abilita la wake word del daemon vocale.
   const coarse = window.matchMedia("(pointer: coarse)").matches;
 
@@ -84,7 +85,15 @@
         for (const id of entries.keys()) if (id !== data.id) superseded.add(id);
         current = data.id;
         entry.querySelector(".prompt").textContent = data.prompt;
-        handleVoiceUiCommand(data.prompt);
+        if (handleVoiceUiCommand(data.prompt)) {
+          if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: "cancel" }));
+          silence();
+          fillEntry(entry, { status: "done", result: "Azione avviata." });
+          finish(data.id);
+          setOrbState("idle");
+          setStatus("Azione avviata.");
+          break;
+        }
         setOrbState("thinking");
         setStatus("Risposta in arrivo…");
         break;
@@ -124,6 +133,7 @@
         if (ws !== socket) return;
         clearTimeout(timer);
         setConn("online");
+        if (!coarse) ws.send(JSON.stringify({ type: "mic_state", enabled: micEnabled }));
         resolve(ws);
       };
       ws.onmessage = event => { if (ws === socket) message(event); };
@@ -187,5 +197,12 @@
     document.addEventListener("keydown", wake, true);
     window.addEventListener("pagehide", () => { cancel(); socket?.close(); });
   }
-  window.JarvisDirect = { start, submit, unlock, cancel, get speaking() { return sources.size > 0; } };
+  function setMicEnabled(enabled) {
+    micEnabled = Boolean(enabled);
+    if (!coarse && socket?.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify({ type: "mic_state", enabled: micEnabled }));
+    }
+  }
+
+  window.JarvisDirect = { start, submit, unlock, cancel, setMicEnabled, get speaking() { return sources.size > 0; } };
 })();

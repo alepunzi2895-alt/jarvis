@@ -169,6 +169,7 @@ class LiveServer:
         self.sockets = set()
         # Console desktop collegate: il daemon vocale ascolta la wake word solo se > 0.
         self.consoles = set()
+        self.mic_clients = set()
         self.recap_task = None  # recap IVECO generato su richiesta dal pannello
 
     @web.middleware
@@ -276,6 +277,31 @@ class LiveServer:
             return web.json_response({"tasks": list(reversed(session["history"]))})
         if action == "runtime_status":
             return web.json_response({"speaking": False})
+        if action == "connect_apps":
+            apps = body.get("apps", [])
+            urls = {
+                "teams": os.getenv("JARVIS_TEAMS_URL", "https://teams.microsoft.com/v2/"),
+                "outlook": "https://outlook.office.com/mail/",
+            }
+            if not isinstance(apps, list) or not apps or any(app not in {"teams", "outlook", "databricks_qas"} for app in apps):
+                raise web.HTTPBadRequest(text='{"error":"Servizi non validi"}', content_type="application/json")
+            from core import databricks
+            if "databricks_qas" in apps:
+                host = databricks._ENVIRONMENTS["qas"]["host"]
+                if host:
+                    urls["databricks_qas"] = host
+            missing = [app for app in apps if app not in urls]
+            if missing:
+                return web.json_response({"error": "Databricks QAS non configurato nel file .env."}, status=400)
+            from core.browser import get_agent
+            results = []
+            for app in apps:
+                try:
+                    results.append({"app": app, "ok": True, "message": await get_agent().open(urls[app])})
+                except Exception:
+                    LOG.exception("Apertura servizio fallita: %s", app)
+                    results.append({"app": app, "ok": False, "message": f"Non riesco ad aprire {app}."})
+            return web.json_response({"results": results})
         if action == "memories_list":
             return web.json_response({"memories": await asyncio.to_thread(memory.entries)})
         if action == 'coding_tasks':
@@ -414,7 +440,7 @@ class LiveServer:
         self.sockets.add(registration)
         if request.query.get("pc") == "1":
             self.consoles.add(registration)
-            console_presence.write(len(self.consoles))
+            console_presence.write(len(self.consoles), len(self.mic_clients))
         active = incoming = transcribing = None
         wake_until = 0
 
@@ -554,6 +580,14 @@ class LiveServer:
                     if body.get("type") == "status":
                         await send("ready", stt_ready=self.engine.ready, device=self.engine.device)
                         continue
+                    if body.get("type") == "mic_state":
+                        if registration in self.consoles:
+                            if body.get("enabled") is True:
+                                self.mic_clients.add(registration)
+                            else:
+                                self.mic_clients.discard(registration)
+                            console_presence.write(len(self.consoles), len(self.mic_clients))
+                        continue
                     if body.get("type") not in {"audio", "text"} or not isinstance(rid, str) or not re.fullmatch(r"[\w-]{1,80}", rid):
                         raise ValueError()
                     if incoming and not incoming.done() and body["type"] == "text" and transcribing:
@@ -574,7 +608,8 @@ class LiveServer:
             self.sockets.discard(registration)
             if registration in self.consoles:
                 self.consoles.discard(registration)
-                console_presence.write(len(self.consoles))
+                self.mic_clients.discard(registration)
+                console_presence.write(len(self.consoles), len(self.mic_clients))
         return socket
 
 
@@ -603,7 +638,7 @@ def create_app(password, origins, engine=None, warm=True, watch_token=None):
                 await asyncio.sleep(60)
         async def console_heartbeat():
             while True:
-                console_presence.write(len(server.consoles))
+                console_presence.write(len(server.consoles), len(server.mic_clients))
                 await asyncio.sleep(console_presence.HEARTBEAT_SEC)
         if warm:
             tasks.append(asyncio.create_task(collect_equity()))
@@ -614,7 +649,7 @@ def create_app(password, origins, engine=None, warm=True, watch_token=None):
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
         if warm:
-            console_presence.write(0)
+            console_presence.write(0, 0)
     app.cleanup_ctx.append(lifecycle)
     return app
 

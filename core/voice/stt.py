@@ -100,7 +100,7 @@ def transcribe_wav(raw: bytes) -> str:
         return transcribe(decode_audio(io.BytesIO(raw), sampling_rate=SAMPLE_RATE))
 
 
-def record_until_silence() -> np.ndarray:
+def record_until_silence(active=None) -> np.ndarray:
     """Registra dal microfono finché non rileva una pausa di silenzio (o il tetto massimo)."""
     silence_chunks_needed = max(1, int(SILENCE_HANG_MS / (CHUNK_SAMPLES / SAMPLE_RATE * 1000)))
     max_chunks = int(MAX_RECORD_SECONDS * SAMPLE_RATE / CHUNK_SAMPLES)
@@ -117,6 +117,8 @@ def record_until_silence() -> np.ndarray:
         device=resolve_input_device(),
     ) as stream:
         for _ in range(max_chunks):
+            if active is not None and not active():
+                break
             chunk, _ = stream.read(CHUNK_SAMPLES)
             frames.append(chunk.copy())
             rms = float(np.sqrt(np.mean(chunk.astype(np.float32) ** 2)))

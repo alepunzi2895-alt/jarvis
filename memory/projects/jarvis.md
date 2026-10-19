@@ -1103,3 +1103,12 @@ per l'host `.ts.net` configurato. Tailscale Serve e' tailnet-only; Funnel non
 inietta l'identita' e richiede la password. LiveBridge resta in ascolto su
 loopback. Verificato dal PC via Serve: HTML 200 con marker, API senza login 200,
 localhost senza cookie 401. L'iPhone deve ricaricare con Tailscale connesso.
+
+## Collegamenti rapidi e microfono (2026-10-19)
+
+Dashboard locale: dock Collegamenti apre Teams, Outlook Web e Databricks QAS
+nel profilo browser persistente; il comando "collega le app" li apre tutti,
+oppure si può indicare un servizio. SSO/MFA iniziale resta manuale nella
+finestra browser; le sessioni successive vengono riusate.
+Il mic dashboard parte spento. Il toggle comunica lo stato al daemon vocale;
+con UI connessa e mic spento wake word e ascolto interruttivo sono disabilitati.

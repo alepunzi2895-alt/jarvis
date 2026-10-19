@@ -21,10 +21,10 @@ CACHE_SEC = 1.0
 _cache = {"at": 0.0, "value": False}
 
 
-def write(clients: int) -> None:
+def write(clients: int, mic_enabled: int = 0) -> None:
     tmp = PATH.with_suffix(".tmp")
     try:
-        tmp.write_text(json.dumps({"clients": clients, "ts": time.time()}), encoding="utf-8")
+        tmp.write_text(json.dumps({"clients": clients, "mic_enabled": mic_enabled, "ts": time.time()}), encoding="utf-8")
         os.replace(tmp, PATH)
     except OSError:
         # Su Windows os.replace fallisce se il daemon ha il file aperto in
@@ -47,3 +47,13 @@ def is_open() -> bool:
     if now - _cache["at"] >= CACHE_SEC:
         _cache.update(at=now, value=read_open())
     return _cache["value"]
+
+
+def is_mic_enabled() -> bool:
+    """True solo se una dashboard desktop ha attivato esplicitamente il mic."""
+    try:
+        data = json.loads(PATH.read_text(encoding="utf-8"))
+        fresh = time.time() - float(data.get("ts", 0)) < STALE_SEC
+        return fresh and int(data.get("mic_enabled", 0)) > 0
+    except (OSError, ValueError, TypeError, AttributeError):
+        return False

@@ -54,7 +54,9 @@ INTERRUPT_WATCH_SECONDS = 15
 
 
 def _wake_word_allowed() -> bool:
-    return WAKE_WORD_MODE == "always" or console_presence.is_open()
+    if console_presence.is_open():
+        return console_presence.is_mic_enabled()
+    return WAKE_WORD_MODE == "always"
 
 
 def _wait_activation(listener: WakeWordListener, hotkey_pressed: threading.Event) -> bool:
@@ -108,7 +110,8 @@ def _speak_with_interrupt(engine: tts.TTSEngine, listener: WakeWordListener, tex
     stop_watching = threading.Event()
 
     def watch() -> None:
-        if listener.wait(timeout=INTERRUPT_WATCH_SECONDS, cancel_event=stop_watching) and not stop_watching.is_set():
+        if listener.wait(timeout=INTERRUPT_WATCH_SECONDS, cancel_event=stop_watching,
+                         active=lambda: _wake_word_allowed() and not stop_watching.is_set()) and not stop_watching.is_set():
             engine.stop()
 
     watcher = threading.Thread(target=watch, daemon=True)
@@ -139,7 +142,8 @@ async def _run_voice_turn(
     interrupted = threading.Event()
 
     def watch() -> None:
-        if listener.wait(timeout=INTERRUPT_WATCH_SECONDS, cancel_event=stop_watching) and not stop_watching.is_set():
+        if listener.wait(timeout=INTERRUPT_WATCH_SECONDS, cancel_event=stop_watching,
+                         active=lambda: _wake_word_allowed() and not stop_watching.is_set()) and not stop_watching.is_set():
             interrupted.set()
             engine.stop()
 
@@ -186,7 +190,11 @@ def main() -> None:
                 continue
 
             print("attivazione rilevata (wake word o hotkey), ascolto...")
-            audio = stt.record_until_silence()
+            manual_activation = hotkey_pressed.is_set()
+            audio = stt.record_until_silence(active=lambda: manual_activation or _wake_word_allowed())
+            if not manual_activation and not _wake_word_allowed():
+                print("microfono disattivato dalla dashboard durante l'ascolto")
+                continue
             text = stt.transcribe(audio)
             if not text:
                 print("(silenzio, nessun comando)")

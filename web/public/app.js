@@ -428,6 +428,12 @@ function setupWindows() {
     btn.setAttribute("aria-label", "Chiudi pannello");
     btn.addEventListener("click", () => closeWindow(btn.dataset.close));
   });
+  document.querySelectorAll("[data-connect-app]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const app = button.dataset.connectApp;
+      connectApps(app === "all" ? ["teams", "outlook", "databricks_qas"] : [app]);
+    });
+  });
   fitPanels();
 }
 
@@ -631,6 +637,19 @@ function handleVoiceUiCommand(text) {
   const verb = /\b(apri|accendi|attiva|mostra)\b/;
   const closeVerb = /\b(chiudi|nascondi|spegni)\b/;
 
+  if (wants(/\b(collega|connessioni|autentica)\b/) && wants(/\b(teams|outlook|databricks|app|servizi)\b/)) {
+    openWindow("win-connections");
+    const selected = wants(/\b(tutti|tutte|tutto|app|servizi)\b/)
+      ? ["teams", "outlook", "databricks_qas"]
+      : [
+          ...(wants(/\bteams\b/) ? ["teams"] : []),
+          ...(wants(/\boutlook\b/) ? ["outlook"] : []),
+          ...(wants(/\bdatabricks\b/) ? ["databricks_qas"] : []),
+        ];
+    if (selected.length) connectApps(selected);
+    return true;
+  }
+
   if (wants(/\b(webcam|camera|cam|telecamera|fotocamera)\b/)) {
     if (wants(verb)) { openWindow("win-camera"); return true; }
     if (wants(closeVerb)) { closeWindow("win-camera"); return true; }
@@ -669,6 +688,18 @@ function handleVoiceUiCommand(text) {
     openWindow("win-projects");
   }
   return false;
+}
+
+async function connectApps(apps) {
+  const status = $("#connections-status");
+  if (!status) return;
+  status.textContent = "Apro le app nella sessione JARVIS…";
+  try {
+    const data = await api("connect_apps", { apps });
+    status.textContent = data.results.map((result) => result.message).join(" ");
+  } catch (error) {
+    status.textContent = error.message || "Collegamento non riuscito.";
+  }
 }
 
 // 2026-09-15, terzo giro: verificato dal vivo (logs/bot.log) che 0.02 era
@@ -851,6 +882,7 @@ function setupVoice() {
       arming = false;
 
       armed = true;
+      window.JarvisDirect?.setMicEnabled(true);
       micBtn.classList.add("listening");
       micBtn.setAttribute("aria-pressed", "true");
       showMicStatus(ON_TITLE);
@@ -960,6 +992,7 @@ function setupVoice() {
     ++attempt; // invalida anche una richiesta permessi ancora in corso
     if (submit && armed && recording) finalizeSegment();
     armed = false;
+    window.JarvisDirect?.setMicEnabled(false);
     arming = false;
     recording = false;
     segmentChunks = [];
@@ -988,8 +1021,7 @@ function setupVoice() {
     if (touchDevice && document.hidden) disarm(false, "Ascolto in pausa · tocca il microfono per riprendere");
   });
   window.addEventListener("pagehide", () => disarm(false));
-  // Desktop resta a mani libere; su telefono serve un tap esplicito.
-  if (!touchDevice) arm();
+  // Il microfono resta spento finché l'utente non lo attiva dal pulsante.
 }
 
 async function handleRecordedAudio(blob) {
@@ -1736,7 +1768,7 @@ async function boot() {
     $("#connected-data").hidden = false;
     $("#learned-memory").hidden = false;
     // TradePilot e IVECO leggono dati privati del PC: solo dalla dashboard locale.
-    document.querySelectorAll('[data-toggle="win-tradepilot"], [data-toggle="win-iveco"]').forEach((b) => { b.hidden = false; });
+    document.querySelectorAll('[data-toggle="win-tradepilot"], [data-toggle="win-iveco"], [data-toggle="win-connections"]').forEach((b) => { b.hidden = false; });
     $("#refresh-data-btn").onclick = refreshConnectedData;
     setupPanelTabs();
     setupIveco();

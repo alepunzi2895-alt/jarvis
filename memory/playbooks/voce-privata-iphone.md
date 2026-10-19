@@ -15,8 +15,10 @@
    La password locale resta in `.live-password` per accessi non autenticati.
 4. Verifica HTTPS 200, marker `JARVIS_LOCAL` e `JARVIS_TAILNET_AUTH`, cookie
    Secure/HttpOnly, WebSocket `/live/ws` con Origin uguale all'URL e `ready`.
-5. Safari: tocca il mic per sbloccare sia registrazione sia playback; pronuncia
-   Jarvis + comando. Stop ferma subito il suono, azioni OS gia' in esecuzione
+5. Il mic parte spento su ogni dispositivo. Attivalo col pulsante della
+   dashboard; disattivandolo si chiude lo stream e il daemon PC smette di
+   ascoltare la wake word. Safari: tocca il mic per sbloccare registrazione
+   e playback; pronuncia Jarvis + comando. Stop ferma subito il suono, azioni OS gia' in esecuzione
    possono terminare prima del turno successivo. Cambio app interrompe il
    turno; al ritorno il mic mobile richiede un nuovo tap.
 6. Nessun upload audio alla coda: in caso di disconnessione mostra errore e
