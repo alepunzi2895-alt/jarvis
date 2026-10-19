@@ -154,6 +154,13 @@ class LiveServer:
         self.watch_seen = 0.0
         self.origins = set(origins)
         self.hosts = {urlsplit(origin).netloc for origin in origins}
+        # Tailscale Serve adds identity headers only for tailnet traffic and
+        # strips client-supplied copies. Funnel does not add these headers.
+        self.passwordless_hosts = {
+            urlsplit(origin).netloc for origin in origins
+            if urlsplit(origin).scheme == "https"
+            and (urlsplit(origin).hostname or "").lower().endswith(".ts.net")
+        }
         self.engine = engine or Engine()
         self.sessions = {}
         self.failures = deque(maxlen=20)
@@ -178,18 +185,54 @@ class LiveServer:
         response.headers["X-Frame-Options"] = "DENY"
         return response
 
-    def session(self, request):
+    def tailscale_identity(self, request):
+        if request.host not in self.passwordless_hosts:
+            return None
+        identity = request.headers.get("Tailscale-User-Login", "").strip()
+        if not identity or len(identity) > 254:
+            return None
+        return identity.casefold()
+
+    def session_key(self, request):
         token = request.cookies.get(COOKIE, "")
         session = self.sessions.get(token)
-        if not session or session["expires"] < time.monotonic():
+        if session and session["expires"] >= time.monotonic():
+            return token
+        if token:
             self.sessions.pop(token, None)
+        identity = self.tailscale_identity(request)
+        if identity:
+            return f"tailscale:{identity}"
+        raise web.HTTPUnauthorized(text='{"error":"Accesso richiesto"}', content_type="application/json")
+
+    def session(self, request):
+        key = self.session_key(request)
+        session = self.sessions.get(key)
+        if not session or session["expires"] < time.monotonic():
+            self.sessions.pop(key, None)
+            if key.startswith("tailscale:"):
+                session = dict(expires=time.monotonic() + TTL, history=deque(maxlen=20), conversations={})
+                self.sessions[key] = session
+                return session
             raise web.HTTPUnauthorized(text='{"error":"Accesso richiesto"}', content_type="application/json")
         return session
 
     async def index(self, request):
         source = (ROOT / "web/public/index.html").read_text(encoding="utf-8")
-        source = source.replace('<script src="/live.js">', '<script>window.JARVIS_LOCAL = true;</script><script src="/live.js">')
-        return web.Response(text=source, content_type="text/html")
+        identity = self.tailscale_identity(request)
+        source = source.replace(
+            '<script src="/live.js">',
+            f'<script>window.JARVIS_LOCAL = true; window.JARVIS_TAILNET_AUTH = {"true" if identity else "false"};</script><script src="/live.js">',
+        )
+        response = web.Response(text=source, content_type="text/html")
+        if identity:
+            token = request.cookies.get(COOKIE, "")
+            current = self.sessions.get(token)
+            if not current or current["expires"] < time.monotonic():
+                token = secrets.token_urlsafe(32)
+                self.sessions[token] = dict(expires=time.monotonic() + TTL, history=deque(maxlen=20), conversations={})
+                response.set_cookie(COOKIE, token, httponly=True, samesite="Strict", max_age=TTL, secure=True)
+        return response
 
     async def api(self, request):
         try:
@@ -221,9 +264,10 @@ class LiveServer:
             return response
         session = self.session(request)
         if action == "logout":
-            self.sessions.pop(request.cookies.get(COOKIE), None)
-            for socket, owner in list(self.sockets):
-                if owner == request.cookies.get(COOKIE):
+            owner_key = self.session_key(request)
+            self.sessions.pop(owner_key, None)
+            for socket, socket_owner in list(self.sockets):
+                if socket_owner == owner_key:
                     await socket.close()
             response = web.json_response({"ok": True})
             response.del_cookie(COOKIE)
@@ -366,7 +410,7 @@ class LiveServer:
         session = self.session(request)
         socket = web.WebSocketResponse(heartbeat=20, max_msg_size=MAX_FRAME, receive_timeout=TTL)
         await socket.prepare(request)
-        registration = (socket, request.cookies[COOKIE])
+        registration = (socket, self.session_key(request))
         self.sockets.add(registration)
         if request.query.get("pc") == "1":
             self.consoles.add(registration)

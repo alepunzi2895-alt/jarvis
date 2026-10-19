@@ -9,10 +9,12 @@
    attendere `BackendState` Running e controllare `tailscale serve status`.
 2. `setup_live.ps1 -Start`: riserva HTTPS 8443 senza sovrascrivere un servizio
    diverso, proxy su loopback 8765, registra LiveBridge e AudioCleanup.
-3. Password in `.live-password`, eventuale override `JARVIS_LIVE_PASSWORD`.
-   Non copiarla nei log/commit. Config locale in `.live-config.json`.
-4. Verifica HTTPS 200 e marker `JARVIS_LOCAL`, login, cookie Secure/HttpOnly,
-   WebSocket `/live/ws` con Origin uguale all'URL e risposta `ready`.
+3. La dashboard accetta automaticamente l'identita' `Tailscale-User-Login`
+   iniettata da Tailscale Serve sul dominio `.ts.net`. Serve deve restare
+   tailnet-only: Funnel non passa l'identita' e richiede ancora la password.
+   La password locale resta in `.live-password` per accessi non autenticati.
+4. Verifica HTTPS 200, marker `JARVIS_LOCAL` e `JARVIS_TAILNET_AUTH`, cookie
+   Secure/HttpOnly, WebSocket `/live/ws` con Origin uguale all'URL e `ready`.
 5. Safari: tocca il mic per sbloccare sia registrazione sia playback; pronuncia
    Jarvis + comando. Stop ferma subito il suono, azioni OS gia' in esecuzione
    possono terminare prima del turno successivo. Cambio app interrompe il

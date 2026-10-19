@@ -433,6 +433,8 @@ function setupWindows() {
 
 // ── Login ────────────────────────────────────────────────────────────
 
+if (window.JARVIS_TAILNET_AUTH) $("#logout-btn").hidden = true;
+
 $("#login-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   $("#login-error").textContent = "";

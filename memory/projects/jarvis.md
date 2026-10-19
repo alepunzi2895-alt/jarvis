@@ -1095,3 +1095,11 @@ Telegram e Apple Watch passano dalla VPS TradePilot (`core/relay.py`, porta
 9443 tailnet). PC acceso: gestisce tutto lui; PC spento: risponde la VPS con
 meteo, TradePilot e second brain. Dettagli e aggiornamento in
 `memory/playbooks/jarvis-vps.md`.
+
+## Accesso dashboard via Tailscale senza password (2026-10-19, branch codex/tailscale-passwordless-dashboard)
+
+LiveBridge accetta automaticamente l'identita' Tailscale Serve (`Tailscale-User-Login`)
+per l'host `.ts.net` configurato. Tailscale Serve e' tailnet-only; Funnel non
+inietta l'identita' e richiede la password. LiveBridge resta in ascolto su
+loopback. Verificato dal PC via Serve: HTML 200 con marker, API senza login 200,
+localhost senza cookie 401. L'iPhone deve ricaricare con Tailscale connesso.
