@@ -144,3 +144,24 @@ def test_timeline_response_reads_records(monkeypatch):
         json=lambda:{'records':[{'type':'Stage'}]},headers={})))
     rows, _ = azure_devops._read({'organization':'Iveco','project':'Data Room'}, {},'build/builds/1172/timeline')
     assert rows == [{'type':'Stage'}]
+
+
+def test_devops_connect_logs_in_only_when_token_is_missing(monkeypatch):
+    azure_devops.CONFIG.write_text(json.dumps({'project_url':'https://dev.azure.com/Iveco/Data%20Room','tenant':'tenant'}))
+    monkeypatch.setattr(azure_devops,'_login',{'process':None})
+    monkeypatch.setattr(azure_devops,'auth_headers',lambda config:{'Authorization':'Bearer ok'})
+    popen=Mock()
+    monkeypatch.setattr(azure_devops.subprocess,'Popen',popen)
+    assert azure_devops.connect()=='Azure DevOps già collegato.'
+    popen.assert_not_called()
+    def expired(config):
+        raise ValueError('login')
+    monkeypatch.setattr(azure_devops,'auth_headers',expired)
+    monkeypatch.setattr(azure_devops,'cli_path',lambda:'az.cmd')
+    popen.return_value=Mock(poll=Mock(return_value=None))
+    assert azure_devops.connect().startswith('Login Azure DevOps aperto')
+    args=popen.call_args.args[0]
+    assert args[:2]==['az.cmd','login'] and args[args.index('--tenant')+1]=='tenant'
+    assert popen.call_args.kwargs['env']['AZURE_CONFIG_DIR']==str(azure_devops.AUTH_DIR)
+    assert azure_devops.connect()=='Accesso Azure DevOps già in corso nel browser.'
+    assert popen.call_count==1

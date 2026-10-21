@@ -19,6 +19,7 @@ RESOURCE = '499b84ac-1321-427f-aa17-267ca6975798'
 _lock = threading.Lock()
 _token = {'value': '', 'expires': 0, 'tenant': ''}
 _cache = {'value': None, 'at': 0, 'key': ''}
+_login = {'process': None}
 
 
 def cli_path():
@@ -57,6 +58,33 @@ def auth_headers(config):
     data = json.loads(result.stdout)
     _token.update(value=data['accessToken'], expires=float(data.get('expires_on', time.time() + 300)), tenant=tenant)
     return {'Authorization': 'Bearer ' + data['accessToken']}
+
+
+def connect():
+    """Pulsante Collegamenti: con token ancora valido non fa nulla, altrimenti
+    avvia lo stesso login di setup_devops.ps1, che si apre nel browser
+    predefinito (SSO e MFA li completa Alessandro, JARVIS non vede credenziali)."""
+    config = settings()
+    try:
+        auth_headers(config)
+        return 'Azure DevOps già collegato.'
+    except ValueError:
+        pass
+    cli = cli_path()
+    if not cli:
+        return 'Azure CLI non installata sul PC: serve per collegare Azure DevOps.'
+    with _lock:
+        running = _login['process']
+        if running and running.poll() is None:
+            return 'Accesso Azure DevOps già in corso nel browser.'
+        env = os.environ | {'AZURE_CONFIG_DIR': str(AUTH_DIR)}
+        _login['process'] = subprocess.Popen(
+            [cli, 'login', '--tenant', config['tenant'], '--skip-subscription-discovery',
+             '--scope', RESOURCE + '/.default', '--output', 'none', '--only-show-errors'],
+            env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        _token.update(value='', expires=0)
+    return 'Login Azure DevOps aperto nel browser: completa SSO e MFA, poi i deploy tornano nel recap.'
 
 
 def _read(config, headers, path, params=None, release=False):

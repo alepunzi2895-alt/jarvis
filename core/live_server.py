@@ -283,19 +283,26 @@ class LiveServer:
                 "teams": os.getenv("JARVIS_TEAMS_URL", "https://teams.microsoft.com/v2/"),
                 "outlook": "https://outlook.office.com/mail/",
             }
-            if not isinstance(apps, list) or not apps or any(app not in {"teams", "outlook", "databricks_qas"} for app in apps):
+            if not isinstance(apps, list) or not apps or any(app not in {"teams", "outlook", "databricks_qas", "devops"} for app in apps):
                 raise web.HTTPBadRequest(text='{"error":"Servizi non validi"}', content_type="application/json")
             from core import databricks
             if "databricks_qas" in apps:
                 host = databricks._ENVIRONMENTS["qas"]["host"]
                 if host:
                     urls["databricks_qas"] = host
-            missing = [app for app in apps if app not in urls]
+            missing = [app for app in apps if app not in urls and app != "devops"]
             if missing:
                 return web.json_response({"error": "Databricks QAS non configurato nel file .env."}, status=400)
             from core.browser import get_agent
             results = []
-            for app in apps:
+            if "devops" in apps:
+                # Azure DevOps passa da Azure CLI, non dal browser JARVIS: token per le API dei deploy.
+                try:
+                    results.append({"app": "devops", "ok": True, "message": await asyncio.to_thread(azure_devops.connect)})
+                except Exception:
+                    LOG.exception("Collegamento Azure DevOps fallito")
+                    results.append({"app": "devops", "ok": False, "message": "Non riesco ad avviare l'accesso Azure DevOps."})
+            for app in (app for app in apps if app != "devops"):
                 try:
                     results.append({"app": app, "ok": True, "message": await get_agent().open(urls[app])})
                 except Exception:

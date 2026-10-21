@@ -431,7 +431,7 @@ function setupWindows() {
   document.querySelectorAll("[data-connect-app]").forEach((button) => {
     button.addEventListener("click", () => {
       const app = button.dataset.connectApp;
-      connectApps(app === "all" ? ["teams", "outlook", "databricks_qas"] : [app]);
+      connectApps(app === "all" ? ["teams", "outlook", "databricks_qas", "devops"] : [app]);
     });
   });
   fitPanels();
@@ -637,14 +637,15 @@ function handleVoiceUiCommand(text) {
   const verb = /\b(apri|accendi|attiva|mostra)\b/;
   const closeVerb = /\b(chiudi|nascondi|spegni)\b/;
 
-  if (wants(/\b(collega|connessioni|autentica)\b/) && wants(/\b(teams|outlook|databricks|app|servizi)\b/)) {
+  if (wants(/\b(collega|connessioni|autentica)\b/) && wants(/\b(teams|outlook|databricks|devops|azure|app|servizi)\b/)) {
     openWindow("win-connections");
     const selected = wants(/\b(tutti|tutte|tutto|app|servizi)\b/)
-      ? ["teams", "outlook", "databricks_qas"]
+      ? ["teams", "outlook", "databricks_qas", "devops"]
       : [
           ...(wants(/\bteams\b/) ? ["teams"] : []),
           ...(wants(/\boutlook\b/) ? ["outlook"] : []),
           ...(wants(/\bdatabricks\b/) ? ["databricks_qas"] : []),
+          ...(wants(/\b(devops|azure)\b/) ? ["devops"] : []),
         ];
     if (selected.length) connectApps(selected);
     return true;
