@@ -1723,6 +1723,10 @@ async function pollSpeakingStatus() {
     botSpeaking = window.JarvisDirect.speaking;
     return;
   }
+  // Tab nascosta: la bolla non si vede e senza mic attivo il flag non serve.
+  // Ogni chiamata a 700 ms consuma Fast Origin Transfer Vercel (10 GB/mese
+  // condivisi fra tutti i progetti), quindi si interroga solo se serve.
+  if (document.hidden && !$("#mic-btn")?.classList.contains("listening")) return;
   try {
     const { speaking } = await api("runtime_status");
     botSpeaking = !!speaking;
