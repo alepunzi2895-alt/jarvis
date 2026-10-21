@@ -203,6 +203,7 @@ def gather(now: datetime | None = None, loop=None) -> dict:
             facts[name] = fn(*args)
             sources[name] = "ok"
         except Exception as error:  # noqa: BLE001 — una fonte giu' non ferma il recap
+            LOG.warning("Recap IVECO, fonte %s non disponibile: %r", name, error)
             sources[name] = f"non disponibile ({type(error).__name__})"
 
     collect("job_prd", _job_runs, "prd", since, now)

@@ -32,7 +32,16 @@ def _client(env):
 
 
 def _get(host, headers, endpoint, params=None):
-    response = requests.get(host + endpoint, headers=headers, params=params or {}, timeout=25)
+    # Tre tentativi su SSLError: il proxy aziendale chiude a volte le
+    # connessioni nuove (job_qas nel recap del 2026-10-21, non riproducibile).
+    for attempt in range(3):
+        try:
+            response = requests.get(host + endpoint, headers=headers, params=params or {}, timeout=25)
+            break
+        except requests.exceptions.SSLError:
+            if attempt == 2:
+                raise
+            time.sleep(attempt + 1)
     response.raise_for_status()
     return response.json()
 

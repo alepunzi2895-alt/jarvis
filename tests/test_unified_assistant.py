@@ -152,6 +152,22 @@ def test_databricks_only_get_qas_and_pagination(monkeypatch):
         databricks_catalog.inspect("delete")
 
 
+def test_databricks_get_retries_ssl_errors_from_proxy(monkeypatch):
+    monkeypatch.setattr(databricks_catalog.time, "sleep", lambda _: None)
+    response = Mock()
+    response.json.return_value = {"runs": []}
+    ssl_error = databricks_catalog.requests.exceptions.SSLError("EOF")
+    get = Mock(side_effect=[ssl_error, ssl_error, response])
+    monkeypatch.setattr(databricks_catalog.requests, "get", get)
+    assert databricks_catalog._get("https://qas.test", {}, "/api/2.2/jobs/runs/list") == {"runs": []}
+    assert get.call_count == 3
+    get = Mock(side_effect=ssl_error)
+    monkeypatch.setattr(databricks_catalog.requests, "get", get)
+    with pytest.raises(databricks_catalog.requests.exceptions.SSLError):
+        databricks_catalog._get("https://qas.test", {}, "/api/2.2/jobs/runs/list")
+    assert get.call_count == 3
+
+
 def test_discovery_does_not_authorize_cli_writes(catalog_root, monkeypatch):
     folder = repo(catalog_root, "New_Project")
     monkeypatch.setattr(claude_bridge._system_executor, "_in_whitelist", lambda _: False)
