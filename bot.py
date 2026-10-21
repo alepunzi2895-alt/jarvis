@@ -653,7 +653,7 @@ async def iveco_recap_loop() -> None:
         if late > dt.timedelta(hours=3):
             continue  # PC acceso dopo il daily: il recap non serve piu'
         try:
-            record = await asyncio.to_thread(iveco.build_recap)
+            record = await asyncio.to_thread(iveco.build_recap, loop=asyncio.get_running_loop())
             send("Recap per il daily delle 10:00\n\n" + record["text"])
         except Exception as e:  # noqa: BLE001 — una fonte o l'API giu' non ferma il loop
             print(f"recap IVECO fallito (ignorato): {telegram.safe_error(e)}")

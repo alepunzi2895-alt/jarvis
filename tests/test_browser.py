@@ -332,3 +332,34 @@ def test_extract_and_execute_dispatches_read_mail():
 
     agent.read_emails.assert_awaited_once_with(2)
     assert "Mail 1" in result
+
+
+def test_read_teams_chats_reads_list_and_closes_its_tab():
+    page = MagicMock()
+    page.url = "https://teams.microsoft.com/v2/"
+    page.goto = AsyncMock()
+    page.locator.return_value.first.wait_for = AsyncMock()
+    page.evaluate = AsyncMock(return_value=[{"title": "ROSSI Mario"}])
+    page.close = AsyncMock()
+    agent = BrowserAgent()
+    agent._new_page = AsyncMock(return_value=page)
+    with patch("core.browser.bring_matching_to_foreground_bg") as foreground:
+        assert asyncio.run(agent.read_teams_chats(page.url)) == [{"title": "ROSSI Mario"}]
+    page.close.assert_awaited_once()
+    foreground.assert_not_called()  # alle 09:30 non ruba il primo piano
+
+
+def test_read_teams_chats_reports_expired_login():
+    page = MagicMock()
+    page.url = "https://login.microsoftonline.com/common/oauth2"
+    page.goto = AsyncMock()
+    page.locator.return_value.first.wait_for = AsyncMock(side_effect=TimeoutError())
+    page.close = AsyncMock()
+    agent = BrowserAgent()
+    agent._new_page = AsyncMock(return_value=page)
+    try:
+        asyncio.run(agent.read_teams_chats("https://teams.microsoft.com/v2/"))
+        raise AssertionError("PermissionError attesa")
+    except PermissionError as error:
+        assert "login Teams" in str(error)
+    page.close.assert_awaited_once()

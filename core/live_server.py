@@ -328,7 +328,8 @@ class LiveServer:
         if action == "iveco_recap_run":
             from core import iveco
             if not (self.recap_task and not self.recap_task.done()):
-                self.recap_task = asyncio.create_task(asyncio.to_thread(iveco.build_recap))
+                self.recap_task = asyncio.create_task(
+                    asyncio.to_thread(iveco.build_recap, loop=asyncio.get_running_loop()))
             return web.json_response({"running": True})
         if action in {"ivgagent_ask", "ivgagent_tasks"}:
             from core import coding_tasks

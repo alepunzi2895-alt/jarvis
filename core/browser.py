@@ -99,6 +99,27 @@ def _is_owa_host(url: str) -> bool:
     return any(host == h or host.endswith(f".{h}") for h in _OWA_HOSTS)
 
 
+# Lista chat di Teams per il recap del daily (2026-10-21). Righe e campi
+# letti per id/attributo strutturale, non per testo localizzato: verificato
+# dal vivo sul profilo JARVIS (Teams v2 via proxy mcas.ms) — ogni riga e'
+# un treeitem data-item-type="chat" con titolo, anteprima e <time datetime>
+# ISO in UTC; "non letta" e' un id in aria-labelledby. Il tipo di chat
+# (OneOnOne/Group/Meeting/Bot/SelfChat) e' in data-fui-tree-item-value.
+_TEAMS_CHAT_ROW = "[role=treeitem][data-item-type=chat]"
+_TEAMS_CHAT_NAV = "[data-tid=app-bar-wrapper] button[aria-label^='Chat']"
+_TEAMS_CHATS_JS = """() => [...document.querySelectorAll('[role=treeitem][data-item-type=chat]')].map(item => {
+  const pick = prefix => item.querySelector(`[id^="${prefix}"]`);
+  const [kind, id] = (item.getAttribute('data-fui-tree-item-value') || '').split('/').pop().split('|');
+  return {
+    id: id || '', kind: kind || '',
+    title: pick('title-chat-list-item_')?.innerText || '',
+    preview: pick('message-preview-chat-list-item_')?.innerText || '',
+    at: item.querySelector('time')?.getAttribute('datetime') || '',
+    unread: (item.getAttribute('aria-labelledby') || '').includes('chat_list_unread_text'),
+  };
+})"""
+
+
 def _clean_page_text(text: str) -> str:
     lines = [line.rstrip() for line in text.splitlines()]
     cleaned = re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
@@ -290,6 +311,28 @@ class BrowserAgent:
                 summaries.append(f"Mail {i + 1}: non apribile ({e}).")
         _bring_browser_to_foreground()
         return "\n\n".join(summaries)
+
+    async def read_teams_chats(self, url: str) -> list[dict]:
+        """Righe della lista chat di Teams (titolo, tipo, anteprima
+        dell'ultimo messaggio, ora, non letta) dal profilo gia' loggato.
+        Solo la lista, mai una chat aperta: aprirla la segnerebbe come letta.
+        Scheda propria chiusa alla fine e niente primo piano: gira anche alle
+        09:30 senza nessuno davanti al PC."""
+        page = await self._new_page()
+        try:
+            await page.goto(url, wait_until="domcontentloaded")
+            rows = page.locator(_TEAMS_CHAT_ROW)
+            try:
+                await rows.first.wait_for(timeout=45000)
+            except Exception:
+                if (urlparse(page.url).hostname or "").startswith("login."):
+                    raise PermissionError("login Teams scaduto: riaprilo dai Collegamenti")
+                # Teams riapre l'ultima app usata: se non e' Chat, la seleziona.
+                await page.locator(_TEAMS_CHAT_NAV).first.click(timeout=5000)
+                await rows.first.wait_for(timeout=20000)
+            return await page.evaluate(_TEAMS_CHATS_JS)
+        finally:
+            await page.close()
 
     async def click(self, label: str) -> str:
         """Clicca il primo elemento visibile che contiene il testo dato

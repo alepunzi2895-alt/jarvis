@@ -1,5 +1,7 @@
+import asyncio
 from datetime import datetime
 import json
+import threading
 
 import pytest
 
@@ -31,12 +33,12 @@ def test_gather_survives_every_source_failing(monkeypatch):
     assert data["since"] == "2026-10-15 00:00"
     assert data["facts"] == {}
     assert data["sources"]["mail"] == "non disponibile (RuntimeError)"
-    assert data["sources"]["teams"] == "non collegato"
+    assert data["sources"]["teams"] == "non disponibile (RuntimeError)"  # nessun loop browser
 
 
 def test_build_recap_saves_summary_and_sources(monkeypatch, tmp_path):
     monkeypatch.setattr(iveco, "RECAP_FILE", tmp_path / ".iveco-recap.json")
-    monkeypatch.setattr(iveco, "gather", lambda now=None: dict(now="2026-10-16 09:30", since="2026-10-15 00:00",
+    monkeypatch.setattr(iveco, "gather", lambda now=None, loop=None: dict(now="2026-10-16 09:30", since="2026-10-15 00:00",
                                                                facts={"mail": []}, sources={"mail": "ok"}))
     monkeypatch.setattr(iveco, "summarize", lambda data: "Fatto: nulla di rilevante")
     record = iveco.build_recap()
@@ -51,3 +53,35 @@ def test_iso_after_handles_utc_and_bad_values():
     assert not iveco._iso_after("2026-10-01T08:00:00Z", since)
     assert not iveco._iso_after(None, since)
     assert not iveco._iso_after("ieri", since)
+
+
+def test_teams_reads_chat_list_on_browser_loop(monkeypatch):
+    from core import browser
+    rossi = dict(id="19:a", kind="OneGQL_OneOnOneChatConversation", title="ROSSI Mario",
+                 preview="puoi guardare il job?", at="2026-10-16T07:10:00Z", unread=True)
+
+    class Agent:
+        async def read_teams_chats(self, url):
+            assert url == iveco.TEAMS_URL
+            return [
+                rossi,
+                dict(rossi),  # stessa chat anche tra i Preferiti
+                dict(id="48:notes", kind="OneGQL_SelfChatConversation", title="PUNZI (You)",
+                     preview="VPS password", at="2026-10-16T08:00:00Z", unread=False),
+                dict(id="19:b", kind="OneGQL_GroupChatConversation", title="Vecchia",
+                     preview="x", at="2026-10-01T08:00:00Z", unread=False),
+            ]
+
+    monkeypatch.setattr(browser, "get_agent", lambda: Agent())
+    loop = asyncio.new_event_loop()
+    thread = threading.Thread(target=loop.run_forever, daemon=True)
+    thread.start()
+    try:
+        rows = iveco._teams(datetime(2026, 10, 15), loop)
+    finally:
+        loop.call_soon_threadsafe(loop.stop)
+        thread.join()
+        loop.close()
+    assert [row["chat"] for row in rows] == ["ROSSI Mario"]
+    assert rows[0]["type"] == "1:1" and rows[0]["unread"]
+    assert rows[0]["last_message"] == "puoi guardare il job?"

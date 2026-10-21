@@ -1112,3 +1112,16 @@ oppure si può indicare un servizio. SSO/MFA iniziale resta manuale nella
 finestra browser; le sessioni successive vengono riusate.
 Il mic dashboard parte spento. Il toggle comunica lo stato al daemon vocale;
 con UI connessa e mic spento wake word e ascolto interruttivo sono disabilitati.
+
+## Recap IVECO legge Teams (2026-10-21, branch feat/recap-teams)
+
+Prima `core/iveco.py` scriveva `teams: non collegato` fisso: nessuna fonte
+Teams esisteva, i Collegamenti aprivano solo il browser. Ora `_teams()` legge
+la lista chat dal profilo Playwright gia' loggato (`BrowserAgent.read_teams_chats`):
+titolo, tipo, ultimo messaggio, ora, non letta. Solo lista, mai chat aperte
+(le segnerebbe come lette). Esclusa la chat con se' stesso (contiene credenziali).
+Il recap gira in un thread: Playwright va chiamato sul loop del processo, quindi
+`build_recap(loop=...)` da LiveBridge e bot.py. Verificato dal vivo: recap
+dall'endpoint con `teams: ok`, 4 chat nella finestra, suite 520 test verde.
+Se la sessione Teams scade: `teams: non disponibile (PermissionError)`, riaprire
+Teams dai Collegamenti.

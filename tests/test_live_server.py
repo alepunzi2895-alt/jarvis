@@ -477,7 +477,8 @@ def test_watch_endpoint_uses_bearer_token_without_cookie_or_origin():
 def test_iveco_panel_actions_require_login_and_run_recap_once(monkeypatch):
     from core import iveco, coding_tasks
     calls = []
-    def build():
+    def build(loop=None):
+        assert loop is not None  # serve al recap per leggere Teams dal browser
         calls.append(1)
         time.sleep(0.2)
         return {"text": "ok"}
