@@ -1,8 +1,10 @@
 # JARVIS sulla VPS: ponte Telegram e Apple Watch
 
 Attivo dal 2026-10-16. VPS = Windows Server 2022 di TradePilot
-(`win-6gfp84o12pq.tail18e3c0.ts.net`, SSH `tradepilot-vps`, utente
-Administrator). Solo 1,6 GB di RAM, gia' in paging con MT5 e TradePilot:
+(`win-6gfp84o12pq.tail18e3c0.ts.net`, utente Administrator). Dal 2026-10-21
+e' una macchina nuova (IP pubblico 154.61.184.38, RDP sulla 8328, porta 22
+pubblica chiusa): SSH solo via Tailscale, alias `tradepilot-vps-ts`.
+Stesso nome tailnet, quindi `JARVIS_TELEGRAM_RELAY_URL` sul PC non cambia. Solo 1,6 GB di RAM, gia' in paging con MT5 e TradePilot:
 sulla VPS gira SOLO `core/relay.py` (circa 40 MB), mai JARVIS completo.
 
 ## Come funziona
@@ -30,11 +32,15 @@ sulla VPS gira SOLO `core/relay.py` (circa 40 MB), mai JARVIS completo.
 
 ## Aggiornare il ponte (dal PC)
 1. `git bundle create <scratch>/jarvis.bundle main`
-2. `scp jarvis.bundle install_relay.ps1 update_relay.ps1 tradepilot-vps:C:/Windows/Temp/`
-3. `ssh tradepilot-vps 'powershell -NoProfile -ExecutionPolicy Bypass -File C:\Windows\Temp\update_relay.ps1'`
+2. `scp jarvis.bundle install_relay.ps1 update_relay.ps1 tradepilot-vps-ts:C:/Windows/Temp/`
+3. `ssh tradepilot-vps-ts 'powershell -NoProfile -ExecutionPolicy Bypass -File C:\Windows\Temp\update_relay.ps1'`
    (ferma il task, uccide il processo, pull dal bundle, pip, riavvia).
-Gli script stanno nello scratchpad della sessione del 2026-10-16; se mancano,
-ricrearli da questa descrizione. Il classificatore di Claude Code chiede un
+Gli script stanno nello scratchpad della sessione del 2026-10-21 (`scratchpad/vps`,
+con `deploy_vps.ps1` che fa copia + installazione); se mancano, ricrearli da
+questa descrizione. `env.vps` si rigenera dal `.env` del PC: Telegram,
+Anthropic, Turso, `JARVIS_RELAY_TOKEN`, `JARVIS_WATCH_TOKEN` (= `.watch-token`
+del PC), `JARVIS_PC_WATCH_URL` (= origin di `.live-config.json` + `/watch/ask`),
+`JARVIS_IVECO_RECAP_TIME=off`. Il classificatore di Claude Code chiede un
 permesso esplicito per scp/ssh in scrittura verso la VPS.
 
 ## Problemi gia' visti

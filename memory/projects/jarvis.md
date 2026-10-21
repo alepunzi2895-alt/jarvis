@@ -1125,3 +1125,11 @@ Il recap gira in un thread: Playwright va chiamato sul loop del processo, quindi
 dall'endpoint con `teams: ok`, 4 chat nella finestra, suite 520 test verde.
 Se la sessione Teams scade: `teams: non disponibile (PermissionError)`, riaprire
 Teams dai Collegamenti.
+
+## Blocco bozze dietro proxy, recap 09:30 in LiveBridge (2026-10-21)
+
+Il blocco "mai invio automatico" su Teams/Outlook non scattava: su questo PC gli
+host passano dal proxy Defender for Cloud Apps (`*.mcas.ms`). Ora il suffisso
+viene tolto prima del confronto. Il recap delle 09:30 gira in LiveBridge
+(`iveco.recap_loop`), non piu' in bot.py, perche' solo LiveBridge tiene il
+browser con Teams. Verifica: log `Recap IVECO programmato per ...` in `logs/live.log`.
