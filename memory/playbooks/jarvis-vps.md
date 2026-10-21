@@ -4,7 +4,8 @@ Attivo dal 2026-10-16. VPS = Windows Server 2022 di TradePilot
 (`win-6gfp84o12pq.tail18e3c0.ts.net`, utente Administrator). Dal 2026-10-21
 e' una macchina nuova (IP pubblico 154.61.184.38, RDP sulla 8328, porta 22
 pubblica chiusa): SSH solo via Tailscale, alias `tradepilot-vps-ts`.
-Stesso nome tailnet, quindi `JARVIS_TELEGRAM_RELAY_URL` sul PC non cambia. Solo 1,6 GB di RAM, gia' in paging con MT5 e TradePilot:
+Stesso nome tailnet, quindi `JARVIS_TELEGRAM_RELAY_URL` sul PC non cambia.
+Ponte reinstallato sulla macchina nuova il 2026-10-21 (task `\JARVIS\Relay`, 9443). Solo 1,6 GB di RAM, gia' in paging con MT5 e TradePilot:
 sulla VPS gira SOLO `core/relay.py` (circa 40 MB), mai JARVIS completo.
 
 ## Come funziona
