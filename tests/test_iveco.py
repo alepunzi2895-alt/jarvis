@@ -47,6 +47,23 @@ def test_build_recap_saves_summary_and_sources(monkeypatch, tmp_path):
     assert json.loads((tmp_path / ".iveco-recap.json").read_text(encoding="utf-8"))["since"] == "2026-10-15 00:00"
 
 
+def test_deploys_are_split_per_person(monkeypatch):
+    from core import azure_devops
+    monkeypatch.setattr(iveco, "PEOPLE", "punzi=Alessandro,gabr=Gabry")
+    monkeypatch.setattr(azure_devops, "snapshot", lambda: dict(
+        deployments=[dict(name="Data / R-1", environment="PRD", status="succeeded", at="2026-10-15T16:00:00Z", by="ROSSI Gabriele"),
+                     dict(name="Old", environment="QAS", status="succeeded", at="2026-10-01T16:00:00Z", by="PUNZI Alessandro")],
+        stages=[dict(name="Deploy to QAS", status="succeeded", at="2026-10-15T15:00:00Z", by="PUNZI Alessandro")],
+        builds=[dict(name="Data", at="2026-10-15T14:00:00Z", by="Project Collection Build Service")],
+        pull_requests=[dict(title="Fleet KPI", at="2026-10-15T10:00:00Z", by="PUNZI Alessandro")]))
+    people = iveco._deploys(datetime(2026, 10, 15))
+    assert set(people) == {"Alessandro", "Gabry", "Project Collection Build Service"}
+    assert [d["environment"] for d in people["Gabry"]["deployments"]] == ["PRD"]
+    assert "deployments" not in people["Alessandro"]  # quello vecchio e' fuori finestra
+    assert people["Alessandro"]["pull_requests"][0]["title"] == "Fleet KPI"
+    assert iveco._owner(None) == "sconosciuto"
+
+
 def test_iso_after_handles_utc_and_bad_values():
     since = datetime(2026, 10, 15)
     assert iveco._iso_after("2026-10-16T08:00:00Z", since)

@@ -92,7 +92,34 @@ def test_devops_partial_permissions_are_not_no_deploys(monkeypatch):
         raise ValueError('403')
     monkeypatch.setattr(azure_devops,'_read',read)
     r=azure_devops._snapshot({'project_url':'test'}, {})
-    assert r['connected'] and r['partial'] and set(r['errors'])=={'releases','environments'}
+    assert r['connected'] and r['partial'] and set(r['errors'])=={'releases','environments','pull_requests'}
+
+
+def test_devops_rows_carry_who_ran_them(monkeypatch):
+    calls=[]
+    def read(config, headers, path, params=None, release=False):
+        calls.append((path, params))
+        if path=='build/builds' and 'buildIds' in params:
+            return [{'id':77,'requestedFor':{'displayName':'ROSSI Gabriele'}}],False
+        if path=='build/builds':
+            return [{'id':1,'definition':{'name':'Data'},'requestedFor':{'displayName':'PUNZI Alessandro'},
+                     'triggerInfo':{'ci.message':'Fix fleet KPI'}}],False
+        if path=='release/releases':
+            return [{'name':'R-1','createdBy':{'displayName':'Build Service'},
+                     'environments':[{'name':'PRD','deploySteps':[{'requestedFor':{'displayName':'ROSSI Gabriele'}}]}]}],False
+        if path=='distributedtask/environments':return [{'id':8,'name':'QAS'}],False
+        if path=='git/pullrequests':
+            return [{'title':'Fleet KPI','repository':{'name':'dataroom'},'createdBy':{'displayName':'PUNZI Alessandro'},
+                     'status':'completed','closedDate':'2026-10-20T10:00:00Z'}],False
+        if path.endswith('/timeline'):return [{'type':'Stage','name':'Deploy to QAS','result':'succeeded'}],False
+        return [{'definition':{'name':'Data'},'result':'succeeded','owner':{'id':77}}],False
+    monkeypatch.setattr(azure_devops,'_read',read)
+    r=azure_devops._snapshot({'project_url':'test'}, {})
+    assert r['builds'][0]['by']=='PUNZI Alessandro' and r['builds'][0]['message']=='Fix fleet KPI'
+    assert r['stages'][0]['by']=='PUNZI Alessandro'
+    assert {d['kind']:d['by'] for d in r['deployments']}=={'classic_release':'ROSSI Gabriele','yaml_environment':'ROSSI Gabriele'}
+    assert ('build/builds',{'buildIds':'77'}) in calls
+    assert r['pull_requests'][0]['title']=='Fleet KPI' and r['pull_requests'][0]['by']=='PUNZI Alessandro'
 
 
 def test_pipeline_stages_visible_without_environment_records(monkeypatch):

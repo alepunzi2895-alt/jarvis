@@ -92,6 +92,7 @@ def _snapshot(config, headers):
         'builds': ('build/builds', {'$top': 30, 'queryOrder': 'queueTimeDescending', 'maxBuildsPerDefinition': 1}, False),
         'releases': ('release/releases', {'$top': 20, '$expand': 'environments', 'queryOrder': 'descending'}, True),
         'environments': ('distributedtask/environments', {'$top': 30}, False),
+        'pull_requests': ('git/pullrequests', {'searchCriteria.status': 'all', '$top': 50}, False),
     }
     def read(kind):
         path, params, release = requests_by_kind[kind]
@@ -112,7 +113,15 @@ def _snapshot(config, headers):
         'number': row.get('buildNumber'), 'branch': row.get('sourceBranch'),
         'status': row.get('status'), 'result': row.get('result'),
         'at': row.get('finishTime') or row.get('startTime') or row.get('queueTime'),
+        'by': (row.get('requestedFor') or {}).get('displayName'),
+        'message': ((row.get('triggerInfo') or {}).get('ci.message') or '')[:200],
     } for row in collections['builds']]
+    pull_requests = [{
+        'repo': (row.get('repository') or {}).get('name'), 'title': row.get('title'),
+        'description': (row.get('description') or '')[:300], 'status': row.get('status'),
+        'target': row.get('targetRefName'), 'by': (row.get('createdBy') or {}).get('displayName'),
+        'at': row.get('closedDate') or row.get('creationDate'),
+    } for row in collections['pull_requests']]
     stages, job_attention = [], []
     def timeline(build):
         try:
@@ -131,7 +140,7 @@ def _snapshot(config, headers):
                 if not is_stage and not (row.get('type') == 'Job' and (row.get('errorCount') or row.get('warningCount'))):
                     continue
                 item = {'build_id': build['id'], 'build_number': build['number'], 'pipeline': build['name'],
-                        'name': row.get('name'), 'status': row.get('result') or row.get('state', 'unknown'),
+                        'by': build['by'], 'name': row.get('name'), 'status': row.get('result') or row.get('state', 'unknown'),
                         'at': row.get('finishTime') or row.get('startTime'),
                         'errors': row.get('errorCount', 0), 'warnings': row.get('warningCount', 0)}
                 (stages if is_stage else job_attention).append(item)
@@ -145,6 +154,7 @@ def _snapshot(config, headers):
                 'environment': environment.get('name'), 'status': environment.get('status', 'unknown'),
                 'at': attempt.get('lastModifiedOn') or attempt.get('queuedOn'),
                 'release_created_at': release.get('createdOn'), 'id': release.get('id'),
+                'by': (attempt.get('requestedFor') or release.get('createdBy') or {}).get('displayName'),
                 'pending_approvals': sum(a.get('status') == 'pending' for a in
                                          (environment.get('preDeployApprovals') or []) + (environment.get('postDeployApprovals') or [])),
             })
@@ -166,13 +176,26 @@ def _snapshot(config, headers):
                 deployments.append({'kind': 'yaml_environment', 'name': (row.get('definition') or {}).get('name') or row.get('jobName'),
                                     'environment': label, 'status': row.get('result') or ('inProgress' if row.get('startTime') else 'queued'),
                                     'at': row.get('finishTime') or row.get('startTime') or row.get('queueTime'),
-                                    'id': row.get('id')})
+                                    'id': row.get('id'), 'build_id': (row.get('owner') or {}).get('id')})
+    # I record degli ambienti YAML non hanno una persona: chi ha lanciato la run che li ha prodotti.
+    authors = {build['id']: build['by'] for build in builds}
+    missing = sorted({d['build_id'] for d in deployments if d.get('build_id') and d['build_id'] not in authors})
+    if missing:
+        try:
+            rows, _ = _read(config, headers, 'build/builds', {'buildIds': ','.join(map(str, missing[:100]))})
+            authors.update({row.get('id'): (row.get('requestedFor') or {}).get('displayName') for row in rows})
+        except (requests.RequestException, ValueError):
+            errors['authors'] = 'Autori dei deploy non disponibili'
+    for deployment in deployments:
+        if deployment['kind'] == 'yaml_environment':
+            deployment['by'] = authors.get(deployment['build_id'])
     deployments.sort(key=lambda row: row.get('at') or row.get('release_created_at') or '', reverse=True)
     return {'connected': any(kind not in errors for kind in requests_by_kind), 'source': config['project_url'],
             'observed_at': datetime.now(timezone.utc).isoformat(), 'builds': builds, 'deployments': deployments,
-            'stages': stages, 'job_attention': job_attention,
+            'stages': stages, 'job_attention': job_attention, 'pull_requests': pull_requests,
             'errors': errors, 'partial': bool(partial or errors), 'more_available': partial,
-            'notice': 'Ultima build per pipeline (massimo 30), ultime 20 release e 5 deploy per ambiente (massimo 30 ambienti). '
+            'notice': 'Ultima build per pipeline (massimo 30), ultime 20 release, 5 deploy per ambiente (massimo 30 ambienti) '
+                      'e ultime 50 pull request del progetto. '
                       'Fasi delle prime 10 build dalla timeline, anche senza Azure Environments. '
                       'Una build riuscita non prova il rilascio in produzione; fa fede lo stato della fase di deploy. '
                       'Skipped significa fase non eseguita, non errore. N/A indica dato non disponibile.'}
