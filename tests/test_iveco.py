@@ -85,3 +85,26 @@ def test_teams_reads_chat_list_on_browser_loop(monkeypatch):
     assert [row["chat"] for row in rows] == ["ROSSI Mario"]
     assert rows[0]["type"] == "1:1" and rows[0]["unread"]
     assert rows[0]["last_message"] == "puoi guardare il job?"
+
+
+def test_recap_loop_sends_due_recap_with_browser_loop(monkeypatch):
+    clock = iter([datetime(2026, 10, 16, 9, 0), datetime(2026, 10, 16, 9, 31)])
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return next(clock)
+    sent, loops = [], []
+    def build(now=None, loop=None):
+        loops.append(loop)
+        return {"text": "Fatto: deploy"}
+    async def no_wait(seconds):
+        if len(sent):
+            raise asyncio.CancelledError
+    monkeypatch.setattr(iveco, "datetime", Clock)
+    monkeypatch.setattr(iveco, "RECAP_TIME", "09:30")
+    monkeypatch.setattr(iveco, "build_recap", build)
+    monkeypatch.setattr(iveco.asyncio, "sleep", no_wait)
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(iveco.recap_loop(sent.append))
+    assert sent == ["Recap per il daily delle 10:00\n\nFatto: deploy"]
+    assert loops[0] is not None  # Teams si legge sul loop di LiveBridge

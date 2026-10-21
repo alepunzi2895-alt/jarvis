@@ -68,11 +68,21 @@ _INPUT_SELECTOR = "textarea, input[type='text'], input:not([type]), [contentedit
 # principio gia' in uso per `git push` in core/claude_bridge.py: anche se
 # Claude (o un bug nel prompt) chiedesse submit=true su questi domini,
 # type_text() lo ignora e lascia il testo scritto ma non inviato.
-_DRAFT_ONLY_HOSTS = ("teams.microsoft.com", "outlook.office.com", "outlook.office365.com", "outlook.live.com")
+_DRAFT_ONLY_HOSTS = ("teams.microsoft.com", "teams.cloud.microsoft", "outlook.office.com",
+                     "outlook.office365.com", "outlook.live.com", "outlook.cloud.microsoft")
+
+# Sul PC aziendale Teams e Outlook passano dal proxy Defender for Cloud Apps,
+# che aggiunge ".mcas.ms" all'host (teams.cloud.microsoft.mcas.ms): senza
+# toglierlo il blocco draft-only sopra non scattava sull'URL reale (2026-10-21).
+_MCAS_SUFFIX = ".mcas.ms"
+
+
+def _host(url: str) -> str:
+    return (urlparse(url).hostname or "").lower().removesuffix(_MCAS_SUFFIX)
 
 
 def _is_draft_only_host(url: str) -> bool:
-    host = (urlparse(url).hostname or "").lower()
+    host = _host(url)
     return any(host == h or host.endswith(f".{h}") for h in _DRAFT_ONLY_HOSTS)
 
 
@@ -90,12 +100,12 @@ def _is_draft_only_host(url: str) -> bool:
 # albero cartelle sono sempre role="button"/"treeitem", mai inclusi in
 # nessuno dei due, quindi il filtro e' strutturale, non un elenco di parole
 # da escludere.
-_OWA_HOSTS = ("outlook.office.com", "outlook.office365.com", "outlook.live.com")
+_OWA_HOSTS = ("outlook.office.com", "outlook.office365.com", "outlook.live.com", "outlook.cloud.microsoft")
 _MAX_MAIL_ITEMS = 5
 
 
 def _is_owa_host(url: str) -> bool:
-    host = (urlparse(url).hostname or "").lower()
+    host = _host(url)
     return any(host == h or host.endswith(f".{h}") for h in _OWA_HOSTS)
 
 

@@ -642,8 +642,10 @@ def create_app(password, origins, engine=None, warm=True, watch_token=None):
                 console_presence.write(len(server.consoles), len(server.mic_clients))
                 await asyncio.sleep(console_presence.HEARTBEAT_SEC)
         if warm:
+            from core import iveco, telegram
             tasks.append(asyncio.create_task(collect_equity()))
             tasks.append(asyncio.create_task(console_heartbeat()))
+            tasks.append(asyncio.create_task(iveco.recap_loop(telegram.send_to_owner)))
         yield
         await asyncio.gather(*(s.close(code=1001) for s, _ in list(server.sockets)))
         for task in tasks:

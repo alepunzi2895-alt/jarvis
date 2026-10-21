@@ -8,6 +8,7 @@ date non sono affidati al modello.
 import asyncio
 from datetime import date, datetime, timedelta, timezone
 import json
+import logging
 import math
 import os
 from pathlib import Path
@@ -21,6 +22,7 @@ TEAMS_URL = os.getenv("JARVIS_TEAMS_URL", "https://teams.microsoft.com/v2/")
 _MAX_DIRS = 60
 _TEAMS_KINDS = {"OneOnOne": "1:1", "Group": "gruppo", "Meeting": "riunione", "Bot": "bot"}
 _lock = threading.Lock()
+LOG = logging.getLogger(__name__)
 
 SUMMARY_PROMPT = (
     "Prepari i punti per il daily stand-up delle 10:00 di Alessandro (BI architect, team IVGCT "
@@ -256,6 +258,35 @@ def next_recap_at(now: datetime) -> datetime:
     while target <= now or not is_recap_day(target.date()):
         target = datetime.combine(target.date() + timedelta(days=1), target.time())
     return target
+
+
+async def recap_loop(send) -> None:
+    """Recap lun-ven alle RECAP_TIME (default 09:30) per il daily delle 10:00,
+    inviato con `send` (Telegram) e salvato per il pannello. "off" lo disattiva.
+    Gira in LiveBridge, il processo che tiene il browser JARVIS: da bot.py Teams
+    resterebbe fuori, perche' due processi non aprono lo stesso profilo.
+    Controllo ogni minuto sull'orologio reale: un unico sleep lungo slitterebbe
+    dopo uno standby del portatile."""
+    if RECAP_TIME.lower() in {"", "off"}:
+        return
+    due = next_recap_at(datetime.now())
+    LOG.info("Recap IVECO programmato per %s", due.strftime("%Y-%m-%d %H:%M"))
+    while True:
+        await asyncio.sleep(60)
+        now = datetime.now()
+        if now < due:
+            continue
+        late = now - due
+        due = next_recap_at(now)
+        if late > timedelta(hours=3):
+            continue  # PC acceso dopo il daily: il recap non serve piu'
+        try:
+            record = await asyncio.to_thread(build_recap, loop=asyncio.get_running_loop())
+            text = "Recap per il daily delle 10:00\n\n" + record["text"]
+        except Exception as error:  # noqa: BLE001 — una fonte o l'API giu' non ferma il loop
+            LOG.warning("Recap IVECO fallito: %s", type(error).__name__)
+            text = "Recap IVECO non generato. Riprova dal pannello IVECO della dashboard."
+        await asyncio.to_thread(send, text)
 
 
 def jobs_panel() -> dict:

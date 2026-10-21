@@ -1,6 +1,8 @@
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
 from core.browser import BrowserAgent, extract_and_execute
 
 
@@ -286,6 +288,33 @@ def test_type_text_forces_draft_on_outlook_web():
     asyncio.run(agent.type_text("ciao", submit=True))
 
     page.keyboard.press.assert_not_called()
+
+
+@pytest.mark.parametrize("url", [
+    "https://teams.cloud.microsoft.mcas.ms/",
+    "https://teams.microsoft.com.mcas.ms/v2/",
+    "https://teams.cloud.microsoft/",
+    "https://outlook.office.com.mcas.ms/mail/",
+])
+def test_type_text_forces_draft_behind_mcas_proxy(url):
+    page = MagicMock()
+    page.url = url
+    page.evaluate = AsyncMock(return_value="TEXTAREA:")
+    page.keyboard = MagicMock()
+    page.keyboard.type = AsyncMock()
+    page.keyboard.press = AsyncMock()
+    agent, _ = _agent_with_fake_pages([page])
+
+    result = asyncio.run(agent.type_text("ciao", submit=True))
+
+    page.keyboard.press.assert_not_called()
+    assert "bozza" in result.lower()
+
+
+def test_mcas_suffix_does_not_whitelist_other_sites():
+    from core.browser import _is_draft_only_host, _is_owa_host
+    assert not _is_draft_only_host("https://www.google.com.mcas.ms/")
+    assert _is_owa_host("https://outlook.office.com.mcas.ms/mail/")
 
 
 def test_type_text_does_not_force_draft_on_other_sites():
