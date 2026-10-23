@@ -1136,3 +1136,6 @@ browser con Teams. Verifica: log `Recap IVECO programmato per ...` in `logs/live
 
 ## Recap daily con IVGAgent, pulsante DevOps (2026-10-23, 1636f92)
 Il recap IVECO legge anche `Downloads/IVGAgent`: commit di ogni repo in `repo/` (tutti i branch, `--no-merges`, branch che contengono il commit), file non committati, file cambiati in `tools/knowledge/sql`. Esce come sezione "Sviluppi IVGAgent". Il pulsante Collegamenti DevOps apre `project_url` nel browser JARVIS; `azure_devops.connect()` avvia il login solo se serve.
+
+## Chat condivisa Telegram ↔ dashboard (2026-10-23, 3e20d86)
+`core/feed.py` scrive in `.jarvis-feed.jsonl` (ultime 300 righe, non versionato): `send_to_owner` (feed=True di default), messaggi in arrivo da Telegram, voce del daemon. Il LiveBridge (`broadcast_feed` in lifecycle) lo segue ogni 2 s e lo invia via websocket a tutte le console; `tasks_recent` lo unisce alla chat della sessione. Le risposte della chat dashboard vanno su Telegram con il prefisso 💻 e feed=False. Il mirror della dashboard Vercel (web_bridge) resta solo su Telegram.
