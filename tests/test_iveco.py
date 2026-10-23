@@ -156,4 +156,31 @@ def test_ivgagent_reads_commits_pending_files_and_tools(monkeypatch, tmp_path):
     assert data["tools_changed"] == ["tools/lvdash.py"]
     assert iveco._ivgagent(datetime.now() + timedelta(days=1)) == {"repos": [{"repo": "data-room", "branch": "dev_ale",
                                                              "commits": [], "uncommitted": ["draft.sql"]}],
-                                                  "tools_changed": []}
+                                                  "tools_changed": [], "sessions": []}
+
+
+def test_ivg_sessions_read_prompts_edits_and_state(tmp_path):
+    from core import agent_sessions
+    root = tmp_path / "IVGAgent"
+    folder = agent_sessions.CLAUDE_DIR / iveco.re.sub(r"[:\\/]", "-", str(root))
+    folder.mkdir(parents=True)
+    rows = [
+        {"type": "ai-title", "aiTitle": "App Qlik su Databricks QAS"},
+        {"type": "user", "timestamp": "2026-10-21T09:00:00Z", "message": {"content": "vecchia richiesta"}},
+        {"type": "user", "timestamp": "2026-10-22T09:05:00Z",
+         "message": {"content": "ricrea la app Qlik, token " + "a" * 40}},
+        {"type": "user", "timestamp": "2026-10-22T09:06:00Z", "message": {"content": "<task-notification>x"}},
+        {"type": "user", "timestamp": "2026-10-22T09:07:00Z", "isMeta": True, "message": {"content": "meta"}},
+        {"type": "assistant", "timestamp": "2026-10-22T10:00:00Z", "message": {"content": [
+            {"type": "tool_use", "name": "Edit", "input": {"file_path": "C:/IVGAgent/tools/lvdash.py"}},
+            {"type": "text", "text": "Dashboard pubblicata in QAS."}], "stop_reason": "end_turn"}},
+        {"type": "assistant", "timestamp": "2026-10-22T11:00:00Z", "isApiErrorMessage": True,
+         "message": {"content": [{"type": "text", "text": "You've hit your session limit"}], "stop_reason": "stop_sequence"}},
+    ]
+    (folder / "s1.jsonl").write_text("\n".join(json.dumps(row) for row in rows) + "\nnot json\n", encoding="utf-8")
+    [session] = iveco._ivg_sessions(root, datetime(2026, 10, 22))
+    assert session["title"] == "App Qlik su Databricks QAS"
+    assert [p["text"] for p in session["prompts"]] == ["ricrea la app Qlik, token [oscurato]"]
+    assert session["files_edited"] == ["lvdash.py"]
+    assert session["last_answer"] == "Dashboard pubblicata in QAS."
+    assert session["state"] == "in attesa di Alessandro"
