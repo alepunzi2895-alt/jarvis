@@ -296,15 +296,20 @@ class LiveServer:
             from core.browser import get_agent
             results = []
             if "devops" in apps:
-                # Azure DevOps passa da Azure CLI, non dal browser JARVIS: token per le API dei deploy.
+                # Token per le API dei deploy via Azure CLI (login solo se scaduto), poi la
+                # pagina del progetto nel browser JARVIS come gli altri servizi.
                 try:
-                    results.append({"app": "devops", "ok": True, "message": await asyncio.to_thread(azure_devops.connect)})
+                    login = await asyncio.to_thread(azure_devops.connect)
+                    urls["devops"] = azure_devops.settings()["project_url"]
                 except Exception:
                     LOG.exception("Collegamento Azure DevOps fallito")
                     results.append({"app": "devops", "ok": False, "message": "Non riesco ad avviare l'accesso Azure DevOps."})
-            for app in (app for app in apps if app != "devops"):
+            for app in (app for app in apps if app in urls):
                 try:
-                    results.append({"app": app, "ok": True, "message": await get_agent().open(urls[app])})
+                    message = await get_agent().open(urls[app])
+                    if app == "devops":
+                        message = f"{login} {message}"
+                    results.append({"app": app, "ok": True, "message": message})
                 except Exception:
                     LOG.exception("Apertura servizio fallita: %s", app)
                     results.append({"app": app, "ok": False, "message": f"Non riesco ad aprire {app}."})

@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
 import json
 import threading
 
@@ -27,7 +27,7 @@ def test_next_recap_skips_weekend_and_past_times(monkeypatch):
 def test_gather_survives_every_source_failing(monkeypatch):
     def broken(*args):
         raise RuntimeError("giu'")
-    for name in ("_job_runs", "_workspace_changes", "_dashboard_changes", "_apps", "_deploys", "_mail", "_meetings"):
+    for name in ("_job_runs", "_workspace_changes", "_dashboard_changes", "_apps", "_deploys", "_ivgagent", "_mail", "_meetings"):
         monkeypatch.setattr(iveco, name, broken)
     data = iveco.gather(datetime(2026, 10, 16, 9, 30))
     assert data["since"] == "2026-10-15 00:00"
@@ -125,3 +125,35 @@ def test_recap_loop_sends_due_recap_with_browser_loop(monkeypatch):
         asyncio.run(iveco.recap_loop(sent.append))
     assert sent == ["Recap per il daily delle 10:00\n\nFatto: deploy"]
     assert loops[0] is not None  # Teams si legge sul loop di LiveBridge
+
+
+def test_ivgagent_reads_commits_pending_files_and_tools(monkeypatch, tmp_path):
+    import subprocess
+    from core import ivg_dbx
+    repo = tmp_path / "repo" / "data-room"
+    repo.mkdir(parents=True)
+    run = lambda *args: subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True)
+    run("init", "-q", "-b", "dev_ale")
+    run("config", "user.name", "alepunzi2895-alt")
+    run("config", "user.email", "a@example.com")
+    (repo / "Asset.ipynb").write_text("{}")
+    run("add", ".")
+    run("commit", "-qm", "fix(silver): IVGct parity fields\n\nWhy it matters.\n\nCo-Authored-By: Claude <x@y>")
+    (repo / "draft.sql").write_text("select 1")
+    (tmp_path / "tools").mkdir()
+    (tmp_path / "tools" / "lvdash.py").write_text("")
+    (tmp_path / "work").mkdir()
+    (tmp_path / "work" / "profile.bin").write_text("")
+    monkeypatch.setattr(ivg_dbx, "IVG_ROOT", tmp_path)
+    data = iveco._ivgagent(datetime(2000, 1, 1))
+    [entry] = data["repos"]
+    assert entry["repo"] == "data-room" and entry["branch"] == "dev_ale"
+    [commit] = entry["commits"]
+    assert commit["by"] == "Alessandro" and commit["branches"] == ["dev_ale"]
+    assert commit["message"] == "fix(silver): IVGct parity fields\n\nWhy it matters."
+    assert commit["files"] == ["Asset.ipynb"]
+    assert entry["uncommitted"] == ["draft.sql"]
+    assert data["tools_changed"] == ["tools/lvdash.py"]
+    assert iveco._ivgagent(datetime.now() + timedelta(days=1)) == {"repos": [{"repo": "data-room", "branch": "dev_ale",
+                                                             "commits": [], "uncommitted": ["draft.sql"]}],
+                                                  "tools_changed": []}
