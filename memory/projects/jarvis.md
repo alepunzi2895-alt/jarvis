@@ -1133,3 +1133,6 @@ host passano dal proxy Defender for Cloud Apps (`*.mcas.ms`). Ora il suffisso
 viene tolto prima del confronto. Il recap delle 09:30 gira in LiveBridge
 (`iveco.recap_loop`), non piu' in bot.py, perche' solo LiveBridge tiene il
 browser con Teams. Verifica: log `Recap IVECO programmato per ...` in `logs/live.log`.
+
+## Recap daily con IVGAgent, pulsante DevOps (2026-10-23, 1636f92)
+Il recap IVECO legge anche `Downloads/IVGAgent`: commit di ogni repo in `repo/` (tutti i branch, `--no-merges`, branch che contengono il commit), file non committati, file cambiati in `tools/knowledge/sql`. Esce come sezione "Sviluppi IVGAgent". Il pulsante Collegamenti DevOps apre `project_url` nel browser JARVIS; `azure_devops.connect()` avvia il login solo se serve.
