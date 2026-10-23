@@ -16,6 +16,7 @@ def _isolate_personal_memory_and_tradepilot(monkeypatch, tmp_path):
     monkeypatch.setattr('core.voice.tts._override', {'mtime': None, 'data': {}})
     monkeypatch.setattr('core.console_presence.PATH', tmp_path / 'console-presence.json')
     monkeypatch.setattr('core.console_presence._cache', {'at': 0.0, 'value': False})
+    monkeypatch.setattr('core.feed.FEED', tmp_path / 'feed.jsonl')
 
 
 @pytest.fixture(autouse=True)
@@ -54,3 +55,11 @@ def _reset_weather_cache(monkeypatch):
 @pytest.fixture(autouse=True)
 def _reset_project_snapshot(monkeypatch):
     monkeypatch.setattr("core.project_status._snapshot_cache", {"key": None, "ts": 0.0, "values": []})
+
+
+@pytest.fixture(autouse=True)
+def _no_real_telegram(monkeypatch):
+    """.env ha il token vero: senza questo i test della chat (che ora
+    rispecchia le risposte su Telegram) manderebbero messaggi reali."""
+    monkeypatch.setattr("core.telegram.TOKEN", "")
+    monkeypatch.setattr("core.telegram.OWNER_ID", "")

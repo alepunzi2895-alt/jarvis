@@ -330,7 +330,7 @@ def _notify_telegram(prompt: str, response: str) -> None:
 
     def work() -> None:
         text = f'\U0001F4BB "{prompt}"\n\n{response}'
-        telegram.send_to_owner(text)
+        telegram.send_to_owner(text, feed=False)  # gia' nella chat della dashboard
 
     asyncio.get_running_loop().run_in_executor(None, work)
 

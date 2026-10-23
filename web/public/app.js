@@ -576,11 +576,31 @@ $("#console-form").addEventListener("submit", (e) => {
   submitTask($("#console-text").value);
 });
 
+// Messaggi scambiati fuori da questa chat (Telegram, voce sul PC, avvisi):
+// stessa console, con l'origine nella riga meta.
+const FEED_SOURCES = { telegram: "Telegram", telegram_in: "da Telegram", voce: "voce PC" };
+
+function appendFeed(item) {
+  const el = appendEntry(item.prompt || "");
+  el.classList.remove("pending");
+  el.classList.add("feed");
+  if (!item.prompt) el.querySelector(".prompt").remove();
+  if (item.text) el.querySelector(".result").textContent = item.text;
+  else el.querySelector(".result").remove();
+  el.querySelector(".meta").textContent = `${FEED_SOURCES[item.source] || item.source} · ${(item.at || "").slice(11, 16)}`;
+  $("#console-log").scrollTop = $("#console-log").scrollHeight;
+}
+window.appendFeed = appendFeed;
+
 async function loadHistory() {
   try {
     const { tasks } = await api("tasks_recent", { limit: 20 });
     $("#hud-taskcount").textContent = tasks.length;
     for (const t of tasks.reverse()) {
+      if (t.kind === "feed") {
+        appendFeed({ ...t, text: t.result });
+        continue;
+      }
       if (t.status === "ignored" || t.status === "superseded") continue; // rumore/superate: non sono storia
       const el = appendEntry(t.prompt);
       if (t.status === "done" || t.status === "error") fillEntry(el, t);

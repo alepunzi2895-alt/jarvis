@@ -580,6 +580,8 @@ header::after {
 .entry.pending .result { color: var(--text-muted); }
 .entry.pending .result::after { content: "▍"; animation: blink 1s step-start infinite; }
 .entry.error .result { color: var(--critical); }
+.entry.feed .prompt::before { content: "✉ "; }
+.entry.feed .result { color: var(--text-primary); }
 
 @keyframes blink { 50% { opacity: 0; } }
 

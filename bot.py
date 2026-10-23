@@ -48,6 +48,7 @@ from core import (
     remote_status,
     screen_context,
     databricks,
+    feed,
     telegram,
     weather,
     turso,
@@ -429,6 +430,7 @@ async def handle_telegram_message(msg):
             send('Non ho capito la nota vocale. Riprova.')
             return
     if text:
+        feed.add("telegram_in", prompt=text)
         await handle(text)
 
 

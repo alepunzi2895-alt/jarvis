@@ -76,6 +76,10 @@
       sttReady = data.stt_ready;
       return;
     }
+    if (data.type === "feed") {
+      window.appendFeed?.(data.item);
+      return;
+    }
     const entry = entries.get(data.id);
     if (!entry) return;
     switch (data.type) {

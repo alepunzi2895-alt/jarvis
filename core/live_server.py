@@ -25,7 +25,7 @@ from aiohttp import web, WSMsgType, ClientSession, ClientTimeout
 ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(ROOT / ".env")
 from core.voice.streaming import finish_thread
-from core import conversation_memory as memory, tradepilot, azure_devops, console_presence
+from core import conversation_memory as memory, tradepilot, azure_devops, console_presence, feed, telegram
 
 LOG = logging.getLogger(__name__)
 COOKIE = "jarvis_live"
@@ -274,7 +274,11 @@ class LiveServer:
             response.del_cookie(COOKIE)
             return response
         if action == "tasks_recent":
-            return web.json_response({"tasks": list(reversed(session["history"]))})
+            # Chat della sessione + messaggi Telegram/voce/avvisi, in ordine di tempo (dal piu' recente).
+            shared = [dict(id="feed-" + item["id"], kind="feed", status="done", **{k: item[k] for k in ("at", "source", "prompt")},
+                           result=item["text"]) for item in await asyncio.to_thread(feed.recent, "", 30)]
+            rows = sorted([*session["history"], *shared], key=lambda row: row.get("at", ""))
+            return web.json_response({"tasks": rows[::-1][:40]})
         if action == "runtime_status":
             return web.json_response({"speaking": False})
         if action == "connect_apps":
@@ -505,9 +509,12 @@ class LiveServer:
                 try:
                     async with asyncio.timeout(180):
                         result = await self.engine.respond(prompt, image, session["conversations"], sentence)
-                        row = dict(id=rid, prompt=prompt, status="done", **result)
+                        row = dict(id=rid, prompt=prompt, status="done", at=time.strftime("%Y-%m-%d %H:%M:%S"), **result)
                         session["history"].append(row)
                         await send("result", rid, **result)
+                        # Anche su Telegram; feed=False: in questa chat c'e' gia'.
+                        asyncio.get_running_loop().run_in_executor(
+                            None, telegram.send_to_owner, f'\U0001F4BB "{prompt}"\n\n{result["result"]}', None, False)
                         await queue.put(None)
                         await speaker
                         await send("done", rid, timings=timings)
@@ -646,9 +653,25 @@ def create_app(password, origins, engine=None, warm=True, watch_token=None):
             while True:
                 try:
                     await asyncio.to_thread(tradepilot.sample_account)
-                except Exception:
-                    LOG.warning('Campione TradePilot non disponibile')
+                except Exception as error:
+                    LOG.warning('Campione TradePilot non disponibile: %s', type(error).__name__)
                 await asyncio.sleep(60)
+        async def broadcast_feed():
+            # Altri processi (bot.py, daemon vocale, lavori Claude Code) scrivono il file: qui lo si segue.
+            last = (await asyncio.to_thread(feed.recent, "", 1) or [{"id": ""}])[-1]["id"]
+            while True:
+                await asyncio.sleep(2)
+                try:
+                    items = await asyncio.to_thread(feed.recent, last)
+                except Exception:
+                    LOG.warning("Feed messaggi non leggibile", exc_info=True)
+                    continue
+                for item in items:
+                    last = item["id"]
+                    for socket, _ in list(server.sockets):
+                        if not socket.closed:
+                            with suppress(Exception):
+                                await socket.send_json(dict(type="feed", item=item))
         async def console_heartbeat():
             while True:
                 console_presence.write(len(server.consoles), len(server.mic_clients))
@@ -657,6 +680,7 @@ def create_app(password, origins, engine=None, warm=True, watch_token=None):
             from core import iveco, telegram
             tasks.append(asyncio.create_task(collect_equity()))
             tasks.append(asyncio.create_task(console_heartbeat()))
+            tasks.append(asyncio.create_task(broadcast_feed()))
             tasks.append(asyncio.create_task(iveco.recap_loop(telegram.send_to_owner)))
         yield
         await asyncio.gather(*(s.close(code=1001) for s, _ in list(server.sockets)))

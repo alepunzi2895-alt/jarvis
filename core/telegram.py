@@ -32,7 +32,12 @@ def safe_error(error):
     return re.sub(r'bot\d+:[A-Za-z0-9_-]+', 'bot[token riservato]', text)
 
 
-def send_to_owner(text: str, parse: str | None = None) -> None:
+def send_to_owner(text: str, parse: str | None = None, feed: bool = True) -> None:
+    """`feed=False` solo per cio' che la chat della piattaforma mostra gia'
+    (risposte della dashboard stessa): tutto il resto compare anche li'."""
+    if feed:
+        from core import feed as shared
+        shared.add("telegram", text, parse=parse)
     if not TOKEN or not OWNER_ID:
         return
     for chunk in [text[i : i + _CHUNK_CHARS] for i in range(0, len(text), _CHUNK_CHARS)] or ["(vuoto)"]:

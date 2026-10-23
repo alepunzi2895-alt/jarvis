@@ -19,7 +19,7 @@ import uuid
 import anthropic
 import keyboard
 
-from core import turso, intents, screen_context, telegram, conversation_memory, console_presence
+from core import turso, intents, screen_context, telegram, conversation_memory, console_presence, feed
 from core.claude_bridge import load_state
 from core.executor_singleton import executor
 from core.voice import camera, stt, tts, agent
@@ -87,7 +87,8 @@ def _notify_telegram(prompt: str, response: str) -> None:
     un event loop) — core/telegram.py e' condiviso con bot.py apposta,
     invece di duplicare la logica di invio in un secondo processo."""
     text = f'\U0001F3A4 "{prompt}"\n\n{response}'
-    threading.Thread(target=telegram.send_to_owner, args=(text,), daemon=True).start()
+    feed.add("voce", response, prompt=prompt)  # anche nella chat della piattaforma, come domanda e risposta
+    threading.Thread(target=telegram.send_to_owner, args=(text, None, False), daemon=True).start()
 
 
 def _log_task(prompt: str, workspace: str, image_b64: str | None, result: str, cost: float, status: str) -> None:

@@ -52,3 +52,7 @@ node_modules/
 
 # Ultima posizione PC/Watch del ponte VPS
 .relay-location.json
+
+# Messaggi comuni Telegram/dashboard (core/feed.py): conversazioni, non codice
+/.jarvis-feed.jsonl
+/.jarvis-feed.tmp
