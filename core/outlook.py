@@ -141,6 +141,7 @@ class CalendarEvent:
 _COM_LOCK = threading.Lock()
 _MAX_ATTEMPTS = 3
 _RETRY_DELAY_SEC = 1.5
+_CALL_TIMEOUT_SEC = 45  # tetto per una chiamata COM: oltre, Outlook va considerato bloccato
 
 
 def _run_in_fresh_thread(fn, *args):
@@ -155,22 +156,32 @@ def _run_in_fresh_thread(fn, *args):
     chiamata in un processo/thread tutto suo. Un thread dedicato per ogni
     chiamata elimina il sospetto alla radice, a costo trascurabile.
 
-    _COM_LOCK serializza il lavoro vero e proprio (dentro _target, non
-    l'avvio del thread) — se due chiamate arrivano insieme, la seconda
-    aspetta che la prima finisca invece di scontrarsi con lei dentro
-    Outlook.exe."""
+    _COM_LOCK serializza il lavoro vero e proprio — se due chiamate arrivano
+    insieme, la seconda aspetta che la prima finisca invece di scontrarsi con
+    lei dentro Outlook.exe.
+
+    2026-10-26: Outlook appeso (dialog nascosto o avvio bloccato) lasciava
+    join() e il lock per sempre: il recap IVECO e il promemoria calendario
+    restavano fermi. Ora ogni attesa ha un tetto (_CALL_TIMEOUT_SEC). Un
+    thread bloccato tiene il lock finche' non finisce, quindi le chiamate
+    successive falliscono subito con OutlookError invece di appendersi."""
+    if not _COM_LOCK.acquire(timeout=_CALL_TIMEOUT_SEC):
+        raise OutlookError("Outlook occupato: una chiamata precedente non e' ancora finita")
     result: dict = {}
 
     def _target():
         try:
-            with _COM_LOCK:
-                result["value"] = fn(*args)
+            result["value"] = fn(*args)
         except Exception as e:  # noqa: BLE001 — ripropagato tale e quale al chiamante
             result["error"] = e
+        finally:
+            _COM_LOCK.release()
 
-    t = threading.Thread(target=_target)
+    t = threading.Thread(target=_target, daemon=True)
     t.start()
-    t.join()
+    t.join(_CALL_TIMEOUT_SEC)
+    if t.is_alive():
+        raise OutlookError("Outlook non risponde (timeout): riavvia Outlook")
     if "error" in result:
         raise result["error"]
     return result["value"]

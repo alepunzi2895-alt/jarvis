@@ -238,3 +238,35 @@ def test_com_time_to_datetime_strips_com_type():
 
     result = outlook._com_time_to_datetime(_FakeComTime())
     assert result == dt.datetime(2026, 9, 16, 14, 30, 0)
+
+
+def test_run_in_fresh_thread_times_out_on_hung_call(monkeypatch):
+    """Outlook appeso non deve bloccare il chiamante per sempre (recap 2026-10-26)."""
+    monkeypatch.setattr(outlook, "_CALL_TIMEOUT_SEC", 0.2)
+    release = threading.Event()
+    try:
+        outlook._run_in_fresh_thread(release.wait)
+        assert False, "doveva andare in timeout"
+    except outlook.OutlookError as e:
+        assert "timeout" in str(e)
+    finally:
+        release.set()
+
+
+def test_run_in_fresh_thread_fails_fast_while_hung_call_holds_lock(monkeypatch):
+    monkeypatch.setattr(outlook, "_CALL_TIMEOUT_SEC", 0.2)
+    release = threading.Event()
+    try:
+        try:
+            outlook._run_in_fresh_thread(release.wait)
+        except outlook.OutlookError:
+            pass
+        try:
+            outlook._run_in_fresh_thread(lambda: 1)
+            assert False, "doveva rifiutare: lock ancora tenuto"
+        except outlook.OutlookError as e:
+            assert "occupato" in str(e)
+    finally:
+        release.set()
+    # Lock rilasciato dal thread appeso quando finisce: le chiamate tornano a funzionare.
+    assert outlook._run_in_fresh_thread(lambda: 2) == 2
