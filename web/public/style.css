@@ -507,6 +507,37 @@ header::after {
   .floating-window { width: 92vw; }
 }
 
+/* ── Ologramma accanto alla console (desktop) ─────────────────────────── */
+
+.hologram {
+  position: absolute;
+  top: 50%;
+  left: 24px;
+  width: min(280px, 26vw);
+  margin: 0;
+  transform: translateY(-50%) scale(0.96);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.4s ease, transform 0.4s ease;
+}
+
+.hologram.open {
+  opacity: 0.9;
+  transform: translateY(-50%) scale(1);
+}
+
+.hologram video {
+  display: block;
+  width: 100%;
+  height: auto;
+  mix-blend-mode: screen;
+  filter: drop-shadow(0 0 14px rgba(57, 135, 229, 0.45));
+}
+
+@media (max-width: 760px), (prefers-reduced-motion: reduce) {
+  .hologram { display: none; }
+}
+
 /* ── Dock ─────────────────────────────────────────────────────────────── */
 
 .dock {
