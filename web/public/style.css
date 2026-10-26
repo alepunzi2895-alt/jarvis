@@ -507,12 +507,18 @@ header::after {
   .floating-window { width: 92vw; }
 }
 
+/* Console a sinistra (desktop); l'ologramma sta a destra. */
+#win-chat, #win-chat.open {
+  left: 24px;
+  transform: translate(0, -50%) translate(var(--x, 0px), var(--y, 0px)) scale(1);
+}
+
 /* ── Ologramma accanto alla console (desktop) ─────────────────────────── */
 
 .hologram {
   position: absolute;
   top: 50%;
-  left: 24px;
+  right: 24px;
   width: min(280px, 26vw);
   margin: 0;
   transform: translateY(-50%) scale(0.96);
@@ -962,6 +968,7 @@ header::after {
     box-shadow: none;
   }
   .floating-window.open { display: flex; }
+  #win-chat, #win-chat.open { left: 0; transform: none; }
   .fw-header { padding: 2px 8px 2px 16px; cursor: default; touch-action: auto; }
   .fw-header:active { cursor: default; }
   .fw-header::after, header::after { animation: none; }
