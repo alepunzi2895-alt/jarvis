@@ -324,6 +324,7 @@ function openWindow(id) {
   bringToFront(win);
   dockBtnFor(id)?.classList.add("open");
   dockBtnFor(id)?.setAttribute("aria-pressed", "true");
+  if (id === "win-chat") setHologram(true);
   if (id === "win-brain") { startBrainGraph(); refreshMemories(); }
   if (id === "win-projects") refreshConnectedData();
   if (id === "win-tradepilot") refreshTradePilot();
@@ -356,6 +357,22 @@ function closeWindow(id) {
   dockBtnFor(id)?.setAttribute("aria-pressed", "false");
   if (id === "win-brain") stopBrainGraph();
   if (id === "win-camera") stopCamera();
+  if (id === "win-chat") setHologram(false);
+}
+
+// Ologramma accanto alla console: visibile solo con la console aperta, pausa con
+// prefers-reduced-motion. Video locale /media/online.mp4 (senza audio).
+function setHologram(show) {
+  const holo = document.getElementById("hologram");
+  if (!holo) return;
+  holo.classList.toggle("open", show);
+  const video = holo.querySelector("video");
+  if (!video) return;
+  if (show && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    video.play().catch(() => {});
+  } else {
+    video.pause();
+  }
 }
 
 function toggleWindow(id) {

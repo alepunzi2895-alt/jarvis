@@ -647,6 +647,10 @@ def create_app(password, origins, engine=None, warm=True, watch_token=None):
             return web.FileResponse(ROOT / "web/public" / filename)
         app.router.add_get("/" + name, asset)
 
+    async def hologram(request):
+        return web.FileResponse(ROOT / "web/public/media/online.mp4", headers={"Content-Type": "video/mp4"})
+    app.router.add_get("/media/online.mp4", hologram)
+
     async def lifecycle(app):
         tasks = [asyncio.create_task(server.engine.warm()), asyncio.create_task(server.engine.refresh_context())] if warm else []
         async def collect_equity():
