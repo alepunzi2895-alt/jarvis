@@ -365,10 +365,16 @@ def gather(now: datetime | None = None, loop=None) -> dict:
 def summarize(data: dict) -> str:
     import anthropic
     from core.claude_bridge import API_MODEL
+    # 2026-10-26: 200 OK con testo vuoto salvato come recap vuoto. Causa non
+    # riprodotta con dati reali; ipotesi: budget di 4000 token consumato dal
+    # thinking. Budget piu' largo, e testo vuoto = errore esplicito.
     response = anthropic.Anthropic().messages.create(
-        model=API_MODEL, max_tokens=4000, system=SUMMARY_PROMPT,
+        model=API_MODEL, max_tokens=16000, system=SUMMARY_PROMPT,
         messages=[{"role": "user", "content": json.dumps(data, ensure_ascii=False, default=str)}])
-    return "".join(block.text for block in response.content if block.type == "text").strip()
+    text = "".join(block.text for block in response.content if block.type == "text").strip()
+    if not text:
+        raise RuntimeError(f"riepilogo vuoto (stop_reason={response.stop_reason})")
+    return text
 
 
 def build_recap(now: datetime | None = None, loop=None) -> dict:
