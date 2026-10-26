@@ -30,7 +30,7 @@ class FakeEngine:
     async def synthesize(self, text):
         return text.encode()
 
-    async def respond(self, prompt, image, history, sentence):
+    async def respond(self, prompt, image, history, sentence, **options):
         self.commands.append(prompt)
         await sentence("Prima frase.")
         if prompt == "attendi":
@@ -337,7 +337,7 @@ def test_stop_during_replacement_never_launches_waiting_command():
                 self.stop_requested = asyncio.Event()
                 self.finished = threading.Event()
                 self.release_thread = threading.Event()
-            async def respond(self, prompt, image, history, sentence):
+            async def respond(self, prompt, image, history, sentence, **options):
                 self.commands.append(prompt)
                 if prompt == "slow":
                     def work():
