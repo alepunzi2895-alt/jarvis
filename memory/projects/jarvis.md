@@ -1155,3 +1155,7 @@ Diagnosi della lentezza, misurata dal vivo: rete via hotspot iPhone (ping 278 ms
 - Dashboard desktop: le finestre si spostano o si stringono per non coprire la sfera; se non c'e' spazio la sfera passa davanti (`orb-front`). Mobile invariato.
 - Verifica dal vivo (2026-10-27 sera): piano B funzionante via LiveBridge. Base `https://outlook.cloud.microsoft.mcas.ms` (outlook.office.com va in ciclo di login nel Chromium JARVIS), scelta automatica dell'unico account gia' collegato (`core/browser.py::wait_ready`; la lettura chat Teams usa la stessa scelta account). Agenda solo per la settimana lavorativa corrente: OWA ignora la data nell'URL.
 Stato: verificato dal vivo, servizi riavviati, merge su main. Attivo dopo il riavvio di LiveBridge, Bot e VoiceDaemon (la dashboard statica si aggiorna gia' al ricaricamento).
+
+## Decisione dati sensibili (2026-10-27)
+Alessandro approva la proposta B: dati sensibili (finanza, emozioni, trading personale) e chiave di cifratura sulla VPS, letti dal PC Iveco via Tailscale solo quando servono. Backup notturno cifrato dalla VPS a Google Drive personale. Il PC Iveco non conserva dati sensibili in chiaro. Da fare prima: limitare l'RDP della VPS a Tailscale (oggi aperto sulla porta 8328, richiede conferma separata).
+(Recuperata dal branch `chore/merge-watch-timeout-2026-10-27`, mai arrivato su main.)
