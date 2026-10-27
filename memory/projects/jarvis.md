@@ -1139,3 +1139,6 @@ Il recap IVECO legge anche `Downloads/IVGAgent`: commit di ogni repo in `repo/` 
 
 ## Chat condivisa Telegram ↔ dashboard (2026-10-23, 3e20d86)
 `core/feed.py` scrive in `.jarvis-feed.jsonl` (ultime 300 righe, non versionato): `send_to_owner` (feed=True di default), messaggi in arrivo da Telegram, voce del daemon. Il LiveBridge (`broadcast_feed` in lifecycle) lo segue ogni 2 s e lo invia via websocket a tutte le console; `tasks_recent` lo unisce alla chat della sessione. Le risposte della chat dashboard vanno su Telegram con il prefisso 💻 e feed=False. Il mirror della dashboard Vercel (web_bridge) resta solo su Telegram.
+
+## Decisione dati sensibili (2026-10-27)
+Alessandro approva la proposta B: dati sensibili (finanza, emozioni, trading personale) e chiave di cifratura sulla VPS, letti dal PC Iveco via Tailscale solo quando servono. Backup notturno cifrato dalla VPS a Google Drive personale. Il PC Iveco non conserva dati sensibili in chiaro. Da fare prima: limitare l'RDP della VPS a Tailscale (oggi aperto sulla porta 8328, richiede conferma separata).
