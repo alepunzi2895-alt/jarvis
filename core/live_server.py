@@ -324,6 +324,9 @@ class LiveServer:
                     LOG.exception("Apertura servizio fallita: %s", app)
                     results.append({"app": app, "ok": False, "message": f"Non riesco ad aprire {app}."})
             return web.json_response({"results": results})
+        if action == "costs_summary":
+            from core import costs
+            return web.json_response(await asyncio.to_thread(costs.summary))
         if action == "memories_list":
             return web.json_response({"memories": await asyncio.to_thread(memory.entries)})
         if action == 'coding_tasks':

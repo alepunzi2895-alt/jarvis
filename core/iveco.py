@@ -364,13 +364,19 @@ def gather(now: datetime | None = None, loop=None) -> dict:
 
 def summarize(data: dict) -> str:
     import anthropic
+    from core import costs
     from core.claude_bridge import API_MODEL
+    blocked = costs.budget_block()
+    if blocked:
+        raise RuntimeError(blocked)
     # 2026-10-26: 200 OK con testo vuoto salvato come recap vuoto. Causa non
     # riprodotta con dati reali; ipotesi: budget di 4000 token consumato dal
     # thinking. Budget piu' largo, e testo vuoto = errore esplicito.
     response = anthropic.Anthropic().messages.create(
         model=API_MODEL, max_tokens=16000, system=SUMMARY_PROMPT,
-        messages=[{"role": "user", "content": json.dumps(data, ensure_ascii=False, default=str)}])
+        messages=[{"role": "user", "content": json.dumps(data, ensure_ascii=False, default=str)}],
+        **costs.request_options(API_MODEL))
+    costs.record("iveco", API_MODEL, response.usage)
     text = "".join(block.text for block in response.content if block.type == "text").strip()
     if not text:
         raise RuntimeError(f"riepilogo vuoto (stop_reason={response.stop_reason})")

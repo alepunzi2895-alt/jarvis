@@ -17,6 +17,7 @@ def _isolate_personal_memory_and_tradepilot(monkeypatch, tmp_path):
     monkeypatch.setattr('core.console_presence.PATH', tmp_path / 'console-presence.json')
     monkeypatch.setattr('core.console_presence._cache', {'at': 0.0, 'value': False})
     monkeypatch.setattr('core.feed.FEED', tmp_path / 'feed.jsonl')
+    monkeypatch.setattr('core.costs.DB', tmp_path / 'costs.sqlite3')
 
 
 @pytest.fixture(autouse=True)

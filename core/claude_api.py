@@ -53,20 +53,13 @@ from datetime import datetime
 import anthropic
 
 from core import browser, databricks, mail_actions, persona, system_actions, turso, vscode_actions, weather
-from core import conversation_memory as memory
+from core import conversation_memory as memory, costs
 from core.claude_bridge import SYSTEM, _detect_image_media_type
 from core.executor_singleton import executor as _system_executor
 from core.voice import face_id
 
-MODEL_ALIASES = {
-    "haiku": "claude-haiku-4-5",
-    "sonnet": "claude-sonnet-5",
-    "opus": "claude-opus-4-8",
-}
-
-
-def _resolve_model(name: str) -> str:
-    return MODEL_ALIASES.get(name, name)
+MODEL_ALIASES = costs.MODEL_ALIASES
+_resolve_model = costs.resolve
 
 
 # Stessa scelta gia' fatta e verificata per la voce via CLI: un modello
@@ -75,14 +68,6 @@ def _resolve_model(name: str) -> str:
 MODEL = _resolve_model(os.getenv("JARVIS_VOICE_MODEL", "haiku"))
 MAX_TOKENS = int(os.getenv("JARVIS_VOICE_MAX_TOKENS", "1024"))
 MAX_HISTORY_MESSAGES = 12  # 6 turni: contesto immediato senza far crescere il costo per sempre
-
-# Prezzi noti (USD per milione di token) - solo per stimare il costo nei log
-# allo stesso modo dei task testuali, non e' fatturazione reale.
-_PRICING = {
-    "claude-haiku-4-5": (1.00, 5.00),
-    "claude-sonnet-5": (3.00, 15.00),
-    "claude-opus-4-8": (5.00, 25.00),
-}
 
 _client: anthropic.AsyncAnthropic | None = None
 _history: dict[str, list[dict]] = {}
@@ -96,8 +81,7 @@ def _get_client() -> anthropic.AsyncAnthropic:
 
 
 def _estimate_cost(usage) -> float:
-    in_price, out_price = _PRICING.get(MODEL, (0.0, 0.0))
-    return (usage.input_tokens * in_price + usage.output_tokens * out_price) / 1_000_000
+    return costs.record("voice", MODEL, usage)
 
 
 def _decode_b64_image(image_b64: str) -> bytes:
@@ -233,6 +217,11 @@ async def run_voice_streaming(
         result.text, result.cost = immediate, 0
         yield immediate
         return
+    blocked = costs.budget_block()
+    if blocked:
+        result.text, result.cost = blocked, 0
+        yield blocked
+        return
     client = _get_client()
     system_prompt, history, messages = await _build_messages(prompt, ws, image_b64)
     system_prompt = memory.redact_context(system_prompt) + memory.context(ws, prompt)
@@ -243,7 +232,8 @@ async def run_voice_streaming(
     usage = None
 
     async with client.messages.stream(
-        model=MODEL, max_tokens=MAX_TOKENS, system=system_prompt, messages=messages
+        model=MODEL, max_tokens=MAX_TOKENS, system=system_prompt, messages=messages,
+        **costs.request_options(MODEL)
     ) as stream:
         async for delta in stream.text_stream:
             full_text += delta

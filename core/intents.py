@@ -68,6 +68,15 @@ _BRIEFING_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Spesa LLM dal registro locale (core/costs.py). Serve un riferimento
+# esplicito a JARVIS/API/modelli: "quanto ho speso" da solo restera' del
+# coach finanziario.
+_COSTS_RE = re.compile(
+    r"\b(quanto|quanti|costi|costo|spesa|spes[oa])\b.*\b(jarvis|llm|api|claude|anthropic|token|modell[oi]|ia)\b"
+    r"|\b(jarvis|llm|api|claude|anthropic|token|modell[oi]|ia)\b.*\b(costa|costi|costo|spes[oa]|spendo|spendi)\b",
+    re.IGNORECASE,
+)
+
 # P&L trading reale (core/myfxbook.py) — richiede sempre un riferimento
 # esplicito al trading/oro, non solo "quanto guadagno" (troppo generico,
 # rischierebbe di intercettare domande non-trading).
@@ -159,6 +168,8 @@ def parse_intent(text: str) -> dict | None:
         return {"type": "briefing"}
     if _TRADING_PNL_RE.search(t):
         return {"type": "trading_pnl"}
+    if _COSTS_RE.search(t):
+        return {"type": "costs"}
 
     if _TIME_RE.search(t):
         return {"type": "time"}
@@ -298,6 +309,11 @@ def _execute(intent: dict, executor: SystemExecutor, voice: bool) -> str:
         except myfxbook.MyfxbookError as e:
             return str(e)
         return myfxbook.format_accounts(accounts, voice=voice)
+
+    if kind == "costs":
+        from core import costs
+
+        return costs.format_summary()
 
     if kind == "time":
         from datetime import datetime
