@@ -1,0 +1,8 @@
+// Copia questo file in Config.swift (non versionato) e inserisci il token.
+enum JarvisConfig {
+    /// Ponte VPS (core/relay.py), sempre acceso; senza "/" finale.
+    static let baseURL = "https://win-6gfp84o12pq.tail18e3c0.ts.net:9443"
+    /// Contenuto del file .watch-token nella cartella jarvis sul PC
+    /// (lo stesso token del Comando Rapido, senza "Bearer").
+    static let token = "INCOLLA-QUI-IL-TOKEN"
+}
