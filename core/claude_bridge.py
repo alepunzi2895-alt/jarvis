@@ -747,7 +747,7 @@ def _cached_system_blocks(system_prompt: str) -> list[dict]:
 async def _run_claude_api(
     prompt: str, ws: str, cwd: str, image_b64: str | None, channel: str,
     *, on_sentence=None, history_store=None, context_prefix: str | None = None,
-    model: str | None = None, history_key: str | None = None,
+    model: str | None = None, history_key: str | None = None, max_turns: int | None = None,
 ) -> tuple[str, None, float]:
     """Motore di default per testo/Telegram/dashboard: API Anthropic diretta
     con tool reali (vedi TOOLS/_execute_tool sopra) invece del processo CLI.
@@ -786,7 +786,7 @@ async def _run_claude_api(
     spoken_final = ""
 
     system_blocks = _cached_system_blocks(system_prompt)
-    for _ in range(MAX_TOOL_TURNS):
+    for _ in range(max_turns or MAX_TOOL_TURNS):
         kwargs = dict(model=request_model, max_tokens=8000, system=system_blocks, tools=TOOLS, messages=messages)
         if on_sentence:
             from core.voice.streaming import SentenceBuffer
