@@ -36,7 +36,7 @@ sulla VPS gira SOLO `core/relay.py` (circa 40 MB), mai JARVIS completo.
 2. `scp jarvis.bundle install_relay.ps1 update_relay.ps1 tradepilot-vps-ts:C:/Windows/Temp/`
 3. `ssh tradepilot-vps-ts 'powershell -NoProfile -ExecutionPolicy Bypass -File C:\Windows\Temp\update_relay.ps1'`
    (ferma il task, uccide il processo, pull dal bundle, pip, riavvia).
-Gli script stanno nello scratchpad della sessione del 2026-10-21 (`scratchpad/vps`,
+Ultimo aggiornamento 2026-10-27: `update_relay.ps1` (stop task + kill core.relay, `git fetch origin main` dalla bundle, `merge --ff-only`, pip, start) nello scratchpad della sessione be0a856d. La shell ssh della VPS e' PowerShell 5: niente `&&`. Gli script del 2026-10-21 stavano nello scratchpad di quella sessione (`scratchpad/vps`,
 con `deploy_vps.ps1` che fa copia + installazione); se mancano, ricrearli da
 questa descrizione. `env.vps` si rigenera dal `.env` del PC: Telegram,
 Anthropic, Turso, `JARVIS_RELAY_TOKEN`, `JARVIS_WATCH_TOKEN` (= `.watch-token`
