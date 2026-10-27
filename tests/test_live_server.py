@@ -474,6 +474,42 @@ def test_watch_endpoint_uses_bearer_token_without_cookie_or_origin():
     asyncio.run(scenario())
 
 
+def test_outlook_web_endpoint_needs_watch_token_and_serves_other_processes(monkeypatch):
+    """Piano B Outlook: bot.py e daemon vocale leggono Outlook Web tramite
+    LiveBridge, che possiede il browser JARVIS."""
+    from core import outlook_web
+    seen = []
+
+    async def run(action, params):
+        seen.append((action, params))
+        if action == "unread":
+            raise outlook_web.OutlookWebError("serve di nuovo l'accesso Microsoft")
+        return [{"subject": "Daily"}]
+
+    monkeypatch.setattr(outlook_web, "run", run)
+
+    async def scenario():
+        app = create_app("test-password", [], engine=FakeEngine(), warm=False, watch_token="watch-secret")
+        server = next(v for v in app.values() if isinstance(v, LiveServer))
+        client = TestClient(TestServer(app))
+        await client.start_server()
+        server.hosts.add(client.make_url("/").host_port_subcomponent)
+        async with client:
+            body = {"action": "events", "params": {"day": "2026-10-27"}}
+            assert (await client.post(outlook_web.PATH, json=body)).status == 401
+            good = {"Authorization": "Bearer watch-secret"}
+            assert (await client.post(outlook_web.PATH, headers=good, json=[])).status == 400
+            response = await client.post(outlook_web.PATH, headers=good, json=body)
+            assert await response.json() == {"ok": True, "result": [{"subject": "Daily"}]}
+            # Client sincrono degli altri processi, da un thread come nei tool.
+            monkeypatch.setattr(outlook_web, "_live_endpoint", lambda: (client.port, "watch-secret"))
+            assert await asyncio.to_thread(outlook_web.call_sync, "events", day="2026-10-28") == [{"subject": "Daily"}]
+            with pytest.raises(outlook_web.OutlookWebError, match="accesso Microsoft"):
+                await asyncio.to_thread(outlook_web.call_sync, "unread")
+        assert seen[-2:] == [("events", {"day": "2026-10-28"}), ("unread", {})]
+    asyncio.run(scenario())
+
+
 def test_iveco_panel_actions_require_login_and_run_recap_once(monkeypatch):
     from core import iveco, coding_tasks
     calls = []

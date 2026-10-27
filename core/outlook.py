@@ -14,6 +14,10 @@ Unica eccezione, sicura per costruzione: create_draft_email() chiama SOLO
 cartella Bozze di Outlook, mai spedito, resta sempre sotto il controllo di
 Alessandro. Coerente con la regola "mai inviare messaggi senza conferma
 esplicita" gia' in CLAUDE.md.
+
+Se Outlook desktop non risponde, le letture (mail, conteggio, agenda)
+ripiegano su Outlook Web nel browser JARVIS (core/outlook_web.py,
+richiesta di Alessandro 2026-10-27). Le bozze restano solo desktop.
 """
 
 from __future__ import annotations
@@ -142,6 +146,11 @@ _COM_LOCK = threading.Lock()
 _MAX_ATTEMPTS = 3
 _RETRY_DELAY_SEC = 1.5
 _CALL_TIMEOUT_SEC = 45  # tetto per una chiamata COM: oltre, Outlook va considerato bloccato
+# Chiamata andata in timeout e ancora viva: tiene il lock finche' Outlook non
+# la sblocca. 2026-10-27: le chiamate successive aspettavano altri 45 s il
+# lock prima di arrendersi (bot.log: "Outlook occupato" a ogni giro), cosi'
+# mail e agenda erano lente. Ora rinunciano entro un secondo (piano B web).
+_hung: threading.Thread | None = None
 
 
 def _run_in_fresh_thread(fn, *args):
@@ -165,8 +174,13 @@ def _run_in_fresh_thread(fn, *args):
     restavano fermi. Ora ogni attesa ha un tetto (_CALL_TIMEOUT_SEC). Un
     thread bloccato tiene il lock finche' non finisce, quindi le chiamate
     successive falliscono subito con OutlookError invece di appendersi."""
-    if not _COM_LOCK.acquire(timeout=_CALL_TIMEOUT_SEC):
-        raise OutlookError("Outlook occupato: una chiamata precedente non e' ancora finita")
+    global _hung
+    # Con una chiamata appesa si aspetta al massimo un secondo: basta se
+    # Outlook si e' appena sbloccato, altrimenti si passa subito al piano B.
+    hung = _hung is not None and _hung.is_alive()
+    if not _COM_LOCK.acquire(timeout=min(1, _CALL_TIMEOUT_SEC) if hung else _CALL_TIMEOUT_SEC):
+        raise OutlookError("Outlook occupato: una chiamata precedente e' ancora appesa" if hung
+                           else "Outlook occupato: una chiamata precedente non e' ancora finita")
     result: dict = {}
 
     def _target():
@@ -181,6 +195,7 @@ def _run_in_fresh_thread(fn, *args):
     t.start()
     t.join(_CALL_TIMEOUT_SEC)
     if t.is_alive():
+        _hung = t
         raise OutlookError("Outlook non risponde (timeout): riavvia Outlook")
     if "error" in result:
         raise result["error"]
@@ -422,15 +437,49 @@ def _fetch_upcoming_sync(minutes_ahead: int) -> list[CalendarEvent]:
     return _fetch_events_in_window_sync(now, now + dt.timedelta(minutes=minutes_ahead))
 
 
+def _from_web(error: OutlookError, action: str, **params):
+    """Piano B quando Outlook desktop non risponde: la stessa lettura da
+    Outlook Web nel browser JARVIS (core/outlook_web.py). Se fallisce anche
+    quello, l'errore riporta entrambe le cause."""
+    from core import outlook_web
+
+    try:
+        return outlook_web.call_sync(action, **params)
+    except outlook_web.OutlookWebError as web_error:
+        raise OutlookError(f"{error} Outlook Web non disponibile: {web_error}") from error
+
+
+def _events_from_web(error: OutlookError, start: dt.datetime, end: dt.datetime,
+                     include_ongoing: bool = False) -> list[CalendarEvent]:
+    """Agenda da Outlook Web per ogni giorno della finestra, filtrata con le
+    stesse regole di _fetch_events_in_window_sync."""
+    events: dict[tuple, CalendarEvent] = {}
+    day, last = start.date(), (end - dt.timedelta(microseconds=1)).date()
+    while day <= last:
+        for row in _from_web(error, "events", day=day.isoformat()):
+            event = CalendarEvent(subject=row["subject"], start=dt.datetime.fromisoformat(row["start"]),
+                                  end=dt.datetime.fromisoformat(row["end"]), location=row.get("location", ""),
+                                  entry_id="")
+            inside = event.start < end and event.end > start if include_ongoing else start <= event.start <= end
+            if inside:
+                events[(event.subject, event.start)] = event
+        day += dt.timedelta(days=1)
+    return sorted(events.values(), key=lambda e: e.start)
+
+
 async def get_upcoming_events(minutes_ahead: int = 20) -> list[CalendarEvent]:
     import asyncio
 
-    return await asyncio.to_thread(_run_in_fresh_thread, _fetch_upcoming_sync, minutes_ahead)
+    return await asyncio.to_thread(get_upcoming_events_sync, minutes_ahead)
 
 
 def get_upcoming_events_sync(minutes_ahead: int = 20) -> list[CalendarEvent]:
     """Per chiamanti gia' sincroni (core/intents.py) — vedi list_recent_emails_sync."""
-    return _run_in_fresh_thread(_fetch_upcoming_sync, minutes_ahead)
+    try:
+        return _run_in_fresh_thread(_fetch_upcoming_sync, minutes_ahead)
+    except OutlookError as error:
+        now = dt.datetime.now()
+        return _events_from_web(error, now, now + dt.timedelta(minutes=minutes_ahead))
 
 
 def get_events_for_day_sync(target: dt.date, *, include_ongoing: bool = False) -> list[CalendarEvent]:
@@ -440,10 +489,11 @@ def get_events_for_day_sync(target: dt.date, *, include_ongoing: bool = False) -
     domani per intero, e comunque avrebbe poco senso parlare di "minuti da
     ora" per un giorno diverso da oggi)."""
     start = dt.datetime.combine(target, dt.time.min)
-    end = dt.datetime.combine(target, dt.time.max)
-    if include_ongoing:
-        return _run_in_fresh_thread(_fetch_events_in_window_sync, start, start + dt.timedelta(days=1), True)
-    return _run_in_fresh_thread(_fetch_events_in_window_sync, start, end)
+    end = start + dt.timedelta(days=1) if include_ongoing else dt.datetime.combine(target, dt.time.max)
+    try:
+        return _run_in_fresh_thread(_fetch_events_in_window_sync, start, end, include_ongoing)
+    except OutlookError as error:
+        return _events_from_web(error, start, end, include_ongoing)
 
 
 def _create_draft_sync(to: str, subject: str, body: str) -> str:
@@ -481,17 +531,20 @@ async def create_draft_email(to: str, subject: str, body: str) -> str:
 async def count_unread_emails() -> int:
     import asyncio
 
-    return await asyncio.to_thread(_run_in_fresh_thread, _count_unread_sync)
+    return await asyncio.to_thread(count_unread_emails_sync)
 
 
 def count_unread_emails_sync() -> int:
-    return _run_in_fresh_thread(_count_unread_sync)
+    try:
+        return _run_in_fresh_thread(_count_unread_sync)
+    except OutlookError as error:
+        return int(_from_web(error, "unread"))
 
 
 async def list_recent_emails(count: int = 8, unread_only: bool = False) -> list[EmailSummary]:
     import asyncio
 
-    return await asyncio.to_thread(_run_in_fresh_thread, _fetch_recent_sync, count, unread_only)
+    return await asyncio.to_thread(list_recent_emails_sync, count, unread_only)
 
 
 def list_recent_emails_sync(count: int = 8, unread_only: bool = False) -> list[EmailSummary]:
@@ -499,7 +552,10 @@ def list_recent_emails_sync(count: int = 8, unread_only: bool = False) -> list[E
     stessi il threading (asyncio.to_thread lato bot.py/web_bridge.py) — vedi
     _run_in_fresh_thread per il perche' non basta gia' essere su UN thread
     qualunque, deve essere uno dedicato e mai riusato."""
-    return _run_in_fresh_thread(_fetch_recent_sync, count, unread_only)
+    try:
+        return _run_in_fresh_thread(_fetch_recent_sync, count, unread_only)
+    except OutlookError as error:
+        return [EmailSummary(**row) for row in _from_web(error, "emails", count=count, unread_only=unread_only)]
 
 
 def find_email_sync(query: str, unread_only: bool = False) -> EmailDetail | None:
@@ -507,7 +563,11 @@ def find_email_sync(query: str, unread_only: bool = False) -> EmailDetail | None
     "elenca -> l'utente sceglie -> apri e riassumi" (Alessandro, 2026-09-16):
     a differenza di list_recent_emails_sync() ritorna il corpo COMPLETO di
     UNA mail scelta per mittente/oggetto, non uno snippet di tutte."""
-    return _run_in_fresh_thread(_find_email_sync, query, unread_only)
+    try:
+        return _run_in_fresh_thread(_find_email_sync, query, unread_only)
+    except OutlookError as error:
+        row = _from_web(error, "find", query=query, unread_only=unread_only)
+        return EmailDetail(**row) if row else None
 
 
 def format_email_list_for_picking(emails: list[EmailSummary]) -> str:

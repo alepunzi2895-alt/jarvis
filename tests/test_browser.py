@@ -378,6 +378,81 @@ def test_read_teams_chats_reads_list_and_closes_its_tab():
     foreground.assert_not_called()  # alle 09:30 non ruba il primo piano
 
 
+def _tab(url):
+    page = MagicMock()
+    page.url = url
+    page.is_closed.return_value = False
+    page.bring_to_front = AsyncMock()
+    page.goto = AsyncMock()
+    page.close = AsyncMock()
+    return page
+
+
+def test_open_reuses_teams_tab_even_after_mcas_redirect():
+    """2026-10-27: ogni "Collega Teams" apriva un'altra istanza di Teams."""
+    teams = _tab("https://teams.cloud.microsoft.mcas.ms/v2/?ring=general")
+    other = _tab("https://dev.azure.com/org/project")
+    agent, _ = _agent_with_fake_pages([teams, other])
+    agent._new_page = AsyncMock()
+    with patch("core.browser.bring_matching_to_foreground_bg"):
+        result = asyncio.run(agent.open("https://teams.microsoft.com/v2/"))
+    assert "gia' aperto" in result
+    agent._new_page.assert_not_awaited()
+    teams.goto.assert_not_awaited()  # niente ricarica di Teams
+    teams.bring_to_front.assert_awaited_once()
+    assert agent._current is teams
+
+
+def test_open_new_site_creates_tab_and_actions_follow_it():
+    teams = _tab("https://teams.cloud.microsoft.mcas.ms/v2/")
+    teams.inner_text = AsyncMock(return_value="Teams")
+    agent, context = _agent_with_fake_pages([teams])
+    page = _tab("about:blank")
+    page.inner_text = AsyncMock(return_value="Databricks")
+    agent._new_page = AsyncMock(return_value=page)
+    with patch("core.browser.bring_matching_to_foreground_bg"):
+        asyncio.run(agent.open("https://adb-1.azuredatabricks.net/"))
+    page.goto.assert_awaited_once()
+    context.pages = [page, teams]  # ordine delle schede diverso dall'ultima aperta
+    assert asyncio.run(agent.read()) == "Databricks"
+    with patch("core.browser.bring_matching_to_foreground_bg"):
+        asyncio.run(agent.open("https://teams.microsoft.com/v2/"))
+    assert asyncio.run(agent.read()) == "Teams"  # read() segue la scheda riportata in primo piano
+
+
+def test_read_teams_chats_uses_open_teams_tab_without_reload_or_close():
+    teams = _tab("https://teams.cloud.microsoft.mcas.ms/v2/")
+    teams.locator.return_value.first.wait_for = AsyncMock()
+    teams.evaluate = AsyncMock(return_value=[{"title": "Daily"}])
+    agent, _ = _agent_with_fake_pages([teams])
+    agent._new_page = AsyncMock()
+    assert asyncio.run(agent.read_teams_chats("https://teams.microsoft.com/v2/")) == [{"title": "Daily"}]
+    agent._new_page.assert_not_awaited()
+    teams.goto.assert_not_awaited()
+    teams.close.assert_not_awaited()
+
+
+def test_service_page_reports_login_and_restores_active_tab():
+    current = _tab("https://teams.cloud.microsoft.mcas.ms/v2/")
+    agent, _ = _agent_with_fake_pages([current])
+    agent._current = current
+    page = _tab("https://login.microsoftonline.com/common/oauth2")
+    page.locator.return_value.first.wait_for = AsyncMock(side_effect=TimeoutError())
+    agent._new_page = AsyncMock(return_value=page)
+
+    async def scenario():
+        async with agent.service_page("https://outlook.office.com/mail/inbox", "[role=main]"):
+            pass
+
+    try:
+        asyncio.run(scenario())
+        raise AssertionError("PermissionError attesa")
+    except PermissionError as error:
+        assert "accesso Microsoft" in str(error)
+    page.close.assert_awaited_once()
+    assert agent._current is current
+
+
 def test_read_teams_chats_reports_expired_login():
     page = MagicMock()
     page.url = "https://login.microsoftonline.com/common/oauth2"

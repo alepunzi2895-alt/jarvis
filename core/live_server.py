@@ -25,7 +25,7 @@ from aiohttp import web, WSMsgType, ClientSession, ClientTimeout
 ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(ROOT / ".env")
 from core.voice.streaming import finish_thread
-from core import conversation_memory as memory, tradepilot, azure_devops, console_presence, feed, telegram
+from core import conversation_memory as memory, tradepilot, azure_devops, console_presence, feed, telegram, outlook_web
 
 LOG = logging.getLogger(__name__)
 COOKIE = "jarvis_live"
@@ -183,7 +183,7 @@ class LiveServer:
         if request.host not in self.hosts:
             raise web.HTTPForbidden()
         if request.method != "GET" or request.path == "/live/ws":
-            if request.path != WATCH_PATH and request.headers.get("Origin") not in self.origins:
+            if request.path not in (WATCH_PATH, outlook_web.PATH) and request.headers.get("Origin") not in self.origins:
                 raise web.HTTPForbidden()
         response = await handler(request)
         response.headers["Cache-Control"] = "no-store"
@@ -407,9 +407,9 @@ class LiveServer:
             return web.json_response({"ok": True})
         return web.json_response({"error": "Azione non disponibile nel collegamento diretto"}, status=400)
 
-    async def watch(self, request):
-        """Domanda dal Watch: JSON {"text": ...}, risposta in testo semplice
-        da mostrare o leggere. Stesso Engine e stessa memoria della dashboard."""
+    def token_error(self, request):
+        """Token Bearer del Watch, valido anche per il piano B Outlook dei
+        processi locali: risposta d'errore, oppure None se il token e' giusto."""
         now = time.monotonic()
         while self.failures and self.failures[0] < now - 60:
             self.failures.popleft()
@@ -420,6 +420,33 @@ class LiveServer:
                 hashlib.sha256(supplied.encode()).digest(), self.watch_hash):
             self.failures.append(now)
             return web.Response(text="Token non valido.", status=401)
+        return None
+
+    async def outlook_fallback(self, request):
+        """Outlook Web per bot.py e daemon vocale quando Outlook desktop non
+        risponde: il browser JARVIS vive in questo processo. Solo letture."""
+        error = self.token_error(request)
+        if error:
+            return error
+        try:
+            body = await request.json()
+        except (ValueError, TypeError):
+            body = None
+        if not isinstance(body, dict) or not isinstance(body.get("params") or {}, dict):
+            return web.json_response({"ok": False, "error": "richiesta non valida"}, status=400)
+        try:
+            result = await outlook_web.run(str(body.get("action")), body.get("params") or {})
+        except outlook_web.OutlookWebError as e:
+            return web.json_response({"ok": False, "error": str(e)})
+        return web.json_response({"ok": True, "result": result})
+
+    async def watch(self, request):
+        """Domanda dal Watch: JSON {"text": ...}, risposta in testo semplice
+        da mostrare o leggere. Stesso Engine e stessa memoria della dashboard."""
+        now = time.monotonic()
+        error = self.token_error(request)
+        if error:
+            return error
         try:
             body = await request.json()
             prompt = body.get("text") if isinstance(body, dict) else None
@@ -654,6 +681,7 @@ def create_app(password, origins, engine=None, warm=True, watch_token=None):
     app.router.add_post("/api/tradeflow", server.tradeflow)
     app.router.add_get("/live/ws", server.websocket)
     app.router.add_post(WATCH_PATH, server.watch)
+    app.router.add_post(outlook_web.PATH, server.outlook_fallback)
     for name in ("app.js", "live.js", "orb.js", "style.css"):
         async def asset(request, filename=name):
             return web.FileResponse(ROOT / "web/public" / filename)
@@ -694,6 +722,8 @@ def create_app(password, origins, engine=None, warm=True, watch_token=None):
                 await asyncio.sleep(console_presence.HEARTBEAT_SEC)
         if warm:
             from core import iveco, telegram
+            # Il browser JARVIS vive qui: il piano B Outlook gira su questo loop.
+            outlook_web.bind(asyncio.get_running_loop())
             tasks.append(asyncio.create_task(collect_equity()))
             tasks.append(asyncio.create_task(console_heartbeat()))
             tasks.append(asyncio.create_task(broadcast_feed()))

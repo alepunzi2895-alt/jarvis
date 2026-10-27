@@ -334,6 +334,10 @@ header::after {
   z-index: 1;
 }
 
+/* Ultima risorsa quando nessuna finestra trova spazio accanto alla sfera
+   (app.js::updateOrbLayer): la sfera passa davanti, i clic passano sotto. */
+.jarvis-orb.orb-front { z-index: 100000; pointer-events: none; }
+
 /* Sfera animata (nodi/connessioni in 3D, colore ed energia per stato:
    idle/listening/thinking/speaking/alert) — vedi orb.js. Il canvas fa TUTTO
    il lavoro visivo di moto/colore, niente piu' animazione CSS qui sopra. */

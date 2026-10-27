@@ -333,6 +333,95 @@ function openWindow(id) {
     fitWeatherWindow();
     refreshWeatherForecast();
   }
+  clearOrb(win);
+}
+
+// Le finestre non coprono mai la sfera (Alessandro, 2026-10-27). Desktop: una
+// finestra che la tocca si sposta di lato, sopra o sotto, del minimo
+// necessario; se e' troppo larga si stringe; senza spazio la sfera passa
+// davanti. Su mobile la sfera ha gia' il suo spazio sopra il pannello.
+const ORB_GAP = 12;
+const WINDOW_MIN_WIDTH = 280; // min-width di .floating-window
+
+function orbCircle() {
+  const box = $("#jarvis-orb").getBoundingClientRect();
+  return { x: box.left + box.width / 2, y: box.top + box.height / 2, r: box.width / 2 + ORB_GAP };
+}
+
+function stageLimits() {
+  const stage = $("#hud-stage").getBoundingClientRect();
+  return {
+    stage,
+    left: stage.left + 8,
+    right: stage.right - 8,
+    top: Math.max(stage.top, $("#app > header").getBoundingClientRect().bottom) + 8,
+    bottom: Math.min(stage.bottom, $(".dock").getBoundingClientRect().top) - 8,
+  };
+}
+
+// Posizione finale dalla regola CSS (centro scena + --x/--y), non dal
+// rettangolo a schermo: durante l'animazione di apertura quello e' scalato.
+function windowBox(win, stage) {
+  const w = win.offsetWidth, h = win.offsetHeight;
+  const x = parseFloat(win.style.getPropertyValue("--x")) || 0;
+  const y = parseFloat(win.style.getPropertyValue("--y")) || 0;
+  const anchor = stage.left + parseFloat(getComputedStyle(win).left);
+  const left = (win.id === "win-chat" ? anchor : anchor - w / 2) + x; // la console e' ancorata a sinistra
+  const top = stage.top + stage.height / 2 - h / 2 + y;
+  return { left, top, right: left + w, bottom: top + h };
+}
+
+function coversOrb(box, orb) {
+  const dx = Math.max(box.left - orb.x, 0, orb.x - box.right);
+  const dy = Math.max(box.top - orb.y, 0, orb.y - box.bottom);
+  return dx * dx + dy * dy < orb.r * orb.r;
+}
+
+function shiftWindow(win, dx, dy) {
+  win.style.setProperty("--x", `${(parseFloat(win.style.getPropertyValue("--x")) || 0) + dx}px`);
+  win.style.setProperty("--y", `${(parseFloat(win.style.getPropertyValue("--y")) || 0) + dy}px`);
+}
+
+function keepOrbClear(win) {
+  if (compactLayout.matches || !win.classList.contains("open")) return;
+  const limits = stageLimits(), orb = orbCircle();
+  if (!limits.stage.width) return; // dashboard non ancora visibile (login)
+  let box = windowBox(win, limits.stage);
+  if (!coversOrb(box, orb)) return;
+  const moves = [
+    { dx: orb.x + orb.r - box.left, dy: 0 },
+    { dx: orb.x - orb.r - box.right, dy: 0 },
+    { dx: 0, dy: orb.y - orb.r - box.bottom },
+    { dx: 0, dy: orb.y + orb.r - box.top },
+  ].filter(({ dx, dy }) => (dx
+    ? box.left + dx >= limits.left && box.right + dx <= limits.right
+    : box.top + dy >= limits.top && box.bottom + dy <= limits.bottom));
+  if (moves.length) {
+    const best = moves.reduce((a, b) => (Math.abs(a.dx + a.dy) <= Math.abs(b.dx + b.dy) ? a : b));
+    shiftWindow(win, best.dx, best.dy);
+    return;
+  }
+  // Troppo larga per stare di lato: si stringe sul lato con piu' spazio.
+  const rightRoom = limits.right - (orb.x + orb.r), leftRoom = orb.x - orb.r - limits.left;
+  const toRight = win.id !== "win-chat" && rightRoom >= leftRoom;
+  const room = Math.floor(toRight ? rightRoom : leftRoom);
+  if (room < WINDOW_MIN_WIDTH) return;
+  win.style.width = `${room}px`;
+  box = windowBox(win, limits.stage); // piu' stretta = piu' alta: resta tra intestazione e dock
+  const dy = box.top < limits.top ? limits.top - box.top : Math.max(limits.top - box.top, Math.min(0, limits.bottom - box.bottom));
+  shiftWindow(win, toRight ? orb.x + orb.r - box.left : orb.x - orb.r - box.right, dy);
+}
+
+function updateOrbLayer() {
+  const stage = $("#hud-stage").getBoundingClientRect(), orb = orbCircle();
+  const covered = !compactLayout.matches && stage.width > 0 && [...document.querySelectorAll(".floating-window.open")]
+    .some((win) => coversOrb(windowBox(win, stage), orb));
+  $("#jarvis-orb").classList.toggle("orb-front", covered);
+}
+
+function clearOrb(win) {
+  keepOrbClear(win);
+  updateOrbLayer();
 }
 
 function fitWeatherWindow() {
@@ -356,6 +445,7 @@ function closeWindow(id) {
   dockBtnFor(id)?.setAttribute("aria-pressed", "false");
   if (id === "win-brain") stopBrainGraph();
   if (id === "win-camera") stopCamera();
+  updateOrbLayer();
 }
 
 // Ologramma accanto alla console: un solo passaggio al caricamento della pagina,
@@ -399,7 +489,10 @@ function makeDraggable(win) {
     win.style.setProperty("--x", `${origX + (e.clientX - startX)}px`);
     win.style.setProperty("--y", `${origY + (e.clientY - startY)}px`);
   });
-  const stopDrag = () => { dragging = false; };
+  const stopDrag = () => {
+    if (dragging) clearOrb(win); // lasciata sopra la sfera: scivola di lato
+    dragging = false;
+  };
   header.addEventListener("pointerup", stopDrag);
   header.addEventListener("pointercancel", stopDrag);
 }
@@ -412,9 +505,17 @@ function setupWindows() {
     if (panels[0]) openWindow(panels[0].id);
   };
   compactLayout.addEventListener("change", fitPanels);
+  // Contenuti che crescono, ridimensionamento a mano, finestra del browser
+  // cambiata o dashboard che appare dopo il login: la sfera resta libera.
+  const sizes = new ResizeObserver((entries) => entries.forEach(({ target }) => {
+    if (target.id === "hud-stage") document.querySelectorAll(".floating-window.open").forEach(clearOrb);
+    else clearOrb(target);
+  }));
+  sizes.observe($("#hud-stage"));
   document.querySelectorAll(".floating-window").forEach((win) => {
     makeDraggable(win);
     bringToFront(win);
+    sizes.observe(win);
   });
   document.querySelectorAll(".dock-btn").forEach((btn) => {
     btn.setAttribute("aria-label", btn.title);

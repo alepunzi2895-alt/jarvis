@@ -59,6 +59,17 @@ def _reset_project_snapshot(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _no_real_outlook_web(monkeypatch):
+    """Su questo PC LiveBridge gira davvero e .watch-token esiste: senza questo
+    un test con Outlook desktop in errore aprirebbe Outlook Web nel browser vero."""
+    monkeypatch.setattr("core.outlook_web._live_endpoint", lambda: (0, ""))
+    monkeypatch.setattr("core.outlook_web._loop", None)
+    monkeypatch.setattr("core.outlook_web._lock", None)
+    monkeypatch.setattr("core.outlook_web._cache", {})
+    monkeypatch.setattr("core.outlook_web._login_retry_at", 0.0)
+
+
+@pytest.fixture(autouse=True)
 def _no_real_telegram(monkeypatch):
     """.env ha il token vero: senza questo i test della chat (che ora
     rispecchia le risposte su Telegram) manderebbero messaggi reali."""

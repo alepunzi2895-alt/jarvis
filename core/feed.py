@@ -17,6 +17,7 @@ FEED = ROOT / ".jarvis-feed.jsonl"
 _KEEP = 300
 _MAX_CHARS = 4000
 _lock = threading.Lock()
+_last_id = 0
 
 
 def plain(text: str, parse: str | None = None) -> str:
@@ -29,7 +30,13 @@ def plain(text: str, parse: str | None = None) -> str:
 def add(source: str, text: str = "", prompt: str = "", parse: str | None = None) -> None:
     """`source`: telegram (risposte e avvisi), telegram_in (scritto da Alessandro), voce.
     Mai un errore verso il chiamante: la chat della piattaforma e' un di piu'."""
-    item = dict(id=str(time.time_ns()), at=time.strftime("%Y-%m-%d %H:%M:%S"), source=source,
+    global _last_id
+    with _lock:
+        # Su Windows time_ns() avanza a scatti di ~1 ms: due messaggi di fila
+        # avrebbero lo stesso id e `recent(after)` perderebbe il secondo.
+        _last_id = max(time.time_ns(), _last_id + 1)
+        new_id = _last_id
+    item = dict(id=str(new_id), at=time.strftime("%Y-%m-%d %H:%M:%S"), source=source,
                 prompt=plain(prompt), text=plain(text, parse))
     if not item["prompt"] and not item["text"]:
         return

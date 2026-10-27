@@ -270,3 +270,111 @@ def test_run_in_fresh_thread_fails_fast_while_hung_call_holds_lock(monkeypatch):
         release.set()
     # Lock rilasciato dal thread appeso quando finisce: le chiamate tornano a funzionare.
     assert outlook._run_in_fresh_thread(lambda: 2) == 2
+
+
+def test_hung_call_makes_next_calls_fail_immediately(monkeypatch):
+    """2026-10-27: dopo un timeout ogni chiamata aspettava altri 45 s il lock."""
+    import time
+
+    monkeypatch.setattr(outlook, "_hung", None)
+    monkeypatch.setattr(outlook, "_CALL_TIMEOUT_SEC", 0.2)
+    release = threading.Event()
+    try:
+        try:
+            outlook._run_in_fresh_thread(release.wait)
+        except outlook.OutlookError:
+            pass
+        monkeypatch.setattr(outlook, "_CALL_TIMEOUT_SEC", 30)
+        started = time.monotonic()
+        try:
+            outlook._run_in_fresh_thread(lambda: 1)
+            assert False, "doveva rifiutare subito"
+        except outlook.OutlookError as e:
+            assert "appesa" in str(e)
+        assert time.monotonic() - started < 2  # al massimo un secondo, non 30
+    finally:
+        release.set()
+
+
+def _com_down(monkeypatch, web_result=None, web_error=None):
+    """Outlook desktop in errore; Outlook Web risponde con web_result o fallisce."""
+    from core import outlook_web
+
+    def com(*args):
+        raise outlook.OutlookError("Outlook non risponde (timeout): riavvia Outlook")
+
+    calls = []
+
+    def web(action, **params):
+        calls.append((action, params))
+        if web_error:
+            raise outlook_web.OutlookWebError(web_error)
+        return web_result(action, params) if callable(web_result) else web_result
+
+    monkeypatch.setattr(outlook, "_run_in_fresh_thread", com)
+    monkeypatch.setattr(outlook_web, "call_sync", web)
+    return calls
+
+
+def test_list_emails_falls_back_to_outlook_web(monkeypatch):
+    rows = [dict(sender="Rossi", subject="PRD", received="10:42", unread=True, snippet="ok")]
+    calls = _com_down(monkeypatch, rows)
+    emails = outlook.list_recent_emails_sync(count=3, unread_only=True)
+    assert emails == [outlook.EmailSummary(**rows[0])]
+    assert calls == [("emails", {"count": 3, "unread_only": True})]
+
+
+def test_unread_count_and_find_fall_back_to_outlook_web(monkeypatch):
+    detail = dict(sender="Rossi", subject="PRD", received="10:42", body="Testo completo")
+    _com_down(monkeypatch, lambda action, params: 4 if action == "unread" else (detail if params["query"] == "prd" else None))
+    assert outlook.count_unread_emails_sync() == 4
+    assert outlook.find_email_sync("prd") == outlook.EmailDetail(**detail)
+    assert outlook.find_email_sync("altro") is None
+    assert asyncio_run(outlook.count_unread_emails()) == 4
+
+
+def test_day_events_fall_back_and_keep_window_rules(monkeypatch):
+    def events(action, params):
+        day = params["day"]
+        return [dict(subject="Ieri sera", start=f"{day}T00:00:00", end=f"{day}T00:30:00", location=""),
+                dict(subject="Daily", start=f"{day}T09:30:00", end=f"{day}T09:45:00", location="")]
+
+    calls = _com_down(monkeypatch, events)
+    found = outlook.get_events_for_day_sync(dt.date(2026, 10, 27), include_ongoing=True)
+    assert [e.subject for e in found] == ["Ieri sera", "Daily"]
+    assert found[1].start == dt.datetime(2026, 10, 27, 9, 30)
+    assert calls == [("events", {"day": "2026-10-27"})]  # un solo giorno, non anche il successivo
+
+
+def test_upcoming_events_from_web_filter_by_window_across_midnight(monkeypatch):
+    class Fixed(dt.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls(2026, 10, 27, 23, 50)
+
+    monkeypatch.setattr(outlook.dt, "datetime", Fixed)
+
+    def events(action, params):
+        day = params["day"]
+        return [dict(subject=f"Inizio {day}", start=f"{day}T00:05:00", end=f"{day}T00:30:00", location=""),
+                dict(subject=f"Tardi {day}", start=f"{day}T23:55:00", end=f"{day}T23:59:00", location="")]
+
+    calls = _com_down(monkeypatch, events)
+    found = outlook.get_upcoming_events_sync(minutes_ahead=20)
+    assert [e.subject for e in found] == ["Tardi 2026-10-27", "Inizio 2026-10-28"]
+    assert [c[1]["day"] for c in calls] == ["2026-10-27", "2026-10-28"]
+
+
+def test_web_failure_reports_both_causes(monkeypatch):
+    _com_down(monkeypatch, web_error="serve di nuovo l'accesso Microsoft")
+    try:
+        outlook.list_recent_emails_sync()
+        assert False, "attesa OutlookError"
+    except outlook.OutlookError as e:
+        assert "Outlook non risponde" in str(e) and "accesso Microsoft" in str(e)
+
+
+def asyncio_run(coroutine):
+    import asyncio
+
+    return asyncio.run(coroutine)

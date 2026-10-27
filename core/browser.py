@@ -18,6 +18,7 @@ import asyncio
 import json
 import os
 import re
+from contextlib import asynccontextmanager
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -109,6 +110,39 @@ def _is_owa_host(url: str) -> bool:
     return any(host == h or host.endswith(f".{h}") for h in _OWA_HOSTS)
 
 
+# App a pagina singola da non aprire mai due volte nello stesso profilo.
+# 2026-10-27, "dopo un po' Teams va in palla o mi chiede una nuova apertura":
+# ogni "Collega Teams", "guarda Teams" e recap apriva una scheda nuova, cioe'
+# un'altra istanza completa di Teams sulla stessa sessione. Ora si riusa la
+# scheda gia' aperta, anche se l'host e' cambiato con il redirect
+# (teams.microsoft.com -> teams.cloud.microsoft.mcas.ms).
+_SITE_FAMILIES = {
+    "teams": ("teams.microsoft.com", "teams.cloud.microsoft", "teams.live.com"),
+    "outlook": _OWA_HOSTS,
+}
+
+
+def _site_family(url: str) -> str | None:
+    host = _host(url)
+    for family, hosts in _SITE_FAMILIES.items():
+        if any(host == h or host.endswith(f".{h}") for h in hosts):
+            return family
+    return None
+
+
+def _same_target(requested: str, current: str) -> bool:
+    family = _site_family(requested)
+    if family:
+        return family == _site_family(current)
+    return requested.rstrip("/") == current.rstrip("/")
+
+
+def _needs_login(url: str) -> bool:
+    """Pagina di accesso Microsoft o del proxy Defender for Cloud Apps."""
+    host = (urlparse(url).hostname or "").lower()
+    return host.startswith("login.") or ".access.mcas.ms" in host
+
+
 # Lista chat di Teams per il recap del daily (2026-10-21). Righe e campi
 # letti per id/attributo strutturale, non per testo localizzato: verificato
 # dal vivo sul profilo JARVIS (Teams v2 via proxy mcas.ms) — ogni riga e'
@@ -160,6 +194,22 @@ class BrowserAgent:
     def __init__(self):
         self._playwright: Playwright | None = None
         self._context: BrowserContext | None = None
+        # Scheda su cui agiscono read/click/type/screenshot: l'ultima aperta o
+        # riportata in primo piano. Con il riuso delle schede l'ultima creata
+        # (context.pages[-1]) non e' piu' per forza quella giusta.
+        self._current = None
+
+    def _active_page(self, context):
+        page = self._current
+        if page is not None and page in context.pages and not page.is_closed():
+            return page
+        return context.pages[-1]
+
+    def _find_page(self, context, url: str):
+        for page in reversed(context.pages):
+            if not page.is_closed() and _same_target(url, page.url):
+                return page
+        return None
 
     async def _ensure_context(self) -> BrowserContext:
         if self._context is None:
@@ -180,7 +230,13 @@ class BrowserAgent:
             # Vedi anche core/web_bridge.py::RUN_CLAUDE_TIMEOUT_SEC, difesa
             # complementare per qualunque altra causa dello stesso sintomo.
             self._context.on("page", lambda page: page.on("dialog", self._auto_dismiss_dialog))
+            self._context.on("page", self._track_page)
         return self._context
+
+    def _track_page(self, page) -> None:
+        # Una scheda nuova (anche aperta da un link) diventa quella attiva,
+        # come prima con context.pages[-1].
+        self._current = page
 
     @staticmethod
     def _auto_dismiss_dialog(dialog) -> None:
@@ -191,6 +247,7 @@ class BrowserAgent:
         chiusa a mano, crash) senza che self._context lo sappia — si riparte
         da zero invece di restare bloccati su un riferimento morto."""
         self._context = None
+        self._current = None
         if self._playwright:
             try:
                 await self._playwright.stop()
@@ -207,14 +264,41 @@ class BrowserAgent:
             context = await self._ensure_context()
             return await context.new_page()
 
+    @asynccontextmanager
+    async def service_page(self, url: str, ready: str, timeout_ms: int = 45000):
+        """Scheda di servizio per letture automatiche (Outlook Web come piano
+        B): mai in primo piano, chiusa alla fine, la scheda attiva resta
+        quella di prima. PermissionError se il sito chiede di nuovo l'accesso."""
+        previous = self._current
+        page = await self._new_page()
+        try:
+            await page.goto(url, wait_until="domcontentloaded")
+            try:
+                await page.locator(ready).first.wait_for(timeout=timeout_ms)
+            except Exception:
+                if _needs_login(page.url):
+                    raise PermissionError("accesso Microsoft scaduto nel browser JARVIS")
+                raise
+            yield page
+        finally:
+            await page.close()
+            self._current = previous
+
     async def open(self, url: str) -> str:
         if (urlparse(url).hostname or "") in _LOCAL_HOSTS:
             return (
                 "Non apro un browser per un indirizzo locale: dashboard, second brain e "
                 "webcam sono gestiti in locale, non sono siti da navigare."
             )
+        page = self._find_page(self._context, url) if self._context else None
+        if page is not None:
+            await page.bring_to_front()
+            self._current = page
+            _bring_browser_to_foreground()
+            return f"{url} era gia' aperto: riportato in primo piano."
         page = await self._new_page()
         await page.goto(url, wait_until="domcontentloaded")
+        self._current = page
         _bring_browser_to_foreground()
         return f"Aperto {url}."
 
@@ -224,6 +308,7 @@ class BrowserAgent:
         page = await self._new_page()
         url = SEARCH_URLS[engine].format(query=query.replace(" ", "+"))
         await page.goto(url, wait_until="domcontentloaded")
+        self._current = page
         _bring_browser_to_foreground()
 
         if not open_first_result:
@@ -247,7 +332,7 @@ class BrowserAgent:
         context = await self._ensure_context()
         if not context.pages:
             return "Nessuna pagina aperta nel browser di JARVIS."
-        page = context.pages[-1]
+        page = self._active_page(context)
         try:
             text = await self._read_scoped(page) if _is_owa_host(page.url) else ""
             if not text:
@@ -291,7 +376,7 @@ class BrowserAgent:
         context = await self._ensure_context()
         if not context.pages:
             return "Nessuna pagina aperta nel browser di JARVIS."
-        page = context.pages[-1]
+        page = self._active_page(context)
         if not _is_owa_host(page.url):
             return (
                 'Non sono su Outlook Web — apri prima "outlook.office.com" '
@@ -326,23 +411,30 @@ class BrowserAgent:
         """Righe della lista chat di Teams (titolo, tipo, anteprima
         dell'ultimo messaggio, ora, non letta) dal profilo gia' loggato.
         Solo la lista, mai una chat aperta: aprirla la segnerebbe come letta.
-        Scheda propria chiusa alla fine e niente primo piano: gira anche alle
+        Se Teams e' gia' aperto legge quella scheda, senza ricaricarla: una
+        seconda istanza nello stesso profilo destabilizza Teams. Altrimenti
+        scheda propria chiusa alla fine. Mai primo piano: gira anche alle
         09:30 senza nessuno davanti al PC."""
-        page = await self._new_page()
+        existing = self._find_page(self._context, url) if self._context else None
+        previous = self._current
+        page = existing or await self._new_page()
         try:
-            await page.goto(url, wait_until="domcontentloaded")
+            if existing is None:
+                await page.goto(url, wait_until="domcontentloaded")
             rows = page.locator(_TEAMS_CHAT_ROW)
             try:
                 await rows.first.wait_for(timeout=45000)
             except Exception:
-                if (urlparse(page.url).hostname or "").startswith("login."):
+                if _needs_login(page.url):
                     raise PermissionError("login Teams scaduto: riaprilo dai Collegamenti")
                 # Teams riapre l'ultima app usata: se non e' Chat, la seleziona.
                 await page.locator(_TEAMS_CHAT_NAV).first.click(timeout=5000)
                 await rows.first.wait_for(timeout=20000)
             return await page.evaluate(_TEAMS_CHATS_JS)
         finally:
-            await page.close()
+            if existing is None:
+                await page.close()
+                self._current = previous
 
     async def click(self, label: str) -> str:
         """Clicca il primo elemento visibile che contiene il testo dato
@@ -350,7 +442,7 @@ class BrowserAgent:
         context = await self._ensure_context()
         if not context.pages:
             return "Nessuna pagina aperta da cui cliccare."
-        page = context.pages[-1]
+        page = self._active_page(context)
         try:
             await page.get_by_text(label, exact=False).first.click(timeout=5000)
             _bring_browser_to_foreground()
@@ -369,7 +461,7 @@ class BrowserAgent:
         context = await self._ensure_context()
         if not context.pages:
             return "Nessuna pagina aperta su cui scrivere."
-        page = context.pages[-1]
+        page = self._active_page(context)
         forced_draft = submit and _is_draft_only_host(page.url)
         if forced_draft:
             submit = False
@@ -405,7 +497,7 @@ class BrowserAgent:
         try:
             if not context.pages:
                 return b""
-            page = context.pages[-1]
+            page = self._active_page(context)
             if scoped:
                 try:
                     main = page.get_by_role("main")

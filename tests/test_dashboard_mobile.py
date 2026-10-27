@@ -325,6 +325,40 @@ def test_camera_permission_after_switching_panel_releases_stream(mobile_page):
     assert page.locator("#win-camera").is_hidden()
 
 
+ORB_COVERED_JS = """() => {
+  const o = document.querySelector('#jarvis-orb').getBoundingClientRect();
+  const cx = o.left + o.width / 2, cy = o.top + o.height / 2, r = o.width / 2;
+  return [...document.querySelectorAll('.floating-window.open')].filter(w => {
+    const b = w.getBoundingClientRect();
+    const dx = Math.max(b.left - cx, 0, cx - b.right), dy = Math.max(b.top - cy, 0, cy - b.bottom);
+    return dx * dx + dy * dy < r * r;
+  }).map(w => w.id);
+}"""
+
+
+def test_desktop_windows_never_cover_the_orb(mobile_page):
+    """2026-10-27: "tutte le finestre che apro non devono mai coprire la sfera"."""
+    page = mobile_page
+    page.set_viewport_size({"width": 1366, "height": 768})
+    for panel in ["win-projects", "win-brain", "win-weather"]:
+        page.locator(f'[data-toggle="{panel}"]').click()
+    page.wait_for_timeout(400)  # fine delle transizioni di apertura
+    assert page.evaluate(ORB_COVERED_JS) == []
+    assert not page.evaluate("document.querySelector('#jarvis-orb').classList.contains('orb-front')")
+    # Lasciata sopra la sfera, la finestra scivola di lato.
+    header = page.locator("#win-brain .fw-title").bounding_box()
+    orb = page.locator("#jarvis-orb").bounding_box()
+    page.mouse.move(header["x"] + 10, header["y"] + 5)
+    page.mouse.down()
+    page.mouse.move(orb["x"] + orb["width"] / 2, orb["y"] + orb["height"] / 2, steps=6)
+    page.mouse.up()
+    page.wait_for_timeout(400)
+    assert page.evaluate(ORB_COVERED_JS) == []
+    # Finestra del browser troppo stretta per tutto: la sfera passa davanti.
+    page.set_viewport_size({"width": 900, "height": 500})
+    page.wait_for_function("document.querySelector('#jarvis-orb').classList.contains('orb-front')")
+
+
 def test_desktop_keeps_multiple_panels_and_rotation_selects_latest(mobile_page):
     page = mobile_page
     page.set_viewport_size({"width": 1280, "height": 800})
