@@ -31,8 +31,16 @@ from core.outlook import _BODY_CHARS, _SNIPPET_CHARS
 
 ROOT = Path(__file__).resolve().parent.parent
 PATH = "/internal/outlook-web"
-MAIL_URL = "https://outlook.office.com/mail/inbox"
-CALENDAR_URL = "https://outlook.office.com/calendar/view/day/{year}/{month}/{day}"
+# Indirizzo del proxy Defender for Cloud Apps, non outlook.office.com.
+# Verificato dal vivo il 2026-10-27 sul profilo JARVIS: outlook.office.com
+# finisce in un ciclo di login.microsoftonline.com/common/reprocess (centinaia
+# di redirect, mai Outlook), il dominio .mcas.ms entra in 2-4 s anche a
+# browser appena avviato. JARVIS_OWA_BASE per un altro tenant.
+OWA_BASE = os.getenv("JARVIS_OWA_BASE", "https://outlook.cloud.microsoft.mcas.ms").rstrip("/")
+MAIL_URL = f"{OWA_BASE}/mail/inbox"
+# OWA ignora la data nell'URL (view/day/AAAA/M/G torna alla vista salvata):
+# la settimana lavorativa corrente e' l'unica vista prevedibile.
+CALENDAR_URL = f"{OWA_BASE}/calendar/view/workweek"
 TIMEOUT_SEC = 90
 CACHE_SEC = {"events": 600, "emails": 60, "unread": 60}
 LOGIN_RETRY_SEC = 300
@@ -40,11 +48,15 @@ _ROWS_WAIT_MS = 15000
 _CALENDAR_SETTLE_MS = 4000  # gli eventi arrivano dopo la griglia del giorno
 _MAX_ROWS = 50
 
-# Righe dell'elenco messaggi: testo per righe e grassetto (= non letta).
+# Righe dell'elenco messaggi: testi foglia con grassetto (= non letta) e
+# title. Verificato dal vivo il 2026-10-27: prima del mittente c'e' l'avatar
+# con le iniziali, sempre in grassetto; il mittente ha l'indirizzo nel title;
+# le icone sono caratteri dell'area privata Unicode.
 _ROWS_JS = """() => [...document.querySelectorAll('[role=option]')].slice(0, %d).map(row => ({
   lines: (row.innerText || '').split('\\n').map(s => s.trim()).filter(Boolean),
-  bold: [...row.querySelectorAll('span, div')].some(el => !el.childElementCount
-    && (el.textContent || '').trim() && parseInt(getComputedStyle(el).fontWeight, 10) >= 600),
+  leaves: [...row.querySelectorAll('span, div')].filter(el => !el.childElementCount && (el.textContent || '').trim())
+    .map(el => ({text: el.textContent.trim(), title: el.getAttribute('title') || '',
+                 bold: parseInt(getComputedStyle(el).fontWeight, 10) >= 600})),
 }))""" % _MAX_ROWS
 
 # Cartella selezionata (Posta in arrivo, dall'URL): l'ultimo numero del suo
@@ -61,10 +73,21 @@ _EVENT_LABELS_JS = """() => [...document.querySelectorAll('[role=main] [aria-lab
   .map(el => el.getAttribute('aria-label') || '')
   .filter(label => label.includes(',') && /\\d{1,2}[:.]\\d{2}\\D+\\d{1,2}[:.]\\d{2}/.test(label))"""
 
+_ICON_RE = re.compile("^[-\\s]*$")
 _TIME_RE = re.compile(r"\b\d{1,2}[:.]\d{2}\b|\b\d{1,2}/\d{1,2}\b")
 _RANGE_RE = re.compile(
     r"(\d{1,2})[:.](\d{2})\s*([ap]\.?\s?m\.?)?\D{1,15}?(\d{1,2})[:.](\d{2})\s*([ap]\.?\s?m\.?)?", re.IGNORECASE)
 _CONNECTOR_RE = re.compile(r"[\s,]*\b(?:dalle|dalle ore|da|ore|from|alle)\s*$", re.IGNORECASE)
+_MONTHS = {name: number for number, names in enumerate((
+    ("gennaio", "january"), ("febbraio", "february"), ("marzo", "march"), ("aprile", "april"),
+    ("maggio", "may"), ("giugno", "june"), ("luglio", "july"), ("agosto", "august"),
+    ("settembre", "september"), ("ottobre", "october"), ("novembre", "november"), ("dicembre", "december")),
+    start=1) for name in names}
+_MONTH = "(" + "|".join(_MONTHS) + ")"
+_DATE_RES = (re.compile(r"\b(\d{1,2})\s+" + _MONTH + r",?\s+(\d{4})\b", re.IGNORECASE),
+             re.compile(r"\b" + _MONTH + r"\s+(\d{1,2}),?\s+(\d{4})\b", re.IGNORECASE))
+_WEEKDAYS = {"lunedì", "martedì", "mercoledì", "giovedì", "venerdì", "sabato", "domenica",
+             "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"}
 
 
 class OutlookWebError(Exception):
@@ -84,6 +107,8 @@ def bind(loop: asyncio.AbstractEventLoop) -> None:
 
 
 def _email(row: dict) -> dict:
+    if row.get("leaves"):
+        return _email_from_leaves(row["leaves"])
     lines = row["lines"]
     received = next((line for line in lines[1:] if len(line) <= 24 and _TIME_RE.search(line)), "")
     rest = [line for line in lines[2:] if line != received]
@@ -91,6 +116,35 @@ def _email(row: dict) -> dict:
     return dict(sender=lines[0] if lines else "sconosciuto", subject=lines[1] if len(lines) > 1 else "(nessun oggetto)",
                 received=received, unread=bool(row.get("bold")),
                 snippet=snippet[:_SNIPPET_CHARS] + ("…" if len(snippet) > _SNIPPET_CHARS else ""))
+
+
+def _email_from_leaves(leaves: list[dict]) -> dict:
+    leaves = [leaf for leaf in leaves if not _ICON_RE.match(leaf["text"])]
+    sender_at = next((i for i, leaf in enumerate(leaves) if "@" in leaf["title"]), None)
+    if sender_at is not None:
+        leaves = leaves[sender_at:]  # via l'avatar
+    elif len(leaves) > 2 and len(leaves[0]["text"]) <= 3 and leaves[0]["text"].isupper():
+        leaves = leaves[1:]  # iniziali dell'avatar
+    texts = [leaf["text"] for leaf in leaves]
+    received = next((text for text in texts[1:] if len(text) <= 24 and _TIME_RE.search(text)), "")
+    rest = [text for text in texts[1:] if text != received]
+    snippet = " ".join(rest[1:])
+    return dict(sender=texts[0] if texts else "sconosciuto", subject=rest[0] if rest else "(nessun oggetto)",
+                received=received, unread=any(leaf["bold"] for leaf in leaves),
+                snippet=snippet[:_SNIPPET_CHARS] + ("…" if len(snippet) > _SNIPPET_CHARS else ""))
+
+
+def _label_date(label: str) -> dt.date | None:
+    """Data scritta nell'etichetta ("Mercoledì, 28 Ottobre, 2026" o "October 28, 2026")."""
+    for number, pattern in enumerate(_DATE_RES):
+        match = pattern.search(label)
+        if match:
+            day, month, year = (match[1], match[2], match[3]) if number == 0 else (match[2], match[1], match[3])
+            try:
+                return dt.date(int(year), _MONTHS[month.lower()], int(day))
+            except ValueError:
+                return None
+    return None
 
 
 def _hour(hours: str, minutes: str, meridiem: str | None) -> tuple[int, int]:
@@ -106,6 +160,9 @@ def _parse_event(label: str, day: dt.date) -> dict | None:
     match = _RANGE_RE.search(label)
     if not match:
         return None
+    labelled = _label_date(label)
+    if labelled and labelled != day:
+        return None  # Outlook Web puo' mostrare la settimana: solo il giorno chiesto
     start_h, start_m = _hour(match[1], match[2], match[3] or match[6])
     end_h, end_m = _hour(match[4], match[5], match[6])
     if start_h > 23 or end_h > 24 or start_m > 59 or end_m > 59:
@@ -117,6 +174,8 @@ def _parse_event(label: str, day: dt.date) -> dict | None:
     subject = _CONNECTOR_RE.sub("", label[:match.start()]).strip(" ,")
     if not subject:  # etichetta che comincia con l'orario: il titolo viene dopo
         subject = next((part.strip() for part in label[match.end():].split(",") if part.strip()), "")
+        if subject.casefold() in _WEEKDAYS:
+            return None  # fascia vuota della griglia ("Dalle 23:00 alle 23:30, Martedì, ...")
     return dict(subject=subject or "(senza titolo)", start=start.isoformat(), end=end.isoformat(), location="")
 
 
@@ -142,7 +201,7 @@ async def _unread() -> int:
         await _wait_rows(page)
         count = await page.evaluate(_UNREAD_JS)
         if count is None:
-            count = sum(1 for row in await page.evaluate(_ROWS_JS) if row["bold"])
+            count = sum(1 for row in await page.evaluate(_ROWS_JS) if _email(row)["unread"])
     return int(count)
 
 
@@ -152,16 +211,21 @@ async def _find(query: str, unread_only: bool = False) -> dict | None:
         return None
     async with browser.get_agent().service_page(MAIL_URL, "[role=main]") as page:
         await _wait_rows(page)
-        rows = await page.evaluate(_ROWS_JS)
-        index = next((i for i, row in enumerate(rows) if (row["bold"] or not unread_only)
-                      and any(needle in line.casefold() for line in row["lines"][:2])), None)
+        rows = [_email(row) for row in await page.evaluate(_ROWS_JS)]
+        index = next((i for i, email in enumerate(rows) if (email["unread"] or not unread_only)
+                      and needle in f"{email['sender']}\n{email['subject']}".casefold()), None)
         if index is None:
             return None
         await page.locator("[role=option]").nth(index).click(timeout=5000)
-        await page.wait_for_timeout(1500)  # riquadro di lettura
-        document = page.get_by_role("document")
-        body = (await document.first.inner_text()).strip() if await document.count() else ""
-    email = _email(rows[index])
+        # Corpo nel riquadro di lettura (verificato dal vivo il 2026-10-27): il
+        # primo [role=document] della pagina e' l'app intera, barre comprese.
+        document = page.locator("#ReadingPaneContainerId [role=document]").first
+        try:
+            await document.wait_for(timeout=10000)
+            body = (await document.inner_text()).strip()
+        except Exception:  # noqa: BLE001 — riquadro cambiato: almeno mittente e oggetto
+            body = ""
+    email = rows[index]
     if len(body) > _BODY_CHARS:
         body = body[:_BODY_CHARS].rstrip() + "…"
     return dict(sender=email["sender"], subject=email["subject"], received=email["received"], body=body)
@@ -169,8 +233,11 @@ async def _find(query: str, unread_only: bool = False) -> dict | None:
 
 async def _events(day: str) -> list[dict]:
     date = dt.date.fromisoformat(day)
-    url = CALENDAR_URL.format(year=date.year, month=date.month, day=date.day)
-    async with browser.get_agent().service_page(url, "[role=main]") as page:
+    today = dt.date.today()
+    monday = today - dt.timedelta(days=today.weekday())
+    if not monday <= date <= monday + dt.timedelta(days=4):
+        raise OutlookWebError("Outlook Web legge solo l'agenda della settimana lavorativa corrente")
+    async with browser.get_agent().service_page(CALENDAR_URL, "[role=main]") as page:
         await page.wait_for_timeout(_CALENDAR_SETTLE_MS)
         labels = await page.evaluate(_EVENT_LABELS_JS)
     events = {}
@@ -221,6 +288,8 @@ async def run(action: str, params: dict | None = None):
             _login_retry_at = time.monotonic() + LOGIN_RETRY_SEC
             raise OutlookWebError("serve di nuovo l'accesso Microsoft nel browser JARVIS: "
                                   "apri Outlook dai Collegamenti") from error
+        except OutlookWebError:
+            raise
         except Exception as error:  # noqa: BLE001 — pagina cambiata, rete, browser chiuso
             raise OutlookWebError(f"lettura non riuscita ({type(error).__name__})") from error
     if CACHE_SEC.get(action):

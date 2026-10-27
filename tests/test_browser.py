@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from core import browser
 from core.browser import BrowserAgent, extract_and_execute
 
 
@@ -432,25 +433,73 @@ def test_read_teams_chats_uses_open_teams_tab_without_reload_or_close():
     teams.close.assert_not_awaited()
 
 
+def _login_page(tile_count, visible_after_click=True):
+    """Pagina di accesso Microsoft finta: il clic sull'account porta a Outlook."""
+    page = _tab("https://login.microsoftonline.com/common/oauth2")
+    tiles = MagicMock()
+    tiles.count = AsyncMock(return_value=tile_count)
+
+    async def click(timeout):
+        if visible_after_click:
+            page.url = "https://outlook.cloud.microsoft.mcas.ms/mail/"
+
+    tiles.first.click = AsyncMock(side_effect=click)
+    ready = MagicMock()
+    ready.first.is_visible = AsyncMock(return_value=True)  # anche il login ha un [role=main]
+    page.locator = MagicMock(side_effect=lambda selector: tiles if selector == browser._ACCOUNT_TILE else ready)
+    return page, tiles
+
+
 def test_service_page_reports_login_and_restores_active_tab():
     current = _tab("https://teams.cloud.microsoft.mcas.ms/v2/")
     agent, _ = _agent_with_fake_pages([current])
     agent._current = current
-    page = _tab("https://login.microsoftonline.com/common/oauth2")
-    page.locator.return_value.first.wait_for = AsyncMock(side_effect=TimeoutError())
+    page, tiles = _login_page(tile_count=0)
     agent._new_page = AsyncMock(return_value=page)
 
     async def scenario():
-        async with agent.service_page("https://outlook.office.com/mail/inbox", "[role=main]"):
+        async with agent.service_page("https://outlook.office.com/mail/inbox", "[role=main]", timeout_ms=600):
             pass
 
-    try:
+    with pytest.raises(PermissionError, match="accesso Microsoft"):
         asyncio.run(scenario())
-        raise AssertionError("PermissionError attesa")
-    except PermissionError as error:
-        assert "accesso Microsoft" in str(error)
     page.close.assert_awaited_once()
     assert agent._current is current
+
+
+def test_service_page_picks_the_only_signed_in_account():
+    agent, _ = _agent_with_fake_pages([])
+    page, tiles = _login_page(tile_count=1)
+    agent._new_page = AsyncMock(return_value=page)
+
+    async def scenario():
+        async with agent.service_page("https://outlook.office.com/mail/inbox", "[role=main]", timeout_ms=3000) as opened:
+            assert opened is page and "mcas.ms" in opened.url
+
+    asyncio.run(scenario())
+    tiles.first.click.assert_awaited_once()
+
+
+def test_service_page_never_guesses_between_accounts():
+    agent, _ = _agent_with_fake_pages([])
+    page, tiles = _login_page(tile_count=2)
+    agent._new_page = AsyncMock(return_value=page)
+
+    async def scenario():
+        async with agent.service_page("https://outlook.office.com/mail/inbox", "[role=main]", timeout_ms=600):
+            pass
+
+    with pytest.raises(PermissionError):
+        asyncio.run(scenario())
+    tiles.first.click.assert_not_awaited()
+    page.close.assert_awaited_once()
+
+
+def test_wait_ready_reports_timeout_outside_login():
+    page = _tab("https://outlook.cloud.microsoft.mcas.ms/mail/")
+    page.locator.return_value.first.is_visible = AsyncMock(return_value=False)
+    with pytest.raises(TimeoutError):
+        asyncio.run(browser.wait_ready(page, "[role=main]", timeout_ms=600))
 
 
 def test_read_teams_chats_reports_expired_login():

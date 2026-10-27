@@ -19,6 +19,57 @@ def test_email_row_with_only_sender_and_subject():
     assert (email["sender"], email["subject"], email["received"], email["unread"]) == ("Bianchi", "Report", "", False)
 
 
+def _leaf(text, bold=False, title=""):
+    return {"text": text, "bold": bold, "title": title}
+
+
+def test_email_leaves_skip_avatar_and_icons_live_owa_row():
+    # Riga reale di OWA, 2026-10-27: avatar "AD" sempre in grassetto, icone in area privata.
+    read = {"lines": ["AD", "Azure DevOps", "[Build succeeded] Data Room", "18:29", "Build #9"],
+            "leaves": [_leaf("AD", True), _leaf("Azure DevOps", title="azuredevops@microsoft.com"),
+                       _leaf("[Build succeeded] Data Room"), _leaf("18:29", title="mar 27/10/2026 18:29"),
+                       _leaf("Build #9")]}
+    assert outlook_web._email(read) == dict(sender="Azure DevOps", subject="[Build succeeded] Data Room",
+                                            received="18:29", unread=False, snippet="Build #9")
+    unread = {"lines": ["", "Databricks"],
+              "leaves": [_leaf("", True), _leaf("Databricks", True, "noreply@databricks.com"),
+                         _leaf("KPI Compliance", True), _leaf("18:31", True), _leaf(" "),
+                         _leaf("view condition")]}
+    email = outlook_web._email(unread)
+    assert (email["sender"], email["subject"], email["unread"], email["snippet"]) == (
+        "Databricks", "KPI Compliance", True, "view condition")
+
+
+def test_email_leaves_without_address_drop_initials():
+    row = {"lines": ["MR"], "leaves": [_leaf("MR", True), _leaf("Mario Rossi"), _leaf("Report"), _leaf("09:10")]}
+    email = outlook_web._email(row)
+    assert (email["sender"], email["subject"], email["unread"]) == ("Mario Rossi", "Report", False)
+
+
+def test_parse_event_keeps_only_requested_day_from_week_view():
+    # Etichette reali della vista settimana di OWA, 2026-10-27.
+    day = dt.date(2026, 10, 28)
+    other = "Daily Data Driven Brief, Dalle 10:05 alle 10:30, Martedì, 27 Ottobre, 2026, Da CAMPOLO Dario, Busy"
+    same = ("Revisione temi Data Room pt.2, Dalle 14:35 alle 15:00, Mercoledì, 28 Ottobre, 2026, "
+            "Riunione di Microsoft Teams, Da CITRO Andrea (Iveco Group), Busy")
+    assert outlook_web._parse_event(other, day) is None
+    assert outlook_web._parse_event(same, day) == dict(
+        subject="Revisione temi Data Room pt.2", start="2026-10-28T14:35:00", end="2026-10-28T15:00:00", location="")
+    assert outlook_web._parse_event("Sync, 9:00 AM to 9:30 AM, Wednesday, October 28, 2026", day)["subject"] == "Sync"
+    assert outlook_web._parse_event("Sync, 9:00 AM to 9:30 AM, Tuesday, October 27, 2026", day) is None
+
+
+def test_events_outside_current_workweek_fail_clearly():
+    day = dt.date.today() + dt.timedelta(days=14)
+    with pytest.raises(outlook_web.OutlookWebError, match="settimana lavorativa corrente"):
+        asyncio.run(outlook_web.run("events", {"day": day.isoformat()}))
+
+
+def test_parse_event_skips_empty_grid_slot():
+    label = "Dalle 23:00 alle 23:30, Martedì, 27 Ottobre, 2026, Al di fuori dell'orario di lavoro"
+    assert outlook_web._parse_event(label, dt.date(2026, 10, 27)) is None
+
+
 def test_parse_event_italian_label():
     day = dt.date(2026, 10, 27)
     event = outlook_web._parse_event(

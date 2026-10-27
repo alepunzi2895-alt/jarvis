@@ -143,6 +143,50 @@ def _needs_login(url: str) -> bool:
     return host.startswith("login.") or ".access.mcas.ms" in host
 
 
+# "Selezionare un account" di login.microsoftonline.com: la sessione Microsoft
+# del profilo JARVIS non sopravvive al riavvio del browser (cookie di sessione)
+# e a ogni avvio Microsoft chiede quale account usare, gia' "Accesso eseguito".
+# Verificato dal vivo il 2026-10-27: un clic sull'unico account completa
+# l'accesso senza password. Con piu' account non si sceglie a caso.
+_ACCOUNT_TILE = "[role=button][data-test-id*='@']:not([data-test-id$='-menu-dots'])"
+
+
+async def _pick_signed_in_account(page) -> bool:
+    """True se ha cliccato l'unico account gia' collegato nella pagina di accesso."""
+    try:
+        tiles = page.locator(_ACCOUNT_TILE)
+        if not _needs_login(page.url) or await tiles.count() != 1:
+            return False
+        await tiles.first.click(timeout=5000)
+        return True
+    except Exception:  # noqa: BLE001 — pagina di accesso diversa: decide il chiamante
+        return False
+
+
+async def wait_ready(page, ready: str, timeout_ms: int = 45000) -> None:
+    """Attende `ready` visibile fuori dalle pagine di accesso, scegliendo
+    l'account se Microsoft lo chiede. Verificato dal vivo il 2026-10-27: anche
+    la pagina di login ha un [role=main], e dopo l'accesso Outlook Web passa
+    ancora da login.microsoftonline.com a *.mcas.ms (contesto JS distrutto):
+    il selettore da solo non basta. PermissionError se l'accesso non riesce."""
+    deadline = asyncio.get_running_loop().time() + timeout_ms / 1000
+    picked = False
+    while True:
+        if not _needs_login(page.url):
+            try:
+                if await page.locator(ready).first.is_visible():
+                    return
+            except Exception:  # noqa: BLE001 — navigazione in corso
+                pass
+        elif not picked:
+            picked = await _pick_signed_in_account(page)
+        if asyncio.get_running_loop().time() > deadline:
+            if _needs_login(page.url):
+                raise PermissionError("accesso Microsoft scaduto nel browser JARVIS")
+            raise TimeoutError(f"{ready} non comparso in {timeout_ms} ms")
+        await asyncio.sleep(0.5)
+
+
 # Lista chat di Teams per il recap del daily (2026-10-21). Righe e campi
 # letti per id/attributo strutturale, non per testo localizzato: verificato
 # dal vivo sul profilo JARVIS (Teams v2 via proxy mcas.ms) — ogni riga e'
@@ -273,12 +317,7 @@ class BrowserAgent:
         page = await self._new_page()
         try:
             await page.goto(url, wait_until="domcontentloaded")
-            try:
-                await page.locator(ready).first.wait_for(timeout=timeout_ms)
-            except Exception:
-                if _needs_login(page.url):
-                    raise PermissionError("accesso Microsoft scaduto nel browser JARVIS")
-                raise
+            await wait_ready(page, ready, timeout_ms)
             yield page
         finally:
             await page.close()
@@ -423,7 +462,11 @@ class BrowserAgent:
                 await page.goto(url, wait_until="domcontentloaded")
             rows = page.locator(_TEAMS_CHAT_ROW)
             try:
-                await rows.first.wait_for(timeout=45000)
+                await page.locator(f"{_TEAMS_CHAT_ROW}, {_ACCOUNT_TILE}").first.wait_for(timeout=45000)
+                if await _pick_signed_in_account(page):
+                    await rows.first.wait_for(timeout=45000)
+                else:
+                    await rows.first.wait_for(timeout=1000)
             except Exception:
                 if _needs_login(page.url):
                     raise PermissionError("login Teams scaduto: riaprilo dai Collegamenti")
