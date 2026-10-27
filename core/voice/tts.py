@@ -94,13 +94,46 @@ async def _xtts_audio(text: str) -> bytes:
 
 
 async def _tts_audio(text: str) -> bytes:
-    """Audio (MP3 da edge-tts o WAV da XTTS) con il motore scelto."""
+    """Audio (MP3 da edge-tts o WAV da XTTS/SAPI) con il motore scelto."""
     if voice_settings()["engine"] == "xtts":
         try:
             return await _xtts_audio(text)
         except (aiohttp.ClientError, asyncio.TimeoutError) as e:
             print(f"(XTTS non disponibile, uso edge-tts: {type(e).__name__})")
-    return await _edge_tts_audio(text)
+    try:
+        return await asyncio.wait_for(_edge_tts_audio(text), EDGE_TTS_TIMEOUT_SEC)
+    except Exception as e:  # noqa: BLE001 — rete bloccata, proxy, 403, timeout: la voce non deve tacere
+        print(f"(edge-tts non disponibile, uso la voce di Windows: {type(e).__name__})")
+        return await asyncio.to_thread(_sapi_audio, text)
+
+
+# Piano B senza rete: voce di sistema Windows (SAPI) scritta in WAV. Dal PC
+# Iveco edge-tts a volte non risponde (2026-10-27: TimeoutError e risposta
+# muta dalla console). Qualita' inferiore, ma JARVIS parla comunque.
+EDGE_TTS_TIMEOUT_SEC = float(os.getenv("JARVIS_EDGE_TTS_TIMEOUT_SEC", "6"))
+SAPI_VOICE_HINT = os.getenv("JARVIS_SAPI_VOICE", "Italian")
+
+
+def _sapi_audio(text: str) -> bytes:
+    import win32com.client  # pywin32: gia' nei requisiti per Outlook
+
+    path = Path(tempfile.gettempdir()) / f"jarvis-sapi-{os.getpid()}-{threading.get_ident()}.wav"
+    speaker = win32com.client.Dispatch("SAPI.SpVoice")
+    for voice in speaker.GetVoices():
+        if SAPI_VOICE_HINT.casefold() in voice.GetDescription().casefold():
+            speaker.Voice = voice
+            break
+    stream = win32com.client.Dispatch("SAPI.SpFileStream")
+    stream.Open(str(path), 3)  # SSFMCreateForWrite
+    try:
+        speaker.AudioOutputStream = stream
+        speaker.Speak(text)
+    finally:
+        stream.Close()
+    try:
+        return path.read_bytes()
+    finally:
+        path.unlink(missing_ok=True)
 
 # Il servizio edge-tts risponde 403 a caso: misurato il 2026-10-12, 1 richiesta
 # su 8 (le altre ok in 0,3-0,6 s), e JARVIS restava muto per quella risposta.

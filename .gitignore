@@ -56,3 +56,6 @@ node_modules/
 # Messaggi comuni Telegram/dashboard (core/feed.py): conversazioni, non codice
 /.jarvis-feed.jsonl
 /.jarvis-feed.tmp
+
+# Registro spesa LLM (core/costs.py)
+.costs.sqlite3*

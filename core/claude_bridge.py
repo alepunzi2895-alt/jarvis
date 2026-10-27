@@ -29,7 +29,7 @@ import anthropic
 from dotenv import load_dotenv
 
 from core import turso, brain, browser, databricks, mail_actions, persona, projects, project_status, work_context, databricks_catalog, system_actions, vscode_actions, weather
-from core import conversation_memory as memory, tradepilot, azure_devops
+from core import conversation_memory as memory, costs, tradepilot, azure_devops
 from core.executor_singleton import executor as _system_executor
 from core.voice import face_id
 
@@ -48,19 +48,14 @@ DATABRICKS_QAS_HOST = os.getenv("DATABRICKS_QAS_HOST", "")
 # Motore per testo/Telegram/dashboard: "api" (default, vedi docstring sopra)
 # o "cli" per tornare al comportamento precedente senza toccare codice.
 TEXT_ENGINE = os.getenv("JARVIS_TEXT_ENGINE", "api")
-API_MODEL_ALIASES = {"haiku": "claude-haiku-4-5", "sonnet": "claude-sonnet-5", "opus": "claude-opus-5"}
-API_MODEL = API_MODEL_ALIASES.get(os.getenv("JARVIS_TEXT_MODEL", "sonnet"), os.getenv("JARVIS_TEXT_MODEL", "claude-sonnet-5"))
-MAX_TOOL_TURNS = int(MAX_TURNS)
+API_MODEL_ALIASES = costs.MODEL_ALIASES
+API_MODEL = costs.resolve(os.getenv("JARVIS_TEXT_MODEL", "sonnet"))
+# Giri di tool del motore API (il CLI resta su JARVIS_MAX_TURNS). Prima 40:
+# un loop impazzito poteva fare 40 chiamate piene. Il tetto di spesa per
+# richiesta (core/costs.py) ferma comunque prima.
+MAX_TOOL_TURNS = int(os.getenv("JARVIS_MAX_TOOL_TURNS", "15"))
 MAX_HISTORY_TURNS = 8  # coppie utente/assistente conservate in state.json per workspace
 MAX_TOOL_RESULT_CHARS = 12000
-
-# Prezzi noti (USD per milione di token) - solo per stimare il costo nei log,
-# stessa tabella (valori) gia' in core/claude_api.py per il canale voce.
-_PRICING = {
-    "claude-haiku-4-5": (1.00, 5.00),
-    "claude-sonnet-5": (2.00, 10.00),
-    "claude-opus-5": (5.00, 25.00),
-}
 
 STATE_FILE = JARVIS_HOME / "state.json"
 TMP_DIR = JARVIS_HOME / ".tmp"
@@ -747,7 +742,7 @@ def _cached_system_blocks(system_prompt: str) -> list[dict]:
 async def _run_claude_api(
     prompt: str, ws: str, cwd: str, image_b64: str | None, channel: str,
     *, on_sentence=None, history_store=None, context_prefix: str | None = None,
-    model: str | None = None, history_key: str | None = None,
+    model: str | None = None, history_key: str | None = None, max_turns: int | None = None,
 ) -> tuple[str, None, float]:
     """Motore di default per testo/Telegram/dashboard: API Anthropic diretta
     con tool reali (vedi TOOLS/_execute_tool sopra) invece del processo CLI.
@@ -760,6 +755,11 @@ async def _run_claude_api(
         if on_sentence:
             await on_sentence(immediate)
         return immediate, None, 0
+    blocked = costs.budget_block()
+    if blocked:
+        if on_sentence:
+            await on_sentence(blocked)
+        return blocked, None, 0
     client = _get_api_client()
     request_model = model or API_MODEL
     system_prompt = context_prefix if context_prefix is not None else await _build_context_prefix(ws)
@@ -781,13 +781,14 @@ async def _run_claude_api(
     history = _trim_history(list(sessions.get(conversation_key) or []))
     messages = [*history, {"role": "user", "content": user_content}]
 
-    in_tokens = out_tokens = 0
+    cost = 0.0
     final_text = "(nessun output)"
     spoken_final = ""
 
     system_blocks = _cached_system_blocks(system_prompt)
-    for _ in range(MAX_TOOL_TURNS):
-        kwargs = dict(model=request_model, max_tokens=8000, system=system_blocks, tools=TOOLS, messages=messages)
+    for _ in range(max_turns or MAX_TOOL_TURNS):
+        kwargs = dict(model=request_model, max_tokens=8000, system=system_blocks, tools=TOOLS, messages=messages,
+                      **costs.request_options(request_model))
         if on_sentence:
             from core.voice.streaming import SentenceBuffer
 
@@ -811,14 +812,7 @@ async def _run_claude_api(
             spoken_final = " ".join(emitted)
         else:
             response = await client.messages.create(**kwargs)
-        usage = response.usage
-        # Token equivalenti a prezzo pieno: scrittura cache 1,25x, lettura 0,1x.
-        in_tokens += (
-            usage.input_tokens
-            + 1.25 * (usage.cache_creation_input_tokens or 0)
-            + 0.1 * (usage.cache_read_input_tokens or 0)
-        )
-        out_tokens += usage.output_tokens
+        cost += costs.record(channel, request_model, response.usage)
         # Lo stream SDK aggiunge parsed_output ai blocchi di testo. E' un
         # metadato locale: reinviarlo dopo un tool causa HTTP 400.
         content = []
@@ -831,6 +825,12 @@ async def _run_claude_api(
 
         if response.stop_reason != "tool_use":
             final_text = next((b.text for b in response.content if b.type == "text"), "(nessun output)")
+            if response.stop_reason == "refusal" and final_text == "(nessun output)":
+                final_text = "Non posso aiutarti con questa richiesta."
+            break
+        if costs.REQUEST_BUDGET and cost >= costs.REQUEST_BUDGET:
+            final_text = (f"Mi fermo: questa richiesta ha gia' raggiunto il tetto di spesa (${costs.REQUEST_BUDGET:.2f}). "
+                          "Riprova con una richiesta piu' mirata.")
             break
 
         tool_results = []
@@ -869,8 +869,6 @@ async def _run_claude_api(
     if history_store is None:
         save_state(state)
 
-    in_price, out_price = _PRICING.get(request_model, (0.0, 0.0))
-    cost = (in_tokens * in_price + out_tokens * out_price) / 1_000_000
     return final_text, None, cost
 
 
@@ -897,7 +895,10 @@ async def _run_claude_cli(
     if not _system_executor._in_whitelist(cwd):
         return ("Questa cartella e' disponibile in sola lettura. Per modifiche tramite CLI "
                 "va prima aggiunta ai percorsi autorizzati di JARVIS.", None, 0.0)
-    sessions = state["sessions"] if session_store is None else session_store
+    blocked = costs.budget_block()
+    if blocked:
+        return (blocked, None, 0.0)
+    sessions =state["sessions"] if session_store is None else session_store
     sid = sessions.get(ws)
     original_prompt = prompt  # per il log second-brain: prima che venga arricchito col testo webcam/identita'
 
@@ -1005,6 +1006,7 @@ async def _run_claude_cli(
         text = data.get("result") or "(nessun output)"
         new_sid = data.get("session_id")
         cost = float(data.get("total_cost_usd") or 0)
+        costs.record("cli", model or "claude-cli", data.get("usage") or {}, cost=cost)
 
         if new_sid:
             sessions[ws] = new_sid

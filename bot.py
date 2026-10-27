@@ -42,6 +42,7 @@ from core.claude_bridge import (
     run_claude,
 )
 from core import (
+    costs,
     web_bridge,
     intents,
     project_status,
@@ -125,6 +126,7 @@ def cmd_help() -> str:
         "/progetti      stato git + note JARVIS dei progetti\n"
         "/buongiorno    briefing: meteo + calendario + mail + trading + progetti\n"
         "/log           log di oggi\n"
+        "/costi         spesa LLM stimata (oggi, 7 e 30 giorni) e tetto giornaliero\n"
         "/note <testo>  scrive nella daily note del vault Obsidian\n"
         "/search <query> cerca nelle note del vault\n"
         "/apri <app>    apre un'applicazione (Chrome, VS Code, Obsidian...)\n"
@@ -205,6 +207,9 @@ async def handle(text: str) -> None:
 
         if cmd == "/log":
             return send(cmd_log())
+
+        if cmd == "/costi":
+            return send(await asyncio.to_thread(costs.format_summary))
 
         if cmd == "/note":
             if not vault:

@@ -37,8 +37,10 @@ POLL_SEC = float(os.getenv("JARVIS_WEB_POLL_SEC", "1"))
 # comunque da QUALUNQUE causa futura dello stesso tipo, non solo questa.
 RUN_CLAUDE_TIMEOUT_SEC = int(os.getenv("JARVIS_WEB_RUN_CLAUDE_TIMEOUT_SEC", "120"))
 
-# JARVIS_WEB_QUEUE=0: un secondo JARVIS (VPS) non contende la coda cloud al PC.
-ENABLED = turso.ENABLED and os.getenv("JARVIS_WEB_QUEUE", "1") != "0"
+# Coda della dashboard Vercel pubblica: spenta di default dal 2026-10-27
+# (Alessandro usa solo il link Tailscale). Da li' chiunque superasse il login
+# poteva far eseguire task con tool sul PC. JARVIS_WEB_QUEUE=1 la riattiva.
+ENABLED = turso.ENABLED and os.getenv("JARVIS_WEB_QUEUE", "0") == "1"
 
 # Il mic della dashboard ora ascolta a mani libere in continuo (mai un
 # click per singolo comando) — senza questo filtro trascriverebbe e

@@ -35,6 +35,11 @@ MAX_FRAME = 4 * 1024 * 1024
 WATCH_PATH = "/watch/ask"
 WATCH_TIMEOUT = 55  # sotto il timeout di "Ottieni contenuto URL"
 WATCH_IDLE_SEC = 15 * 60  # dopo un quarto d'ora di silenzio si riparte da zero
+# Il Watch ha ~55 s: con 40 giri di tool e uno screenshot su un semplice "ciao"
+# (2026-10-26) il PC sforava e il ponte rispondeva 504.
+WATCH_MAX_TURNS = 4
+WATCH_HINT = ("\nCanale Apple Watch: risposta in massimo tre frasi brevi. Usa gli strumenti solo se la "
+              "domanda li richiede esplicitamente; mai screenshot o controlli per saluti e domande generiche.")
 
 
 class Engine:
@@ -70,7 +75,7 @@ class Engine:
         from core.voice.tts import clean_for_speech, synthesize_mp3
         return await synthesize_mp3(clean_for_speech(text))
 
-    async def respond(self, prompt, image, histories, sentence):
+    async def respond(self, prompt, image, histories, sentence, *, max_turns=None, hint=""):
         from core import claude_bridge as bridge, intents, project_status
         from core.executor_singleton import executor
         ws = bridge.detect_workspace(prompt, histories.get("_focus", "jarvis"))
@@ -137,10 +142,11 @@ class Engine:
                         "massimo due punti, mai l'elenco completo, salvo richiesta esplicita di elencarli. "
                         "Per le domande brevi bastano due o tre frasi. Approfondisci quando richiesto. "
                         "Non annunciare i controlli: usa gli strumenti, poi comunica il risultato utile.")
+            context += hint
             result, _, cost = await bridge._run_claude_api(
                 prompt, ws, bridge.WORKSPACES.get(ws) or str(ROOT), image, "voice",
                 history_store=histories, context_prefix=context, on_sentence=sentence,
-                history_key="_conversation",
+                history_key="_conversation", max_turns=max_turns,
                 model=bridge.API_MODEL if analysis else bridge.API_MODEL_ALIASES.get(bridge.VOICE_MODEL, bridge.VOICE_MODEL))
             histories.update(_focus=ws, _analysis=analysis)
         return dict(result=memory.clean_output(result) or "Mi concentro sugli altri aspetti.", workspace=ws, cost_usd=cost)
@@ -318,6 +324,9 @@ class LiveServer:
                     LOG.exception("Apertura servizio fallita: %s", app)
                     results.append({"app": app, "ok": False, "message": f"Non riesco ad aprire {app}."})
             return web.json_response({"results": results})
+        if action == "costs_summary":
+            from core import costs
+            return web.json_response(await asyncio.to_thread(costs.summary))
         if action == "memories_list":
             return web.json_response({"memories": await asyncio.to_thread(memory.entries)})
         if action == 'coding_tasks':
@@ -432,8 +441,11 @@ class LiveServer:
         try:
             async with asyncio.timeout(WATCH_TIMEOUT):
                 async with self.command_lock:
-                    result = await self.engine.respond(prompt.strip(), None, self.watch_conversations, sentence)
+                    result = await self.engine.respond(prompt.strip(), None, self.watch_conversations, sentence,
+                                                       max_turns=WATCH_MAX_TURNS, hint=WATCH_HINT)
+            LOG.info("Comando dal Watch: %.1f s", time.monotonic() - now)
         except TimeoutError:
+            LOG.warning("Comando dal Watch scaduto dopo %.1f s", time.monotonic() - now)
             return web.Response(text="Ci sto mettendo troppo. Riprova con una domanda più breve.", status=504)
         except Exception:
             LOG.exception("Comando dal Watch fallito")

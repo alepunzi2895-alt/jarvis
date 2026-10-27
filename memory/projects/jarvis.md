@@ -1139,3 +1139,11 @@ Il recap IVECO legge anche `Downloads/IVGAgent`: commit di ogni repo in `repo/` 
 
 ## Chat condivisa Telegram ↔ dashboard (2026-10-23, 3e20d86)
 `core/feed.py` scrive in `.jarvis-feed.jsonl` (ultime 300 righe, non versionato): `send_to_owner` (feed=True di default), messaggi in arrivo da Telegram, voce del daemon. Il LiveBridge (`broadcast_feed` in lifecycle) lo segue ogni 2 s e lo invia via websocket a tutte le console; `tasks_recent` lo unisce alla chat della sessione. Le risposte della chat dashboard vanno su Telegram con il prefisso 💻 e feed=False. Il mirror della dashboard Vercel (web_bridge) resta solo su Telegram.
+
+## Evoluzione: audit e I0 costi (2026-10-27, branch feat/cost-guard)
+Audit completo in sessione; piano incrementale I0-I8 (costi, memoria per ambiti, coordinatore a competenze, Life OS, decisioni, trading, finanza, emozioni, mentor). Decisioni di Alessandro:
+- Il PC Iveco deve contenere solo applicazioni Iveco. Tutto il resto (memoria personale, finanza, emozioni, trading, Telegram) va spostato su VPS, Mac o archivio cifrato. La VPS attuale ha 1,6 GB: non regge JARVIS completo.
+- Dashboard Vercel non usata: si usa solo il link Tailscale. Coda web spenta di default (`JARVIS_WEB_QUEUE=0`).
+- Spesa LLM minima: `core/costs.py` registra ogni chiamata in `.costs.sqlite3`, tetti `JARVIS_DAILY_BUDGET_USD` (1,00) e `JARVIS_REQUEST_BUDGET_USD` (0,20); `/costi`. Alias haiku = `claude-haiku-5-5` (0,10/0,50 $/MTok) con effort low.
+- Banche da collegare: Mediolanum (PSD2 via aggregatore, es. Enable Banking piano gratuito per conti propri), Wise (token personale UE senza saldi/estratti per PSD2), Zen (non verificato).
+Stato: I0 su branch, testato su Mac, non ancora attivo sul PC ne' sulla VPS.

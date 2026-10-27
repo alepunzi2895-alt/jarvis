@@ -30,7 +30,7 @@ class FakeEngine:
     async def synthesize(self, text):
         return text.encode()
 
-    async def respond(self, prompt, image, history, sentence):
+    async def respond(self, prompt, image, history, sentence, **options):
         self.commands.append(prompt)
         await sentence("Prima frase.")
         if prompt == "attendi":
@@ -289,7 +289,7 @@ def test_live_uses_voice_model_without_changing_text_model(monkeypatch):
     engine.contexts["jarvis"] = "Contesto caldo"
     asyncio.run(engine.respond("ciao", None, {}, AsyncMock()))
     kwargs = answer.call_args.kwargs
-    assert kwargs["model"] == "claude-haiku-4-5"
+    assert kwargs["model"] == "claude-haiku-5-5"
     assert "Contesto caldo" in kwargs["context_prefix"]
     assert "15 parole" in kwargs["context_prefix"]
     assert bridge.API_MODEL == old_text_model
@@ -337,7 +337,7 @@ def test_stop_during_replacement_never_launches_waiting_command():
                 self.stop_requested = asyncio.Event()
                 self.finished = threading.Event()
                 self.release_thread = threading.Event()
-            async def respond(self, prompt, image, history, sentence):
+            async def respond(self, prompt, image, history, sentence, **options):
                 self.commands.append(prompt)
                 if prompt == "slow":
                     def work():

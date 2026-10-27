@@ -26,6 +26,7 @@ from dotenv import load_dotenv
 
 ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(ROOT / ".env")
+from core import costs
 
 LOG = logging.getLogger("relay")
 PORT = int(os.getenv("JARVIS_RELAY_PORT", "8770"))
@@ -39,8 +40,8 @@ CLAIM_TTL_SEC = 600
 LOCATION_FILE = ROOT / ".relay-location.json"
 WATCH_LOCATION_SEC = 12 * 3600  # il Watch e' al polso: vince sul PC finche' e' recente
 HISTORY_TURNS = 8
-TEXT_MODEL = os.getenv("JARVIS_RELAY_TEXT_MODEL", "claude-sonnet-5")
-WATCH_MODEL = os.getenv("JARVIS_RELAY_WATCH_MODEL", "claude-haiku-4-5")
+TEXT_MODEL = costs.resolve(os.getenv("JARVIS_RELAY_TEXT_MODEL", "sonnet"))
+WATCH_MODEL = costs.resolve(os.getenv("JARVIS_RELAY_WATCH_MODEL", "haiku"))
 WATCH_STYLE = ("\n\nRisposta letta dall'Apple Watch: massimo tre frasi brevi, la prima risponde "
                "subito in meno di 15 parole. Dettagli solo se chiesti.")
 TRADING_WORDS = ("tradepilot", "trading", "equity", "conto", "strategi", "esperiment", "drawdown", "factory")
@@ -269,9 +270,13 @@ class Relay:
         system = f"{SYSTEM}\n\n{context}\n\n{persona.PERSONA}"
         if channel == "watch":
             system += WATCH_STYLE
+        blocked = costs.budget_block()
+        if blocked:
+            return blocked
+        model = WATCH_MODEL if channel == "watch" else TEXT_MODEL
         response = await anthropic.AsyncAnthropic().messages.create(
-            model=WATCH_MODEL if channel == "watch" else TEXT_MODEL, max_tokens=4000,
-            system=system, messages=messages)
+            model=model, max_tokens=4000, system=system, messages=messages, **costs.request_options(model))
+        costs.record(f"vps-{channel}", model, response.usage)
         reply = "".join(block.text for block in response.content if block.type == "text").strip()
         reply = reply or "Non ho una risposta utile."
         history.extend([{"role": "user", "content": text}, {"role": "assistant", "content": reply}])
