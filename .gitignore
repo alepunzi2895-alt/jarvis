@@ -49,6 +49,8 @@ node_modules/
 # Recap IVECO per il daily (oggetti mail, dati di lavoro)
 .iveco-recap.json
 .iveco-recap.tmp
+.iveco-tickets.json
+.iveco-tickets.tmp
 
 # Ultima posizione PC/Watch del ponte VPS
 .relay-location.json
