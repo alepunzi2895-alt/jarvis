@@ -261,6 +261,7 @@ def test_run_in_fresh_thread_fails_fast_while_hung_call_holds_lock(monkeypatch):
             outlook._run_in_fresh_thread(release.wait)
         except outlook.OutlookError:
             pass
+        monkeypatch.setattr(outlook, "_down_until", 0.0)  # qui conta il lock, non la pausa dopo il timeout
         try:
             outlook._run_in_fresh_thread(lambda: 1)
             assert False, "doveva rifiutare: lock ancora tenuto"
@@ -285,6 +286,7 @@ def test_hung_call_makes_next_calls_fail_immediately(monkeypatch):
         except outlook.OutlookError:
             pass
         monkeypatch.setattr(outlook, "_CALL_TIMEOUT_SEC", 30)
+        monkeypatch.setattr(outlook, "_down_until", 0.0)  # qui conta il lock, non la pausa dopo il timeout
         started = time.monotonic()
         try:
             outlook._run_in_fresh_thread(lambda: 1)
@@ -378,3 +380,27 @@ def asyncio_run(coroutine):
     import asyncio
 
     return asyncio.run(coroutine)
+
+
+def test_timeout_keeps_outlook_desktop_out_for_a_while(monkeypatch):
+    """2026-10-28: finito il thread appeso, la chiamata dopo riaspettava il tetto intero."""
+    import time
+
+    monkeypatch.setattr(outlook, "_hung", None)
+    monkeypatch.setattr(outlook, "_CALL_TIMEOUT_SEC", 0.2)
+    release = threading.Event()
+    try:
+        outlook._run_in_fresh_thread(release.wait)
+    except outlook.OutlookError:
+        pass
+    release.set()
+    outlook._hung.join(1)
+    started = time.monotonic()
+    try:
+        outlook._run_in_fresh_thread(lambda: 1)
+        assert False, "doveva rifiutare subito"
+    except outlook.OutlookError as e:
+        assert "piano B" in str(e)
+    assert time.monotonic() - started < 0.1
+    monkeypatch.setattr(outlook, "_down_until", 0.0)
+    assert outlook._run_in_fresh_thread(lambda: 1) == 1
