@@ -4,7 +4,7 @@
   let socket, connecting, context, nextAudio = 0, current = null;
   let playback = Promise.resolve();
   const entries = new Map(), sources = new Set(), superseded = new Set();
-  let status, replay, stop;
+  let status;
   let sttReady = false;
   let micEnabled = false;
   // PC (puntatore fine): la console aperta abilita la wake word del daemon vocale.
@@ -16,7 +16,7 @@
     const Audio = window.AudioContext || window.webkitAudioContext;
     if (!Audio) return;
     if (!context || context.state === "closed") context = new Audio();
-    if (context.state !== "running") context.resume().catch(() => setStatus("Tocca Attiva audio per ascoltare."));
+    if (context.state !== "running") context.resume().catch(() => setStatus("Tocca lo schermo per ascoltare."));
     // Un buffer nel gesto utente sblocca l'uscita anche su Safari iOS.
     const source = context.createBufferSource();
     source.buffer = context.createBuffer(1, 1, context.sampleRate);
@@ -66,7 +66,7 @@
     nextAudio += buffer.duration;
     botSpeaking = true;
     setOrbState("speaking");
-    if (context.state !== "running") setStatus("Tocca Attiva audio per ascoltare la risposta.");
+    if (context.state !== "running") setStatus("Tocca lo schermo per ascoltare la risposta.");
   }
 
   function message(event) {
@@ -113,7 +113,7 @@
       case "done": {
         const t = data.timings;
         entry.querySelector(".meta").textContent += ` · STT ${t.stt_ms} ms · testo ${t.first_text_ms ?? "—"} ms · audio ${t.first_audio_ms ?? "—"} ms`;
-        setStatus(context?.state === "running" ? "Pronto. Di’ Jarvis e la tua domanda." : "Tocca Attiva audio per ascoltare.");
+        setStatus(context?.state === "running" ? "Pronto. Di’ Jarvis e la tua domanda." : "Tocca lo schermo per ascoltare.");
         finish(data.id);
         break;
       }
@@ -175,12 +175,19 @@
   function start() {
     const bar = document.createElement("div");
     bar.className = "live-controls";
-    bar.innerHTML = '<span role="status" aria-live="polite">Collegamento al PC…</span><button type="button">Attiva audio</button><button type="button">Stop</button>';
+    // Niente pulsanti nella conversazione (2026-10-28): l'audio si sblocca al
+    // primo clic o tasto, Esc interrompe la risposta in corso.
+    bar.innerHTML = '<span role="status" aria-live="polite">Collegamento al PC…</span>';
     document.querySelector(".fw-body--console").prepend(bar);
-    [replay, stop] = bar.querySelectorAll("button");
     status = bar.querySelector("span");
-    replay.onclick = unlock;
-    stop.onclick = cancel;
+    const firstGesture = () => {
+      unlock();
+      document.removeEventListener("pointerdown", firstGesture, true);
+      document.removeEventListener("keydown", firstGesture, true);
+    };
+    document.addEventListener("pointerdown", firstGesture, true);
+    document.addEventListener("keydown", firstGesture, true);
+    document.addEventListener("keydown", (event) => { if (event.key === "Escape" && current) cancel(); });
     connect().catch(error => setStatus(error.message));
     setInterval(() => {
       if (!sttReady && !document.hidden && socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: "status" }));
@@ -195,7 +202,7 @@
     // deve arrivare anche con la finestra coperta, come dalle casse del PC.
     document.addEventListener("visibilitychange", () => { if (document.hidden && coarse) silence(); });
     // Dopo un reload il browser tiene l'audio sospeso fino al primo gesto:
-    // qualunque clic o tasto lo riattiva, anche senza "Attiva audio".
+    // qualunque clic o tasto lo riattiva, anche senza pulsanti.
     const wake = () => { if (context && context.state !== "running") context.resume().catch(() => {}); };
     document.addEventListener("pointerdown", wake, true);
     document.addEventListener("keydown", wake, true);

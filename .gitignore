@@ -64,3 +64,8 @@ node_modules/
 
 # Configurazione locale app Watch (URL e token)
 watch/JarvisWatch/Config.swift
+
+# Conversazioni dashboard e prossimi step per progetto (core/project_insights.py)
+/.jarvis-conversations.jsonl
+/.project-insights.json
+/.project-insights.tmp

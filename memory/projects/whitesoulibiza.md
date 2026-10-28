@@ -52,3 +52,19 @@ Già uno dei 3 progetti monitorati da `/progetti` e dal digest mattutino
 (`core/project_status.py`, insieme ad Aura e TradeFlow) — l'unico dei
 progetti "minori" con questo trattamento, perché già configurato in
 `WORKSPACES` (`WS_WHITESOUL`).
+
+## Prossimi step e consigli (JARVIS, aggiornato 2026-10-28)
+Dalle conversazioni con JARVIS. Sito statico HTML per White Soul Ibiza da portare su hosting Aruba, con in più un pacchetto di manutenzione del sito e gestione Instagram a canone mensile; obiettivo chiusura entro fine mese.
+
+Prossimi step:
+- Sistemare il token Turso, che nel client è read-write e visibile a chiunque, prima del passaggio ad altro gestore.
+- Sostituire le immagini Unsplash con foto reali.
+- Aggiornare il numero WhatsApp placeholder.
+- Verificare che il cliente abbia gli accessi Instagram.
+- Migrare il dominio su Aruba e configurare l'hosting.
+- Definire lo scope del pacchetto Instagram: numero di post al mese, calendario approvato dal cliente, nessuna pubblicazione senza suo ok esplicito.
+
+Consigli:
+- Tenere separate le due offerte: manutenzione del sito come canone fisso, gestione Instagram come pacchetto a parte, così lo stop di una non trascina l'altra.
+- Indicativamente: setup e configurazione del dominio una tantum tra 300 e 800 euro, hosting come piccolo ricarico sul costo reale, manutenzione mensile tra 150 e 350 euro, da confrontare con il mercato locale.
+- Lo stack è HTML statico senza build, quindi Aruba basta e costa poco.

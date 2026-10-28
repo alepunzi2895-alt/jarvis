@@ -390,8 +390,10 @@ class LiveServer:
         if action == "project_status_data":
             from core import project_status
             from core.executor_singleton import executor
+            from core import project_insights
             values = await asyncio.to_thread(project_status.cached_check_all, executor)
-            return web.json_response({"projects": project_status.to_json_ready(values)})
+            insights = (await asyncio.to_thread(project_insights.latest)).get("projects", {})
+            return web.json_response({"projects": project_status.to_json_ready(values), "insights": insights})
         # Widget esistenti: solo metadati; audio e task non vanno al database.
         metadata = {"weather_forecast": ("weather_forecast", "forecast"),
                     "remote_status_data": ("remote_status", "remote"),
@@ -568,6 +570,8 @@ class LiveServer:
                         result = await self.engine.respond(prompt, image, session["conversations"], sentence)
                         row = dict(id=rid, prompt=prompt, status="done", at=time.strftime("%Y-%m-%d %H:%M:%S"), **result)
                         session["history"].append(row)
+                        from core import project_insights
+                        await asyncio.to_thread(project_insights.record, "dashboard", prompt, result.get("result", ""))
                         await send("result", rid, **result)
                         # Anche su Telegram; feed=False: in questa chat c'e' gia'.
                         asyncio.get_running_loop().run_in_executor(
@@ -746,6 +750,8 @@ def create_app(password, origins, engine=None, warm=True, watch_token=None):
             tasks.append(asyncio.create_task(console_heartbeat()))
             tasks.append(asyncio.create_task(broadcast_feed()))
             tasks.append(asyncio.create_task(iveco.recap_loop(telegram.send_to_owner)))
+            from core import project_insights
+            tasks.append(asyncio.create_task(project_insights.update_loop()))
         yield
         await asyncio.gather(*(s.close(code=1001) for s, _ in list(server.sockets)))
         for task in tasks:
