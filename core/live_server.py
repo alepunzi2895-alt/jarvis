@@ -46,6 +46,15 @@ WATCH_HINT = ("\nCanale Apple Watch: risposta in massimo tre frasi brevi. Usa gl
               "domanda li richiede esplicitamente; mai screenshot o controlli per saluti e domande generiche.")
 
 
+def _preload_voice_and_api() -> None:
+    import anthropic
+    import numpy as np
+    from core.voice import tts
+    anthropic.AsyncAnthropic  # noqa: B018 — carica il client e i suoi tipi
+    from anthropic.types import beta  # noqa: F401
+    tts._encode_mp3(tts.apply_style(np.zeros((2400, 1), dtype=np.float32), 24000), 24000)
+
+
 class Engine:
     def __init__(self):
         self.ready = False
@@ -54,6 +63,10 @@ class Engine:
 
     async def warm(self):
         from core.voice import stt
+        # 2026-10-28 (core/loop_watch.py): al primo comando dopo l'avvio l'event loop si
+        # fermava 2 s + 2 s per import fatti al primo uso (tipi anthropic, numpy/scipy degli
+        # effetti voce), e voce ed eventi aspettavano. Qui si caricano in un thread.
+        await finish_thread(_preload_voice_and_api)
         try:
             await finish_thread(stt.warm_up)
             self.ready, self.device = True, stt.MODEL_DEVICE
@@ -795,6 +808,8 @@ def create_app(password, origins, engine=None, warm=True, watch_token=None):
             from core import iveco, telegram
             # Il browser JARVIS vive qui: il piano B Outlook gira su questo loop.
             outlook_web.bind(asyncio.get_running_loop())
+            from core import loop_watch
+            loop_watch.start(asyncio.get_running_loop())
             tasks.append(asyncio.create_task(collect_equity()))
             tasks.append(asyncio.create_task(console_heartbeat()))
             tasks.append(asyncio.create_task(broadcast_feed()))
