@@ -41,6 +41,11 @@ PROMPT = (
     "la conversazione dice fatto o superato, non duplicare. Solo fatti e consigli presenti nella "
     "conversazione o gia' salvati: niente di inventato. Italiano, frasi brevi, niente markdown.\n"
     "Ignora i progetti citati solo di passaggio (es. 'come vanno i progetti?').\n"
+    "Ragiona come un project manager, un consulente commerciale e un responsabile marketing: i "
+    "prossimi step sono azioni concrete in ordine di impatto su consegna e incasso, con la scadenza "
+    "se detta; i consigli coprono offerta e prezzo, marketing e rischi quando il progetto si vende o "
+    "si promuove. Oltre a quanto detto nella conversazione puoi aggiungere al massimo due consigli "
+    "da esperto coerenti con i dati, che iniziano con 'Suggerimento JARVIS:'.\n"
     "Rispondi SOLO con JSON: {\"projects\": {\"<chiave>\": {\"summary\": \"...\", "
     "\"next_steps\": [\"...\"], \"advice\": [\"...\"]}}}. Nessun progetto rilevante: {\"projects\": {}}."
 )

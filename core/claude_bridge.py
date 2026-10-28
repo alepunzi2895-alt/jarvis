@@ -765,6 +765,8 @@ async def _run_claude_api(
     system_prompt = context_prefix if context_prefix is not None else await _build_context_prefix(ws)
     if channel == "voice":
         system_prompt = f"{system_prompt}\n\n{persona.PERSONA}"
+    from core import advisor
+    system_prompt += advisor.guidance(prompt, voice=channel == "voice")
 
     system_prompt += "\n\n" + local_context(ws)
     system_prompt = memory.redact_context(system_prompt) + memory.context(ws, prompt)

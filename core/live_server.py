@@ -101,6 +101,9 @@ class Engine:
         analysis = bridge.needs_analysis(prompt) or bool(
             histories.get("_analysis") and re.match(r"^(e |perch[eé]|approfondisci|s[iì]\b)", prompt.casefold()))
         intent = intents.parse_intent(prompt) if not image and not analysis else None
+        from core import advisor
+        # Vendita, marketing e piani: modello completo come per le analisi ("apri Instagram" resta un comando).
+        analysis = analysis or (not intent and advisor.matches(prompt))
         def remember(result):
             turns = histories.setdefault("_conversation", [])
             turns.extend([{"role": "user", "content": prompt}, {"role": "assistant", "content": result}])
