@@ -177,6 +177,7 @@ class LiveServer:
         self.consoles = set()
         self.mic_clients = set()
         self.recap_task = None  # recap IVECO generato su richiesta dal pannello
+        self.tickets_task = None  # analisi ticket ServiceNow su richiesta dal pannello
 
     @web.middleware
     async def boundary(self, request, handler):
@@ -288,12 +289,15 @@ class LiveServer:
         if action == "runtime_status":
             return web.json_response({"speaking": False})
         if action == "connect_apps":
+            from core import servicenow
             apps = body.get("apps", [])
             urls = {
                 "teams": os.getenv("JARVIS_TEAMS_URL", "https://teams.microsoft.com/v2/"),
                 "outlook": "https://outlook.office.com/mail/",
+                "servicenow": servicenow.LIST_URL,
             }
-            if not isinstance(apps, list) or not apps or any(app not in {"teams", "outlook", "databricks_qas", "devops"} for app in apps):
+            if not isinstance(apps, list) or not apps or any(
+                    app not in {"teams", "outlook", "databricks_qas", "devops", "servicenow"} for app in apps):
                 raise web.HTTPBadRequest(text='{"error":"Servizi non validi"}', content_type="application/json")
             from core import databricks
             if "databricks_qas" in apps:
@@ -355,6 +359,20 @@ class LiveServer:
             if not (self.recap_task and not self.recap_task.done()):
                 self.recap_task = asyncio.create_task(
                     asyncio.to_thread(iveco.build_recap, loop=asyncio.get_running_loop()))
+            return web.json_response({"running": True})
+        if action == "iveco_tickets":
+            from core import servicenow
+            task = self.tickets_task
+            error = None
+            if task and task.done() and not task.cancelled() and task.exception():
+                error = f"Analisi non riuscita ({type(task.exception()).__name__}): apri ServiceNow dai Collegamenti e riprova."
+            return web.json_response({"report": await asyncio.to_thread(servicenow.latest),
+                                      "running": bool(task and not task.done()), "error": error})
+        if action == "iveco_tickets_run":
+            from core import servicenow
+            if not (self.tickets_task and not self.tickets_task.done()):
+                self.tickets_task = asyncio.create_task(
+                    asyncio.to_thread(servicenow.build_report, asyncio.get_running_loop()))
             return web.json_response({"running": True})
         if action in {"ivgagent_ask", "ivgagent_tasks"}:
             from core import coding_tasks

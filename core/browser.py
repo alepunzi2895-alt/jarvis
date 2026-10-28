@@ -479,6 +479,44 @@ class BrowserAgent:
                 await page.close()
                 self._current = previous
 
+    async def evaluate_on(self, url: str, ready_js: str, script: str, arg=None, timeout_ms: int = 60000):
+        """Esegue `script` (funzione JS) in una pagina del sito di `url`, con la
+        sessione del profilo JARVIS: le API interne di Databricks e ServiceNow
+        rispondono solo alla sessione dell'utente (token CSRF in pagina), non al
+        service principal. Riusa una scheda gia' aperta su quel sito senza
+        ricaricarla; altrimenti scheda propria, mai in primo piano, chiusa alla
+        fine. `ready_js` e' vero quando la pagina e' loggata e pronta."""
+        host = urlparse(url).hostname
+        context = await self._ensure_context()
+        existing = next((p for p in reversed(context.pages)
+                         if not p.is_closed() and urlparse(p.url).hostname == host), None)
+        previous = self._current
+        page = existing or await self._new_page()
+        try:
+            if existing is None:
+                await page.goto(url, wait_until="domcontentloaded")
+            deadline = asyncio.get_running_loop().time() + timeout_ms / 1000
+            picked = False
+            while True:
+                if _needs_login(page.url):
+                    picked = picked or await _pick_signed_in_account(page)
+                else:
+                    try:
+                        if await page.evaluate(ready_js):
+                            break
+                    except Exception:  # noqa: BLE001 — navigazione in corso
+                        pass
+                if asyncio.get_running_loop().time() > deadline:
+                    if _needs_login(page.url):
+                        raise PermissionError(f"accesso a {host} scaduto nel browser JARVIS: riaprilo dai Collegamenti")
+                    raise TimeoutError(f"{host} non pronto in {timeout_ms} ms")
+                await asyncio.sleep(0.5)
+            return await page.evaluate(script, arg)
+        finally:
+            if existing is None:
+                await page.close()
+                self._current = previous
+
     async def click(self, label: str) -> str:
         """Clicca il primo elemento visibile che contiene il testo dato
         (non un selettore CSS/XPath — vedi nota sul vocabolario limitato)."""
