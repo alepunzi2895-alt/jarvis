@@ -100,17 +100,28 @@ async def _tts_audio(text: str) -> bytes:
             return await _xtts_audio(text)
         except (aiohttp.ClientError, asyncio.TimeoutError) as e:
             print(f"(XTTS non disponibile, uso edge-tts: {type(e).__name__})")
-    try:
-        return await asyncio.wait_for(_edge_tts_audio(text), EDGE_TTS_TIMEOUT_SEC)
-    except Exception as e:  # noqa: BLE001 — rete bloccata, proxy, 403, timeout: la voce non deve tacere
-        print(f"(edge-tts non disponibile, uso la voce di Windows: {type(e).__name__})")
+    # 2026-10-28: "perche' sento due voci diverse?". Il briefing intero (~300 caratteri)
+    # superava il tetto fisso di 6 s e partiva la voce di Windows. Ora il tetto cresce
+    # con la lunghezza, edge-tts ha un secondo tentativo e la voce di Windows resta
+    # spenta salvo JARVIS_TTS_FALLBACK=sapi: meglio una frase solo scritta che un'altra voce.
+    timeout = EDGE_TTS_TIMEOUT_SEC + EDGE_TTS_SEC_PER_CHAR * len(text)
+    for attempt in range(2):
+        try:
+            return await asyncio.wait_for(_edge_tts_audio(text), timeout)
+        except Exception as e:  # noqa: BLE001 — rete bloccata, proxy, 403, timeout
+            error = e
+            print(f"(edge-tts non disponibile, tentativo {attempt + 1}: {type(e).__name__})")
+    if SAPI_FALLBACK:
         return await asyncio.to_thread(_sapi_audio, text)
+    raise error
 
 
 # Piano B senza rete: voce di sistema Windows (SAPI) scritta in WAV. Dal PC
 # Iveco edge-tts a volte non risponde (2026-10-27: TimeoutError e risposta
 # muta dalla console). Qualita' inferiore, ma JARVIS parla comunque.
 EDGE_TTS_TIMEOUT_SEC = float(os.getenv("JARVIS_EDGE_TTS_TIMEOUT_SEC", "6"))
+EDGE_TTS_SEC_PER_CHAR = 0.03  # ~300 caratteri: 15 s
+SAPI_FALLBACK = os.getenv("JARVIS_TTS_FALLBACK", "").strip().lower() == "sapi"
 SAPI_VOICE_HINT = os.getenv("JARVIS_SAPI_VOICE", "Italian")
 
 

@@ -550,13 +550,17 @@ class LiveServer:
                 await send("error", rid, message="JARVIS sta completando un altro comando. Riprova tra poco.")
                 return
             async with self.command_lock:
-                queue = asyncio.Queue(maxsize=8)
+                queue = asyncio.Queue(maxsize=32)
                 timings = {"stt_ms": stt_ms}
 
                 async def sentence(text):
                     timings.setdefault("first_text_ms", round((time.monotonic() - started) * 1000))
                     await send("sentence", rid, text=text)
-                    await queue.put(text)
+                    # Un blocco lungo (es. il briefing) va alla voce frase per frase: il primo
+                    # audio arriva prima e ogni sintesi resta sotto il tetto di edge-tts.
+                    for part in re.split(r"(?<=[.!?])\s+", text):
+                        if part.strip():
+                            await queue.put(part.strip())
 
                 async def audio():
                     while (text := await queue.get()) is not None:
