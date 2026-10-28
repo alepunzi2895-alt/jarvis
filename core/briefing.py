@@ -15,6 +15,7 @@ per non raddoppiare le chiamate di rete quando serve entrambe le versioni
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, wait
 import datetime as dt
 
 from core import myfxbook, outlook, project_status, weather
@@ -32,17 +33,28 @@ def _minutes_until_midnight(now: dt.datetime) -> int:
     return max(1, int((end_of_day - now).total_seconds() / 60))
 
 
-def gather_briefing_data(executor) -> dict:
+# 2026-10-28: "buongiorno" a voce rispondeva dopo oltre un minuto, con le fonti in
+# fila e Outlook appeso (46 s il calendario, 8 s le mail). Ora le fonti partono
+# insieme e quello che non arriva entro il tetto resta fuori dal briefing.
+DEADLINE_SEC = 12
+
+
+def gather_briefing_data(executor, deadline: float = DEADLINE_SEC) -> dict:
     now = dt.datetime.now()
-    data = {
-        "now": now,
-        "weather": _safe(weather.get_weather_line),
-        "events": _safe(lambda: outlook.get_upcoming_events_sync(minutes_ahead=_minutes_until_midnight(now))),
-        "unread": _safe(outlook.count_unread_emails_sync),
-        "statuses": _safe(lambda: project_status.check_all(executor)),
+    jobs = {
+        "weather": weather.get_weather_line,
+        "events": lambda: outlook.get_upcoming_events_sync(minutes_ahead=_minutes_until_midnight(now)),
+        "unread": outlook.count_unread_emails_sync,
+        "statuses": lambda: project_status.check_all(executor),
     }
     if myfxbook.ENABLED:
-        data["trading"] = _safe(myfxbook.get_accounts_sync)
+        jobs["trading"] = myfxbook.get_accounts_sync
+    pool = ThreadPoolExecutor(max_workers=len(jobs))
+    futures = {name: pool.submit(_safe, fn) for name, fn in jobs.items()}
+    wait(futures.values(), timeout=deadline)
+    pool.shutdown(wait=False)  # una fonte lenta finisce in background, senza trattenere la risposta
+    data = {"now": now}
+    data.update({name: future.result() if future.done() else None for name, future in futures.items()})
     return data
 
 

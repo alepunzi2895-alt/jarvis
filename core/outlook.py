@@ -23,8 +23,10 @@ richiesta di Alessandro 2026-10-27). Le bozze restano solo desktop.
 from __future__ import annotations
 
 import datetime as dt
+import os
 import re
 import threading
+import time
 from dataclasses import dataclass
 
 # Le varianti reali con cui Alessandro chiede la posta a voce sono molte piu' di
@@ -145,7 +147,14 @@ class CalendarEvent:
 _COM_LOCK = threading.Lock()
 _MAX_ATTEMPTS = 3
 _RETRY_DELAY_SEC = 1.5
-_CALL_TIMEOUT_SEC = 45  # tetto per una chiamata COM: oltre, Outlook va considerato bloccato
+# Tetto per una chiamata COM: oltre, Outlook va considerato bloccato. 2026-10-28: 45 s
+# facevano rispondere "buongiorno" a voce dopo oltre un minuto con Outlook appeso
+# (aperto senza finestra); una chiamata sana dura meno di 2 s.
+_CALL_TIMEOUT_SEC = float(os.getenv("JARVIS_OUTLOOK_TIMEOUT_SEC", "8"))
+# Dopo un timeout Outlook desktop resta escluso per un po': si va subito sul piano B
+# invece di riaspettare il tetto appena il thread appeso finisce.
+_DOWN_SEC = 300
+_down_until = 0.0
 # Chiamata andata in timeout e ancora viva: tiene il lock finche' Outlook non
 # la sblocca. 2026-10-27: le chiamate successive aspettavano altri 45 s il
 # lock prima di arrendersi (bot.log: "Outlook occupato" a ogni giro), cosi'
@@ -174,7 +183,9 @@ def _run_in_fresh_thread(fn, *args):
     restavano fermi. Ora ogni attesa ha un tetto (_CALL_TIMEOUT_SEC). Un
     thread bloccato tiene il lock finche' non finisce, quindi le chiamate
     successive falliscono subito con OutlookError invece di appendersi."""
-    global _hung
+    global _hung, _down_until
+    if time.monotonic() < _down_until:
+        raise OutlookError("Outlook desktop appeso da poco: uso il piano B")
     # Con una chiamata appesa si aspetta al massimo un secondo: basta se
     # Outlook si e' appena sbloccato, altrimenti si passa subito al piano B.
     hung = _hung is not None and _hung.is_alive()
@@ -196,6 +207,7 @@ def _run_in_fresh_thread(fn, *args):
     t.join(_CALL_TIMEOUT_SEC)
     if t.is_alive():
         _hung = t
+        _down_until = time.monotonic() + _DOWN_SEC
         raise OutlookError("Outlook non risponde (timeout): riavvia Outlook")
     if "error" in result:
         raise result["error"]

@@ -115,7 +115,20 @@ SAPI_VOICE_HINT = os.getenv("JARVIS_SAPI_VOICE", "Italian")
 
 
 def _sapi_audio(text: str) -> bytes:
+    import pythoncom
     import win32com.client  # pywin32: gia' nei requisiti per Outlook
+
+    # Gira nel pool di asyncio.to_thread: senza CoInitialize il piano B falliva
+    # ("CoInitialize has not been called", live.log 2026-10-28) e la frase restava muta.
+    pythoncom.CoInitialize()
+    try:
+        return _sapi_render(text)
+    finally:
+        pythoncom.CoUninitialize()
+
+
+def _sapi_render(text: str) -> bytes:
+    import win32com.client
 
     path = Path(tempfile.gettempdir()) / f"jarvis-sapi-{os.getpid()}-{threading.get_ident()}.wav"
     speaker = win32com.client.Dispatch("SAPI.SpVoice")
