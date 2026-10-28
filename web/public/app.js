@@ -717,6 +717,7 @@ async function submitTask(text, imageB64, options = {}) {
   if (!text.trim()) return;
   if (options.openConsole !== false) openWindow("win-chat");
   const el = appendEntry(text);
+  if (imageB64) el.dataset.image = "1"; // con immagine non e' un comando di interfaccia (live.js)
   $("#console-text").value = "";
   if (window.JarvisDirect) {
     return window.JarvisDirect.submit({ type: "text", prompt: text, image_b64: imageB64 }, el);
@@ -836,6 +837,9 @@ function handleVoiceUiCommand(text) {
   }
 
   if (wants(/\b(webcam|camera|cam|telecamera|fotocamera)\b/)) {
+    // "apri la webcam e dimmi cosa vedi" (2026-10-28): prima apriva solo la finestra e la
+    // domanda andava persa. Ora si aspetta il primo fotogramma e si chiede con l'immagine.
+    if (wants(verb) && wants(CAMERA_QUESTION)) { openWindow("win-camera"); askWithCamera(text); return true; }
     if (wants(verb)) { openWindow("win-camera"); return true; }
     if (wants(closeVerb)) { closeWindow("win-camera"); return true; }
   }
@@ -1853,6 +1857,28 @@ function stopCamera() {
   $("#camera-video").srcObject = null;
   $("#camera-ask-form").hidden = true;
   $("#camera-hint").textContent = "Camera non attiva.";
+}
+
+const CAMERA_QUESTION = /\b(dimmi|vedi|descriv\w*|guarda|leggi|riconosc\w*|analizz\w*|cosa c'?\s?è|chi c'?\s?è|com'?\s?è)/;
+
+// Fotogramma dalla webcam del dispositivo appena e' pronto (max 10 s), poi la domanda
+// intera con l'immagine. La webcam del browser e' gia' aperta: il PC non deve riaprirla.
+async function askWithCamera(question) {
+  const video = $("#camera-video");
+  for (let i = 0; i < 50 && !(cameraStream && video.readyState >= 2 && video.videoWidth); i++) {
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  if (!(cameraStream && video.videoWidth)) {
+    const el = appendEntry(question);
+    fillEntry(el, { status: "error", result: "Webcam non disponibile: controlla il permesso della camera." });
+    return;
+  }
+  await new Promise((r) => setTimeout(r, 300)); // il primissimo fotogramma e' spesso scuro
+  const canvas = $("#camera-canvas");
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  canvas.getContext("2d").drawImage(video, 0, 0);
+  submitTask(question, canvas.toDataURL("image/jpeg", 0.85));
 }
 
 function setupCamera() {
