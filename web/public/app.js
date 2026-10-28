@@ -131,7 +131,9 @@ async function refreshTradePilot() {
   finally { tradePilotBusy = false; }
 }
 
-// ── IVECO: recap per il daily, job Databricks/deploy, IVGAgent ───────────
+// ── IVECO: recap per il daily, job Databricks/deploy, IVGAgent, ticket ───
+// App di lavoro aperte da "Apri tutte" e dalla voce ("collega tutte le app").
+const WORK_APPS = ["teams", "outlook", "databricks_qas", "devops", "servicenow"];
 let recapPoll = null;
 async function refreshIvecoRecap() {
   const body = $("#iveco-recap-body"), button = $("#iveco-recap-btn");
@@ -201,13 +203,57 @@ async function refreshIvgAgent() {
   catch { $("#ivgagent-tasks").textContent = "Elenco IVGAgent non disponibile."; }
 }
 
+let ticketPoll = null;
+async function refreshIvecoTickets() {
+  const body = $("#iveco-tickets-body"), button = $("#iveco-tickets-btn");
+  try {
+    const {report, running, error} = await api("iveco_tickets");
+    button.disabled = running;
+    button.textContent = running ? "Analisi in corso (1-2 min)…" : "Aggiorna e analizza";
+    body.replaceChildren();
+    if (error) { const note = document.createElement("p"); note.className = "panel-footnote"; note.textContent = error; body.append(note); }
+    if (!report) { body.append("Nessuna analisi ancora. Serve ServiceNow aperto almeno una volta nel browser JARVIS (Collegamenti)."); }
+    else {
+      const s = report.stats, m = s.last_30_days;
+      const meta = document.createElement("p"); meta.className = "panel-footnote";
+      meta.textContent = `${s.group} · letto ${s.observed_at}`;
+      const head = document.createElement("p"); head.className = "panel-subheading";
+      head.textContent = `${s.open} aperti · ${s.work_in_progress} in Work in Progress (${s.wip_without_development} senza sviluppo visibile) · ${s.stale} fermi da oltre 30 giorni`;
+      const flow = document.createElement("p"); flow.className = "panel-footnote";
+      flow.textContent = `Ultimi 30 giorni: ${m.opened} aperti, ${m.closed} chiusi (${m.cancelled} annullati)` +
+        (s.median_days_to_close != null ? ` · chiusura mediana ${s.median_days_to_close} giorni` : "") +
+        " · per persona: " + Object.entries(s.by_person).map(([k, v]) => `${k} ${v}`).join(", ");
+      body.append(meta, head, flow);
+      for (const t of s.tickets) {
+        const item = document.createElement("article"); item.className = "data-note";
+        const title = document.createElement("strong");
+        title.textContent = `${t.number} · ${t.state} · ${t.assigned_to}${t.stale ? " · fermo" : ""}`;
+        const info = document.createElement("p");
+        info.textContent = `Aperto da ${t.age_days} giorni · ultima nota ${t.last_note || "nessuna"}` +
+          (t.last_note_by ? ` (${t.last_note_by})` : "") + " · sviluppo: " +
+          (t.linked_development.length ? t.linked_development.join(", ") : "nessuna citazione");
+        item.append(title, info); body.append(item);
+      }
+      const text = document.createElement("pre"); text.className = "recap-text"; text.textContent = report.analysis;
+      body.append(text);
+    }
+    clearTimeout(ticketPoll);
+    if (running) ticketPoll = setTimeout(refreshIvecoTickets, 8000);
+  } catch { body.textContent = "Ticket non disponibili. Riprova."; }
+}
+
 function refreshIveco() {
   refreshIvecoRecap();
   refreshIvecoJobs();
   refreshIvgAgent();
+  refreshIvecoTickets();
 }
 
 function setupIveco() {
+  $("#iveco-tickets-btn").addEventListener("click", async () => {
+    $("#iveco-tickets-btn").disabled = true;
+    try { await api("iveco_tickets_run"); } finally { refreshIvecoTickets(); }
+  });
   $("#iveco-recap-btn").addEventListener("click", async () => {
     $("#iveco-recap-btn").disabled = true;
     try { await api("iveco_recap_run"); } finally { refreshIvecoRecap(); }
@@ -545,7 +591,7 @@ function setupWindows() {
   document.querySelectorAll("[data-connect-app]").forEach((button) => {
     button.addEventListener("click", () => {
       const app = button.dataset.connectApp;
-      connectApps(app === "all" ? ["teams", "outlook", "databricks_qas", "devops"] : [app]);
+      connectApps(app === "all" ? WORK_APPS : [app]);
     });
   });
   fitPanels();
@@ -772,15 +818,16 @@ function handleVoiceUiCommand(text) {
   const verb = /\b(apri|accendi|attiva|mostra)\b/;
   const closeVerb = /\b(chiudi|nascondi|spegni)\b/;
 
-  if (wants(/\b(collega|connessioni|autentica)\b/) && wants(/\b(teams|outlook|databricks|devops|azure|app|servizi)\b/)) {
+  if (wants(/\b(collega|connessioni|autentica)\b/) && wants(/\b(teams|outlook|databricks|devops|azure|servicenow|ticket|app|servizi)\b/)) {
     openWindow("win-connections");
     const selected = wants(/\b(tutti|tutte|tutto|app|servizi)\b/)
-      ? ["teams", "outlook", "databricks_qas", "devops"]
+      ? WORK_APPS
       : [
           ...(wants(/\bteams\b/) ? ["teams"] : []),
           ...(wants(/\boutlook\b/) ? ["outlook"] : []),
           ...(wants(/\bdatabricks\b/) ? ["databricks_qas"] : []),
           ...(wants(/\b(devops|azure)\b/) ? ["devops"] : []),
+          ...(wants(/\b(servicenow|ticket)\b/) ? ["servicenow"] : []),
         ];
     if (selected.length) connectApps(selected);
     return true;

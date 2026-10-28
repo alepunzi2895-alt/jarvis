@@ -54,10 +54,16 @@ def test_deploys_are_split_per_person(monkeypatch):
         deployments=[dict(name="Data / R-1", environment="PRD", status="succeeded", at="2026-10-15T16:00:00Z", by="ROSSI Gabriele"),
                      dict(name="Old", environment="QAS", status="succeeded", at="2026-10-01T16:00:00Z", by="PUNZI Alessandro")],
         stages=[dict(name="Deploy to QAS", status="succeeded", at="2026-10-15T15:00:00Z", by="PUNZI Alessandro")],
-        builds=[dict(name="Data", at="2026-10-15T14:00:00Z", by="Project Collection Build Service")],
+        builds=[dict(name="Solo l'ultima per pipeline", at="2026-10-15T14:00:00Z", by="PUNZI Alessandro")],
         pull_requests=[dict(title="Fleet KPI", at="2026-10-15T10:00:00Z", by="PUNZI Alessandro")]))
+    # Tutte le build della finestra, anche i push su dev_ale prima del merge (2026-10-27).
+    monkeypatch.setattr(azure_devops, "builds_since", lambda since: [
+        dict(name="Data", branch="refs/heads/dev_ale", message="Alerts v7: template A/B", at="2026-10-15T13:00:00Z",
+             by="PUNZI Alessandro"),
+        dict(name="Data", at="2026-10-15T14:00:00Z", by="Project Collection Build Service")])
     people = iveco._deploys(datetime(2026, 10, 15))
     assert set(people) == {"Alessandro", "Gabry", "Project Collection Build Service"}
+    assert [b["message"] for b in people["Alessandro"]["builds"]] == ["Alerts v7: template A/B"]
     assert [d["environment"] for d in people["Gabry"]["deployments"]] == ["PRD"]
     assert "deployments" not in people["Alessandro"]  # quello vecchio e' fuori finestra
     assert people["Alessandro"]["pull_requests"][0]["title"] == "Fleet KPI"

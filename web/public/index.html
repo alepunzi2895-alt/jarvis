@@ -171,6 +171,7 @@
           <div class="panel-tabs" role="tablist" aria-label="IVECO">
             <button type="button" role="tab" aria-selected="true" aria-controls="iveco-recap">Recap daily</button>
             <button type="button" role="tab" aria-selected="false" aria-controls="iveco-jobs">Job</button>
+            <button type="button" role="tab" aria-selected="false" aria-controls="iveco-tickets">Ticket</button>
             <button type="button" role="tab" aria-selected="false" aria-controls="iveco-agent">IVGAgent</button>
           </div>
           <div class="panel-tab" id="iveco-recap" role="tabpanel">
@@ -180,6 +181,10 @@
           <div class="panel-tab" id="iveco-jobs" role="tabpanel" hidden>
             <div id="iveco-jobs-body" aria-live="polite">Caricamento job…</div>
             <div id="devops-data" aria-live="polite"></div>
+          </div>
+          <div class="panel-tab" id="iveco-tickets" role="tabpanel" hidden>
+            <button type="button" class="panel-action" id="iveco-tickets-btn">Aggiorna e analizza</button>
+            <div id="iveco-tickets-body" aria-live="polite">Caricamento ticket…</div>
           </div>
           <div class="panel-tab" id="iveco-agent" role="tabpanel" hidden>
             <form class="agent-form" id="ivgagent-form">
@@ -204,6 +209,7 @@
             <button type="button" class="panel-action" data-connect-app="outlook">Collega Outlook</button>
             <button type="button" class="panel-action" data-connect-app="databricks_qas">Collega Databricks QAS</button>
             <button type="button" class="panel-action" data-connect-app="devops">Collega Azure DevOps</button>
+            <button type="button" class="panel-action" data-connect-app="servicenow">Collega ServiceNow</button>
             <button type="button" class="panel-action" data-connect-app="all">Apri tutte</button>
           </div>
           <p class="panel-footnote">Azure DevOps apre il login Microsoft nel browser predefinito: serve ai deploy del recap.</p>

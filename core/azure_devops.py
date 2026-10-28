@@ -114,6 +114,28 @@ def snapshot():
                 'builds': [], 'deployments': [], 'partial': True}
 
 
+def _build(row):
+    return {
+        'id': row.get('id'), 'name': (row.get('definition') or {}).get('name'),
+        'number': row.get('buildNumber'), 'branch': row.get('sourceBranch'),
+        'status': row.get('status'), 'result': row.get('result'),
+        'at': row.get('finishTime') or row.get('startTime') or row.get('queueTime'),
+        'by': (row.get('requestedFor') or {}).get('displayName'),
+        'message': ((row.get('triggerInfo') or {}).get('ci.message') or '')[:200],
+    }
+
+
+def builds_since(since):
+    """Tutte le build da `since` (datetime con o senza fuso). snapshot() tiene solo
+    l'ultima per pipeline: il 2026-10-27 il recap vedeva solo il merge "Dev ale"
+    su main, senza i push su dev_ale che dicevano cosa conteneva (Alerts v7)."""
+    config = settings()
+    rows, _ = _read(config, auth_headers(config), 'build/builds',
+                    {'$top': 100, 'queryOrder': 'queueTimeDescending',
+                     'minTime': since.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')})
+    return [_build(row) for row in rows]
+
+
 def _snapshot(config, headers):
     errors, partial, collections = {}, [], {}
     requests_by_kind = {
@@ -136,14 +158,7 @@ def _snapshot(config, headers):
                 partial.append(kind)
             if error:
                 errors[kind] = error
-    builds = [{
-        'id': row.get('id'), 'name': (row.get('definition') or {}).get('name'),
-        'number': row.get('buildNumber'), 'branch': row.get('sourceBranch'),
-        'status': row.get('status'), 'result': row.get('result'),
-        'at': row.get('finishTime') or row.get('startTime') or row.get('queueTime'),
-        'by': (row.get('requestedFor') or {}).get('displayName'),
-        'message': ((row.get('triggerInfo') or {}).get('ci.message') or '')[:200],
-    } for row in collections['builds']]
+    builds = [_build(row) for row in collections['builds']]
     pull_requests = [{
         'repo': (row.get('repository') or {}).get('name'), 'title': row.get('title'),
         'description': (row.get('description') or '')[:300], 'status': row.get('status'),
