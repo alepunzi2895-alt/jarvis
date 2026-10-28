@@ -571,3 +571,27 @@ def test_direct_mobile_orb_visible_animated_and_paused_in_background(mobile_page
       document.dispatchEvent(new Event('visibilitychange'));
     }""")
     page.wait_for_function("document.querySelector('#orb-canvas').toDataURL() !== orbBefore")
+
+
+def test_direct_open_webcam_and_ask_sends_question_with_frame(mobile_page):
+    """2026-10-28: "apri la webcam e dimmi cosa vedi" apriva solo la webcam."""
+    page = mobile_page
+    page.evaluate("""() => {
+      Object.defineProperty(HTMLVideoElement.prototype, 'srcObject', {set() {}, get() { return null; }, configurable: true});
+      Object.defineProperty(HTMLVideoElement.prototype, 'videoWidth', {get() { return 64; }, configurable: true});
+      Object.defineProperty(HTMLVideoElement.prototype, 'videoHeight', {get() { return 48; }, configurable: true});
+      Object.defineProperty(HTMLMediaElement.prototype, 'readyState', {get() { return 4; }, configurable: true});
+    }""")
+    page.locator("#console-text").fill("apri la webcam e dimmi cosa vedi")
+    page.locator("#console-text").press("Enter")
+    page.wait_for_function("liveMessages.some(m => m.type === 'text')")
+    first = page.evaluate("liveMessages.find(m => m.type === 'text')")
+    page.evaluate("(id) => liveSocket.emit({type:'accepted', id, prompt:'apri la webcam e dimmi cosa vedi'})", first["id"])
+    assert page.locator("#win-camera").is_visible()
+    page.wait_for_function("liveMessages.some(m => m.type === 'text' && m.image_b64)")
+    asked = page.evaluate("liveMessages.find(m => m.type === 'text' && m.image_b64)")
+    assert asked["prompt"] == "apri la webcam e dimmi cosa vedi"
+    assert asked["image_b64"].startswith("data:image/jpeg")
+    # La domanda con l'immagine non viene reintercettata come comando di interfaccia.
+    page.evaluate("(id) => liveSocket.emit({type:'accepted', id, prompt:'apri la webcam e dimmi cosa vedi'})", asked["id"])
+    assert page.evaluate("liveMessages.filter(m => m.type === 'cancel').length") == 1

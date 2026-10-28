@@ -89,7 +89,7 @@
         for (const id of entries.keys()) if (id !== data.id) superseded.add(id);
         current = data.id;
         entry.querySelector(".prompt").textContent = data.prompt;
-        if (handleVoiceUiCommand(data.prompt)) {
+        if (!entry.dataset.image && handleVoiceUiCommand(data.prompt)) {
           if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: "cancel" }));
           silence();
           fillEntry(entry, { status: "done", result: "Azione avviata." });
