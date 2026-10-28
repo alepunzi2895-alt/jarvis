@@ -33,7 +33,8 @@ _NOTE_RE = re.compile(r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) - (.+?) \(Work no
 _lock = threading.Lock()
 LOG = logging.getLogger(__name__)
 
-_READY_JS = "() => typeof window.g_ck === 'string' && window.g_ck.length > 10"
+_READY_JS = ("() => document.readyState === 'complete' && location.pathname.startsWith('/now/') && "
+             "typeof window.g_ck === 'string' && window.g_ck.length > 10")
 _TASKS_JS = """async ({group, closedDays}) => {
   const fields = 'number,short_description,description,state,assigned_to,opened_at,closed_at,' +
     'sys_updated_on,request_item,work_notes,active,priority';
@@ -90,13 +91,19 @@ def read_tasks(loop) -> list[dict]:
     if loop is None:
         raise RuntimeError("browser JARVIS non raggiungibile da questo processo")
     from core.browser import get_agent
-    page = f"{BASE_URL}/sc_task_list.do?sysparm_query=assignment_group.nameSTARTSWITH{GROUP}"
-    future = asyncio.run_coroutine_threadsafe(get_agent().evaluate_on(
-        page, _READY_JS, _TASKS_JS, {"group": GROUP, "closedDays": CLOSED_DAYS}), loop)
-    try:
-        return future.result(timeout=120)
-    finally:
-        future.cancel()
+    # Recap del 2026-10-28: "Failed to fetch" aprendo sc_task_list.do, che reindirizza
+    # alla UI unificata dopo aver gia' esposto g_ck (fetch interrotta dalla navigazione).
+    # Si apre direttamente l'URL finale e si ritenta una volta.
+    for attempt in range(2):
+        future = asyncio.run_coroutine_threadsafe(get_agent().evaluate_on(
+            LIST_URL, _READY_JS, _TASKS_JS, {"group": GROUP, "closedDays": CLOSED_DAYS}), loop)
+        try:
+            return future.result(timeout=120)
+        except Exception as error:  # noqa: BLE001
+            if attempt or not re.search(r"Failed to fetch|context was destroyed|navigat", str(error)):
+                raise
+        finally:
+            future.cancel()
 
 
 def _last_note(text: str) -> tuple[datetime | None, str]:

@@ -105,3 +105,19 @@ def test_recap_facts_are_compact(monkeypatch):
     assert facts["work_in_progress"] == 1 and "tickets" not in facts and "weeks" not in facts
     assert set(facts["open_tickets"][0]) == {"number", "state", "assigned_to", "age_days", "days_without_notes",
                                              "stale", "linked_development"}
+
+
+def test_read_tasks_retries_once_after_aborted_fetch(monkeypatch, browser_loop):
+    from core import browser
+    calls = []
+
+    class Agent:
+        async def evaluate_on(self, url, ready, script, arg=None):
+            calls.append(url)
+            if len(calls) == 1:
+                raise RuntimeError("Page.evaluate: TypeError: Failed to fetch")
+            return [{"number": "SCTASK1"}]
+
+    monkeypatch.setattr(browser, "get_agent", lambda: Agent())
+    assert servicenow.read_tasks(browser_loop) == [{"number": "SCTASK1"}]
+    assert calls == [servicenow.LIST_URL] * 2
