@@ -18,6 +18,9 @@ def _isolate_personal_memory_and_tradepilot(monkeypatch, tmp_path):
     monkeypatch.setattr('core.console_presence._cache', {'at': 0.0, 'value': False})
     monkeypatch.setattr('core.feed.FEED', tmp_path / 'feed.jsonl')
     monkeypatch.setattr('core.costs.DB', tmp_path / 'costs.sqlite3')
+    monkeypatch.setattr('core.project_insights.CONVERSATIONS_FILE', tmp_path / 'conversations.jsonl')
+    monkeypatch.setattr('core.project_insights.INSIGHTS_FILE', tmp_path / 'project-insights.json')
+    monkeypatch.setattr('core.project_insights.NOTES_DIR', tmp_path / 'notes')
 
 
 @pytest.fixture(autouse=True)
