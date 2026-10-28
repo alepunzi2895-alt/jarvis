@@ -107,7 +107,11 @@
       case "audio":
         playback = playback.then(() => play(data.id, data.data)).catch(() => setStatus("Audio non disponibile. La risposta è nella console."));
         break;
+      case "progress":
+        window.showProgress?.(data.label, data.percent);
+        break;
       case "result":
+        window.hideProgress?.();
         fillEntry(entry, { ...data, status: "done" });
         break;
       case "done": {
@@ -119,9 +123,10 @@
       }
       case "ignored": entry.remove(); finish(data.id); setStatus("Audio ricevuto. Di’ Jarvis e poi il comando."); break;
       case "cancelled":
+        window.hideProgress?.();
         if (current === data.id) silence();
         finish(data.id, superseded.has(data.id) ? "Sostituito dal comando successivo." : "Interrotto."); break;
-      case "error": finish(data.id, data.message); setStatus(data.message); break;
+      case "error": window.hideProgress?.(); finish(data.id, data.message); setStatus(data.message); break;
       case "notice": setStatus(data.message); break;
     }
   }

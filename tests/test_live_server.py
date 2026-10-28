@@ -543,3 +543,51 @@ def test_iveco_panel_actions_require_login_and_run_recap_once(monkeypatch):
             assert started == [("claude", "IVGAgent", "stato job", "read", "", True)]
             assert tasks["tasks"] == [{"project": "IVGAgent"}]
     asyncio.run(run())
+
+
+def test_slow_answer_gets_ack_progress_events_and_spoken_percent(monkeypatch):
+    """2026-10-28: "buongiorno" senza nulla da dire per un minuto. Ora frase subito,
+    percentuale a voce e passi sulla dashboard mentre il lavoro prosegue."""
+    from core import live_server, progress
+    monkeypatch.setattr(live_server, "ACK_AFTER_SEC", 0.05)
+    monkeypatch.setattr(live_server, "PROGRESS_EVERY_SEC", 0.2)
+
+    class SlowEngine(FakeEngine):
+        async def respond(self, prompt, image, history, sentence, **options):
+            def work():  # come intents/briefing: thread con il reporter ereditato
+                progress.report("calendario pronto", 40)
+                time.sleep(0.35)
+                progress.report("posta pronta", 80)
+            await finish_thread(work)
+            await sentence("Ecco il briefing.")
+            return dict(result="Ecco il briefing.", workspace="jarvis", cost_usd=0)
+
+    async def scenario():
+        client, server = await client_for(SlowEngine())
+        async with client:
+            await login(client)
+            socket = await client.ws_connect("/live/ws")
+            await socket.send_json(dict(type="text", id="b", prompt="buongiorno"))
+            messages = await until(socket, "done", "b")
+            spoken = [m["text"] for m in messages if m["type"] == "sentence"]
+            assert spoken[0] == progress.ack_for("buongiorno")
+            assert "Sono al 40 per cento: calendario pronto." in spoken
+            assert spoken[-1] == "Ecco il briefing."
+            steps = [(m["label"], m["percent"]) for m in messages if m["type"] == "progress"]
+            assert ("calendario pronto", 40) in steps and ("posta pronta", 80) in steps
+            await socket.close()
+    asyncio.run(scenario())
+
+
+def test_fast_answer_has_no_ack():
+    async def scenario():
+        client, server = await client_for()
+        async with client:
+            await login(client)
+            socket = await client.ws_connect("/live/ws")
+            await socket.send_json(dict(type="text", id="f", prompt="come stai"))
+            messages = await until(socket, "done", "f")
+            assert [m["text"] for m in messages if m["type"] == "sentence"] == ["Prima frase.", "Seconda frase."]
+            assert not [m for m in messages if m["type"] == "progress"]
+            await socket.close()
+    asyncio.run(scenario())

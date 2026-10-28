@@ -786,6 +786,7 @@ async def _run_claude_api(
     cost = 0.0
     final_text = "(nessun output)"
     spoken_final = ""
+    tool_steps = 0  # per la percentuale di avanzamento (core/progress.py)
 
     system_blocks = _cached_system_blocks(system_prompt)
     for _ in range(max_turns or MAX_TOOL_TURNS):
@@ -839,6 +840,9 @@ async def _run_claude_api(
         for block in response.content:
             if block.type != "tool_use":
                 continue
+            from core import progress
+            tool_steps += 1
+            progress.report(progress.tool_label(block.name), progress.tool_percent(tool_steps))
             if on_sentence:
                 from core.voice.streaming import finish_thread
                 result_text, is_error = await finish_thread(_execute_tool, block.name, block.input, cwd)

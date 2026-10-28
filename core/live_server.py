@@ -25,10 +25,14 @@ from aiohttp import web, WSMsgType, ClientSession, ClientTimeout
 ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(ROOT / ".env")
 from core.voice.streaming import finish_thread
-from core import conversation_memory as memory, tradepilot, azure_devops, console_presence, feed, telegram, outlook_web
+from core import conversation_memory as memory, tradepilot, azure_devops, console_presence, feed, telegram, outlook_web, progress
 
 LOG = logging.getLogger(__name__)
 COOKIE = "jarvis_live"
+# Frase immediata se la risposta non e' partita entro questo tempo, poi la
+# percentuale a voce a intervalli (richiesta di Alessandro, 2026-10-28).
+ACK_AFTER_SEC = 1.2
+PROGRESS_EVERY_SEC = 7
 TTL = 12 * 3600
 MAX_FRAME = 4 * 1024 * 1024
 # Apple Watch (Comandi Rapidi): token Bearer, niente cookie ne' Origin.
@@ -567,10 +571,46 @@ class LiveServer:
                             LOG.warning("Sintesi voce non disponibile", exc_info=True)
                             await send("notice", rid, message="Voce non disponibile; la risposta resta leggibile.")
 
+                # Avanzamento (core/progress.py): se la risposta non parte entro ACK_AFTER_SEC
+                # JARVIS dice subito cosa sta facendo, poi la percentuale ogni PROGRESS_EVERY_SEC;
+                # la dashboard riceve ogni passo come evento "progress" e lo disegna.
+                loop = asyncio.get_running_loop()
+                state = {"answered": False, "label": "", "percent": None}
+
+                def reporter(label, percent):  # chiamato anche dai thread di intents e briefing
+                    def apply():
+                        state["label"] = label
+                        if percent is not None:
+                            state["percent"] = percent
+                        asyncio.ensure_future(send("progress", rid, label=label, percent=state["percent"]))
+                    loop.call_soon_threadsafe(apply)
+
+                async def answer(text):
+                    state["answered"] = True
+                    await sentence(text)
+
+                async def narrate():
+                    await asyncio.sleep(ACK_AFTER_SEC)
+                    if state["answered"]:
+                        return
+                    await sentence(progress.ack_for(prompt))
+                    if state["percent"] is None:
+                        reporter("al lavoro", 5)
+                    for _ in range(3):
+                        await asyncio.sleep(PROGRESS_EVERY_SEC)
+                        if state["answered"]:
+                            return
+                        percent, label = state["percent"], state["label"]
+                        await sentence(f"Sono al {percent} per cento: {label}." if percent and label not in ("", "al lavoro")
+                                       else "Ancora un momento, sto completando.")
+
                 speaker = asyncio.create_task(audio())
+                token = progress.bind(reporter)
+                narrator = asyncio.create_task(narrate())
                 try:
                     async with asyncio.timeout(180):
-                        result = await self.engine.respond(prompt, image, session["conversations"], sentence)
+                        result = await self.engine.respond(prompt, image, session["conversations"], answer)
+                        narrator.cancel()
                         row = dict(id=rid, prompt=prompt, status="done", at=time.strftime("%Y-%m-%d %H:%M:%S"), **result)
                         session["history"].append(row)
                         from core import project_insights
@@ -591,6 +631,8 @@ class LiveServer:
                     LOG.exception("Comando diretto fallito")
                     await send("error", rid, message="Comando non completato. Controlla la connessione del PC.")
                 finally:
+                    narrator.cancel()
+                    progress.reset(token)
                     await cancel(speaker)
 
         async def accept(body):
