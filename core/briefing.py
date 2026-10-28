@@ -18,7 +18,7 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor, wait
 import datetime as dt
 
-from core import myfxbook, outlook, project_status, weather
+from core import myfxbook, outlook, progress, project_status, weather
 
 
 def _safe(fn):
@@ -37,6 +37,7 @@ def _minutes_until_midnight(now: dt.datetime) -> int:
 # fila e Outlook appeso (46 s il calendario, 8 s le mail). Ora le fonti partono
 # insieme e quello che non arriva entro il tetto resta fuori dal briefing.
 DEADLINE_SEC = 12
+_LABELS = {"weather": "meteo", "events": "calendario", "unread": "posta", "statuses": "progetti", "trading": "trading"}
 
 
 def gather_briefing_data(executor, deadline: float = DEADLINE_SEC) -> dict:
@@ -51,6 +52,15 @@ def gather_briefing_data(executor, deadline: float = DEADLINE_SEC) -> dict:
         jobs["trading"] = myfxbook.get_accounts_sync
     pool = ThreadPoolExecutor(max_workers=len(jobs))
     futures = {name: pool.submit(_safe, fn) for name, fn in jobs.items()}
+    # Avanzamento a voce e a schermo: il reporter va preso qui, i callback girano nei thread del pool.
+    reporter, done = progress.current(), []
+    progress.report("raccolgo meteo, calendario, posta e progetti", 5)
+    for name, future in futures.items():
+        def finished(_, name=name):
+            done.append(name)
+            if reporter:
+                reporter(f"{_LABELS.get(name, name)} pronto", 5 + 90 * len(done) // len(futures))
+        future.add_done_callback(finished)
     wait(futures.values(), timeout=deadline)
     pool.shutdown(wait=False)  # una fonte lenta finisce in background, senza trattenere la risposta
     data = {"now": now}

@@ -52,6 +52,19 @@
           <div class="orb-word">JARVIS</div>
           <div class="orb-clock" id="hud-clock">--:--:--</div>
         </div>
+        <!-- Avanzamento dei comandi lunghi (core/progress.py): anello, percentuale e passi. -->
+        <div class="task-progress" id="task-progress" hidden>
+          <svg class="task-ring" viewBox="0 0 120 120" aria-hidden="true">
+            <circle class="task-ring-scan" cx="60" cy="60" r="57"></circle>
+            <circle class="task-ring-track" cx="60" cy="60" r="52"></circle>
+            <circle class="task-ring-fill" id="task-ring-fill" cx="60" cy="60" r="52" pathLength="100"></circle>
+          </svg>
+          <div class="task-info" role="status" aria-live="polite">
+            <strong id="task-percent">0%</strong>
+            <span id="task-label">al lavoro</span>
+            <ol id="task-steps"></ol>
+          </div>
+        </div>
       </div>
 
       <figure class="hologram open" id="hologram" aria-hidden="true">

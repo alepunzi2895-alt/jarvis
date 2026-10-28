@@ -1905,6 +1905,39 @@ let botSpeaking = false;
 let orbState = "idle";
 let orbStateGen = 0;
 
+// Avanzamento dei comandi lunghi (eventi "progress" da LiveBridge): anello attorno
+// alla sfera che si riempie, percentuale, passo attuale e ultimi passi completati.
+function showProgress(label, percent) {
+  const box = $("#task-progress");
+  if (!box) return;
+  box.hidden = false;
+  const value = Number.isFinite(percent) ? percent : null;
+  $("#task-percent").textContent = value == null ? "…" : `${value}%`;
+  $("#task-ring-fill").style.strokeDasharray = `${value ?? 3} 100`;
+  const current = $("#task-label");
+  const steps = $("#task-steps");
+  if (label && current.textContent !== label) {
+    if (current.textContent && current.textContent !== "al lavoro") {
+      const done = document.createElement("li");
+      done.textContent = current.textContent;
+      steps.append(done);
+      while (steps.children.length > 3) steps.firstChild.remove();
+    }
+    current.textContent = label;
+  }
+}
+
+function hideProgress() {
+  const box = $("#task-progress");
+  if (!box || box.hidden) return;
+  box.hidden = true;
+  $("#task-steps").replaceChildren();
+  $("#task-label").textContent = "al lavoro";
+  $("#task-ring-fill").style.strokeDasharray = "0 100";
+}
+window.showProgress = showProgress;
+window.hideProgress = hideProgress;
+
 function setOrbState(name) {
   orbState = name;
   window.JarvisOrb?.setState(name);
