@@ -69,7 +69,7 @@ button:focus-visible, input:focus-visible {
 
 .voice-status {
   position: absolute;
-  bottom: 84px;
+  bottom: 140px;
   left: 50%;
   transform: translateX(-50%);
   max-width: calc(100% - 24px);
@@ -511,12 +511,6 @@ header::after {
   .floating-window { width: 92vw; }
 }
 
-/* Console a sinistra (desktop); l'ologramma sta a destra. */
-#win-chat, #win-chat.open {
-  left: 24px;
-  transform: translate(0, -50%) translate(var(--x, 0px), var(--y, 0px)) scale(1);
-}
-
 /* ── Ologramma accanto alla console (desktop) ─────────────────────────── */
 
 .hologram {
@@ -660,6 +654,58 @@ header::after {
 }
 
 .send-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+/* ── Conversazione senza finestra (2026-10-28) ─────────────────────────
+   Testo a sinistra sopra lo sfondo, in trasparenza, scorrevole; la barra per
+   scrivere sta in basso al centro, sopra il dock. Sotto ai pannelli. */
+.chat-overlay {
+  position: absolute;
+  left: 24px;
+  top: 12px;
+  bottom: 150px;
+  width: min(460px, 34vw);
+  display: none;
+  flex-direction: column;
+  z-index: 3;
+  pointer-events: none;
+}
+.chat-overlay.open { display: flex; }
+.chat-overlay .fw-body--console { flex: 1; min-height: 0; display: flex; flex-direction: column; background: transparent; }
+.chat-overlay .console-log {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+  padding: 40px 12px 8px 0;
+  pointer-events: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(137, 135, 129, 0.35) transparent;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.85);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 56px);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 56px);
+}
+.chat-overlay .entry .result { color: rgba(255, 255, 255, 0.82); }
+.chat-overlay .entry .meta { color: rgba(195, 194, 183, 0.55); }
+.chat-overlay .live-controls { border: 0; padding: 0; }
+.chat-overlay .live-controls span { color: rgba(167, 191, 220, 0.75); }
+
+.console-bar {
+  position: absolute;
+  left: 50%;
+  bottom: 86px;
+  transform: translateX(-50%);
+  width: min(680px, calc(100% - 32px));
+  padding: 0;
+  border: 0;
+  z-index: 96;
+}
+.console-bar input {
+  padding: 12px 20px;
+  border-radius: 999px;
+  border-color: rgba(57, 135, 229, 0.35);
+  background: rgba(13, 13, 13, 0.6);
+  backdrop-filter: blur(8px);
+}
+.console-bar input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-dim); }
 
 /* ── Camera ─────────────────────────────────────────────────────────── */
 
@@ -972,7 +1018,9 @@ header::after {
     box-shadow: none;
   }
   .floating-window.open { display: flex; }
-  #win-chat, #win-chat.open { left: 0; transform: none; }
+  .chat-overlay { left: 4px; right: 4px; width: auto; top: calc(var(--mobile-orb-size) + 8px); bottom: 0; }
+  .hud-stage:has(.floating-window.open) .chat-overlay { display: none; }
+  .console-bar { position: static; transform: none; width: auto; margin: 0 12px 6px; flex: 0 0 auto; }
   .fw-header { padding: 2px 8px 2px 16px; cursor: default; touch-action: auto; }
   .fw-header:active { cursor: default; }
   .fw-header::after, header::after { animation: none; }
@@ -1036,3 +1084,9 @@ header::after {
 @media (min-width: 861px) {
   #win-weather { max-height: calc(var(--app-height, 100vh) - 180px); }
 }
+
+/* Prossimi step e consigli nelle card della Panoramica (core/project_insights.py). */
+.project-insights { margin-top: 8px; border-top: 1px solid var(--border); padding-top: 6px; }
+.project-insights summary { cursor: pointer; color: var(--accent); font-size: 12px; }
+.project-insights ul { margin: 4px 0 8px; padding-left: 18px; color: var(--text-secondary); font-size: 12px; line-height: 1.45; }
+.project-card-label { margin: 6px 0 0; color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }

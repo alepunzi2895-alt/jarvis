@@ -58,22 +58,11 @@
         <video src="/media/online.mp4" autoplay muted playsinline preload="auto"></video>
       </figure>
 
-      <section class="floating-window open" id="win-chat" style="--x:0px; --y:20px;">
-        <header class="fw-header">
-          <span class="fw-title">Conversazione</span>
-          <button type="button" class="fw-close" data-close="win-chat">✕</button>
-        </header>
-        <div class="fw-body fw-body--console">
+      <!-- Conversazione senza finestra (Alessandro, 2026-10-28): testo a sinistra in
+           trasparenza, scorrevole, nessun pulsante; si scrive nella barra in basso. -->
+      <section class="chat-overlay open" id="win-chat" aria-label="Conversazione">
+        <div class="fw-body--console">
           <div class="console-log" id="console-log"></div>
-          <div class="conversation-starters" aria-label="Suggerimenti">
-            <button type="button" data-prompt="Organizza la mia giornata usando agenda, progetti e obiettivi: proponi tre priorità concrete.">Organizza oggi</button>
-            <button type="button" data-prompt="Analizza i job Databricks PRD degli ultimi sette giorni: falliti, durate, periodo e copertura. Poi confronta le dashboard pubblicate in PRD con quelle in QAS.">Analizza i job</button>
-            <button type="button" data-prompt="Aiutami a scegliere su cosa concentrarmi tra lavoro, progetti e vita personale. Parti dai miei obiettivi e fammi una domanda utile.">Trova il focus</button>
-          </div>
-          <form class="console-input" id="console-form">
-            <input type="text" id="console-text" placeholder="Chiedi a JARVIS…" aria-label="Messaggio per JARVIS" autocomplete="off" enterkeyhint="send" />
-            <button type="submit" class="send-btn" title="Invia" aria-label="Invia messaggio">➤</button>
-          </form>
         </div>
       </section>
 
@@ -219,6 +208,9 @@
 
     </div>
 
+    <form class="console-input console-bar" id="console-form">
+      <input type="text" id="console-text" placeholder="Chiedi a JARVIS…" aria-label="Messaggio per JARVIS" autocomplete="off" enterkeyhint="send" />
+    </form>
     <p class="voice-status" id="voice-status" role="status" aria-live="polite">Tocca il microfono per parlare</p>
     <div class="dock corner-frame" role="toolbar" aria-label="Comandi JARVIS">
       <button type="button" class="mic-btn" id="mic-btn" aria-label="Attiva microfono" aria-pressed="false" title="Attiva microfono">🎙</button>

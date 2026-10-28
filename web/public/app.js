@@ -361,13 +361,15 @@ function openWindow(id) {
   const win = document.getElementById(id);
   if (!win) return;
   if (compactLayout.matches) {
-    document.querySelectorAll(".floating-window.open").forEach((other) => {
+    document.querySelectorAll(".floating-window.open, .chat-overlay.open").forEach((other) => {
       if (other !== win) closeWindow(other.id);
     });
   }
   if (win.classList.contains("open")) return;
   win.classList.add("open");
-  bringToFront(win);
+  // La conversazione non e' una finestra: resta sotto ai pannelli e non si sposta per la sfera.
+  const floating = win.classList.contains("floating-window");
+  if (floating) bringToFront(win);
   dockBtnFor(id)?.classList.add("open");
   dockBtnFor(id)?.setAttribute("aria-pressed", "true");
   if (id === "win-brain") { startBrainGraph(); refreshMemories(); }
@@ -379,7 +381,7 @@ function openWindow(id) {
     fitWeatherWindow();
     refreshWeatherForecast();
   }
-  clearOrb(win);
+  if (floating) clearOrb(win);
 }
 
 // Le finestre non coprono mai la sfera (Alessandro, 2026-10-27). Desktop: una
@@ -1391,38 +1393,53 @@ function _lastCommitShort(text) {
 
 async function refreshProjectStatus() {
   try {
-    const { projects } = await api("project_status_data");
+    const { projects, insights = {} } = await api("project_status_data");
     const container = $("#project-cards");
     if (!projects || !projects.length) {
       container.innerHTML = `<p class="panel-footnote">In attesa che il bridge locale pubblichi lo stato progetti…</p>`;
       return;
     }
-    container.innerHTML = projects
-      .map((p) => {
-        if (!p.configured) {
-          return `<div class="project-card disabled">
-            <div class="project-card-title">${_escHtml(p.label)}</div>
-            <p class="panel-footnote">Disponibile in memoria o nel registro; percorso locale non configurato.</p>
-          </div>`;
-        }
-        if (p.error) {
-          return `<div class="project-card">
-            <div class="project-card-title">${_escHtml(p.label)}</div>
-            <p class="panel-footnote">Errore git: ${_escHtml(p.error.slice(0, 80))}</p>
-          </div>`;
-        }
-        if (!p.branch) return `<div class="project-card"><div class="project-card-title">${_escHtml(p.label)}</div><p class="panel-footnote">Cartella locale senza Git.</p></div>`;
-        return `
-          <div class="project-card">
-            <div class="project-card-title">${_escHtml(p.label)} <span class="project-branch">${_escHtml(p.branch || "")}</span></div>
-            <div class="project-card-row"><span>Modifiche in sospeso</span><strong>${p.dirty_files}</strong></div>
-            <div class="project-card-row"><span>Ultimo commit</span><strong>${_escHtml(_lastCommitShort(p.last_commit))}</strong></div>
-          </div>`;
-      })
+    // Prossimi step e consigli ricavati dalle conversazioni (core/project_insights.py).
+    const advice = (p) => {
+      const item = insights[p.key];
+      if (!item) return "";
+      const list = (rows) => rows.length ? `<ul>${rows.map((r) => `<li>${_escHtml(r)}</li>`).join("")}</ul>` : "<p class=\"panel-footnote\">Nessuno.</p>";
+      return `<details class="project-insights" open><summary>Prossimi step e consigli · ${_escHtml(item.updated_at)}</summary>
+        ${item.summary ? `<p class="panel-footnote">${_escHtml(item.summary)}</p>` : ""}
+        <p class="project-card-label">Prossimi step</p>${list(item.next_steps || [])}
+        <p class="project-card-label">Consigli</p>${list(item.advice || [])}</details>`;
+    };
+    // Prima i progetti con prossimi step, poi gli altri nell'ordine di sempre.
+    const ordered = [...projects].sort((a, b) => Boolean(insights[b.key]) - Boolean(insights[a.key]));
+    container.innerHTML = ordered
+      .map((p) => card(p).replace(/<\/div>\s*$/, advice(p) + "</div>"))
       .join("");
   } catch {
     // rete assente/blip transitorio: lascia il pannello com'era
   }
+}
+
+// Card di un progetto: stato Git o motivo per cui manca.
+function card(p) {
+  if (!p.configured) {
+    return `<div class="project-card disabled">
+      <div class="project-card-title">${_escHtml(p.label)}</div>
+      <p class="panel-footnote">Disponibile in memoria o nel registro; percorso locale non configurato.</p>
+    </div>`;
+  }
+  if (p.error) {
+    return `<div class="project-card">
+      <div class="project-card-title">${_escHtml(p.label)}</div>
+      <p class="panel-footnote">Errore git: ${_escHtml(p.error.slice(0, 80))}</p>
+    </div>`;
+  }
+  if (!p.branch) return `<div class="project-card"><div class="project-card-title">${_escHtml(p.label)}</div><p class="panel-footnote">Cartella locale senza Git.</p></div>`;
+  return `
+    <div class="project-card">
+      <div class="project-card-title">${_escHtml(p.label)} <span class="project-branch">${_escHtml(p.branch || "")}</span></div>
+      <div class="project-card-row"><span>Modifiche in sospeso</span><strong>${p.dirty_files}</strong></div>
+      <div class="project-card-row"><span>Ultimo commit</span><strong>${_escHtml(_lastCommitShort(p.last_commit))}</strong></div>
+    </div>`;
 }
 
 // ── GitHub / Vercel reali (core/remote_status.py) ───────────────────

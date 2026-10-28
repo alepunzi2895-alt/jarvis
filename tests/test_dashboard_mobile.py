@@ -125,20 +125,21 @@ def test_mobile_panels_and_controls_stay_inside_viewport(mobile_page):
         assert page.locator("#win-weather").is_visible()
         page.locator('[data-toggle="win-chat"]').click()
         page.wait_for_function("Math.abs(document.querySelector('#app').getBoundingClientRect().height - visualViewport.height) < 2")
-        for selector in ["#win-chat", "#console-text", ".send-btn", ".dock"]:
+        for selector in ["#win-chat", "#console-text", ".dock"]:
             bounds = page.locator(selector).bounding_box()
             assert bounds["x"] >= 0 and bounds["y"] >= 0, selector
             assert bounds["x"] + bounds["width"] <= width + 1, selector
             assert bounds["y"] + bounds["height"] <= height + 1, selector
-        assert page.locator(".send-btn").bounding_box()["height"] >= 44
+        assert page.locator("#console-text").bounding_box()["height"] >= 44
         assert page.locator("#console-text").evaluate("el => getComputedStyle(el).fontSize") == "16px"
         assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
 
 
-def test_direct_unified_starters_and_dynamic_project_labels(mobile_page):
+def test_direct_text_and_dynamic_project_labels(mobile_page):
     page = mobile_page
     assert page.locator('[data-toggle="win-tradeflow"]').count() == 0
-    page.get_by_role("button", name="Organizza oggi", exact=True).click()
+    page.locator("#console-text").fill("Organizza oggi")
+    page.locator("#console-text").press("Enter")
     page.wait_for_function("liveMessages.some(m => m.type === 'text')")
     assert "Organizza" in page.evaluate("liveMessages.find(m => m.type === 'text').prompt")
     page.evaluate("""async () => {
@@ -162,7 +163,8 @@ def test_direct_network_indicator_tracks_socket_not_widget_requests(mobile_page)
     assert page.locator("#hud-conn").inner_text() == "offline"
     page.evaluate("api('runtime_status')")
     assert page.locator("#hud-conn").inner_text() == "offline"
-    page.get_by_role("button", name="Organizza oggi", exact=True).click()
+    page.locator("#console-text").fill("Organizza oggi")
+    page.locator("#console-text").press("Enter")
     assert page.locator("#hud-conn").inner_text() == "collegamento"
     page.evaluate("liveSocket.open()")
     assert page.locator("#hud-conn").inner_text() == "online"
@@ -363,7 +365,9 @@ def test_desktop_keeps_multiple_panels_and_rotation_selects_latest(mobile_page):
     page = mobile_page
     page.set_viewport_size({"width": 1280, "height": 800})
     page.locator('[data-toggle="win-weather"]').click()
-    assert page.locator(".floating-window.open").count() == 2
+    # La conversazione non e' piu' una finestra: resta visibile accanto al pannello.
+    assert page.locator(".floating-window.open").count() == 1
+    assert page.locator("#win-chat").is_visible()
     page.set_viewport_size({"width": 390, "height": 844})
     page.wait_for_function("document.querySelectorAll('.floating-window.open').length === 1")
     assert page.locator("#win-weather").is_visible()
@@ -374,7 +378,7 @@ def test_direct_text_stream_audio_stop_and_no_cloud_fallback(mobile_page):
     uploads = []
     page.on("request", lambda req: uploads.append(req.post_data) if req.url.endswith("/api/jarvis") else None)
     page.locator("#console-text").fill("come stai")
-    page.locator(".send-btn").click()
+    page.locator("#console-text").press("Enter")
     page.wait_for_function("liveMessages.some(m => m.type === 'text')")
     assert "resume" in page.evaluate("mediaCalls")
     page.evaluate("""() => {
@@ -385,7 +389,7 @@ def test_direct_text_stream_audio_stop_and_no_cloud_fallback(mobile_page):
     }""")
     assert "Prima frase." in page.locator(".entry .result").last.inner_text()
     page.wait_for_function("playedSources.length >= 2")
-    page.get_by_role("button", name="Stop", exact=True).click()
+    page.keyboard.press("Escape")  # niente pulsante Stop
     assert page.evaluate("playedSources.at(-1).stopped")
     page.evaluate("liveSocket.close()")
     assert not any(json.loads(body).get("action") == "task_push" for body in uploads if body)
@@ -395,7 +399,7 @@ def test_direct_text_stream_audio_stop_and_no_cloud_fallback(mobile_page):
 def test_direct_hidden_page_keeps_long_command_and_labels_superseded(mobile_page):
     page = mobile_page
     page.locator("#console-text").fill("analizza i job")
-    page.locator(".send-btn").click()
+    page.locator("#console-text").press("Enter")
     page.wait_for_function("liveMessages.some(m => m.type === 'text')")
     page.evaluate("""() => {
       window.firstId = liveMessages.find(m => m.type === 'text').id;
@@ -408,7 +412,7 @@ def test_direct_hidden_page_keeps_long_command_and_labels_superseded(mobile_page
     page.evaluate("liveSocket.emit({type:'sentence', id:firstId, text:'Analisi pronta.'})")
     assert "Analisi pronta." in page.locator(".entry .result").last.inner_text()
     page.locator("#console-text").fill("organizza oggi")
-    page.locator(".send-btn").click()
+    page.locator("#console-text").press("Enter")
     page.wait_for_function("liveMessages.filter(m => m.type === 'text').length === 2")
     page.evaluate("""() => {
       const second = liveMessages.filter(m => m.type === 'text')[1].id;
@@ -421,7 +425,7 @@ def test_direct_hidden_page_keeps_long_command_and_labels_superseded(mobile_page
 def test_direct_desktop_plays_voice_with_hidden_window_and_wakes_audio_on_click(mobile_page):
     page = mobile_page
     page.locator("#console-text").fill("analizza i job")
-    page.locator(".send-btn").click()
+    page.locator("#console-text").press("Enter")
     page.wait_for_function("liveMessages.some(m => m.type === 'text')")
     page.evaluate("""() => {
       window.firstId = liveMessages.find(m => m.type === 'text').id;
@@ -487,13 +491,13 @@ def test_direct_mobile_controls_fit_and_stale_audio_is_discarded(mobile_page):
         box = page.locator(selector).bounding_box()
         assert box["x"] >= 0 and box["x"] + box["width"] <= 321
     page.locator("#console-text").fill("prima")
-    page.locator(".send-btn").click()
+    page.locator("#console-text").press("Enter")
     page.wait_for_function("liveMessages.some(m => m.type === 'text')")
     page.evaluate("""() => {
       const id = liveMessages.find(m => m.type === 'text').id;
       liveSocket.emit({type:'accepted', id, prompt:'prima'});
     }""")
-    page.get_by_role("button", name="Stop", exact=True).click()
+    page.keyboard.press("Escape")  # niente pulsante Stop
     before = page.evaluate("playedSources.length")
     page.evaluate("liveSocket.emit({type:'audio', id:liveMessages.find(m=>m.type==='text').id, data:btoa('stale')})")
     assert page.evaluate("playedSources.length") == before
