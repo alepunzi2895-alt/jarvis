@@ -184,6 +184,11 @@ def _run_in_fresh_thread(fn, *args):
     thread bloccato tiene il lock finche' non finisce, quindi le chiamate
     successive falliscono subito con OutlookError invece di appendersi."""
     global _hung, _down_until
+    # Outlook desktop chiuso: Dispatch lo avvierebbe (lento, a volte senza finestra).
+    # Si usa subito Outlook Web, come per un Outlook appeso.
+    from core import work_apps
+    if not work_apps.desktop_running("outlook"):
+        raise OutlookError("Outlook desktop non aperto: uso Outlook Web")
     if time.monotonic() < _down_until:
         raise OutlookError("Outlook desktop appeso da poco: uso il piano B")
     # Con una chiamata appesa si aspetta al massimo un secondo: basta se
