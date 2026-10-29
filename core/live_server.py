@@ -182,9 +182,11 @@ class Engine:
 
 
 class LiveServer:
-    def __init__(self, password, origins, engine=None, watch_token=None):
+    def __init__(self, password, origins, engine=None, watch_token=None, gateway_token=None):
         self.password_hash = hashlib.sha256(password.encode()).digest()
         self.watch_hash = hashlib.sha256(watch_token.encode()).digest() if watch_token else None
+        # Proxy della VPS (core/gateway.py): accetta l'identita' inoltrata solo con questo token.
+        self.gateway_hash = hashlib.sha256(gateway_token.encode()).digest() if gateway_token else None
         self.watch_conversations = {}
         self.watch_seen = 0.0
         self.origins = set(origins)
@@ -226,6 +228,10 @@ class LiveServer:
         if request.host not in self.passwordless_hosts:
             return None
         identity = request.headers.get("Tailscale-User-Login", "").strip()
+        supplied = request.headers.get("X-Jarvis-Gateway", "")
+        if self.gateway_hash and supplied and hmac.compare_digest(
+                hashlib.sha256(supplied.encode()).digest(), self.gateway_hash):
+            identity = request.headers.get("X-Jarvis-User", "").strip()
         if not identity or len(identity) > 254:
             return None
         return identity.casefold()
@@ -783,8 +789,8 @@ class LiveServer:
         return socket
 
 
-def create_app(password, origins, engine=None, warm=True, watch_token=None):
-    server = LiveServer(password, origins, engine, watch_token)
+def create_app(password, origins, engine=None, warm=True, watch_token=None, gateway_token=None):
+    server = LiveServer(password, origins, engine, watch_token, gateway_token)
     app = web.Application(middlewares=[server.boundary], client_max_size=MAX_FRAME)
     app[web.AppKey("live", LiveServer)] = server
     app.router.add_get("/", server.index)
@@ -843,6 +849,8 @@ def create_app(password, origins, engine=None, warm=True, watch_token=None):
             tasks.append(asyncio.create_task(iveco.recap_loop(telegram.send_to_owner)))
             from core import project_insights
             tasks.append(asyncio.create_task(project_insights.update_loop()))
+            from core import gateway_push
+            tasks.append(asyncio.create_task(gateway_push.push_forever()))
         yield
         await asyncio.gather(*(s.close(code=1001) for s, _ in list(server.sockets)))
         for task in tasks:
@@ -870,7 +878,9 @@ def main():
     origins = {f"http://127.0.0.1:{port}", f"http://localhost:{port}"}
     if config.get("origin"):
         origins.add(config["origin"])
-    web.run_app(create_app(password, origins, watch_token=watch_token), host="127.0.0.1", port=port, access_log=None)
+    gateway_token = os.getenv("JARVIS_GATEWAY_TOKEN", "")
+    web.run_app(create_app(password, origins, watch_token=watch_token, gateway_token=gateway_token),
+                host="127.0.0.1", port=port, access_log=None)
 
 
 if __name__ == "__main__":

@@ -323,6 +323,9 @@ def create_app(relay):
     app = web.Application(client_max_size=64 * 1024)
     app.router.add_get("/telegram/updates", relay.updates)
     app.router.add_post("/watch/ask", relay.watch)
+    # Gateway mobile: sempre l'ultima rotta, cosi' le rotte sopra restano prioritarie.
+    from core.gateway import Gateway
+    Gateway(relay).attach(app)
 
     async def lifecycle(app):
         # CA di certifi: lo store di Windows Server della VPS non ha tutte le radici
