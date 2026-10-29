@@ -7,6 +7,9 @@ Ha anche un second brain: memoria a lungo termine che Claude stesso consulta e
 alimenta task dopo task (`core/brain.py`), visualizzata come grafo animato nella
 dashboard.
 
+## Stato attuale (2026-10-29) — branch feat/live-transcription-memory
+- Testo parziale mentre parli (websocket `partial`, modello `base` CPU), risposte vocali senza ID/codici (`clean_for_speech` + persona), memoria autonoma (`brain.learn_from_exchange` dopo ogni scambio). Non ancora mergiato su main: UI mic da provare dal vivo dopo riavvio LiveBridge.
+
 ## Stato attuale (2026-10-13)
 `main` (merge `10b25cd`) contiene tutto `codex/unified-assistant`: voce privata
 iPhone-PC via Tailscale (LiveBridge, porta 8765, HTTPS 8443), conversazione unica

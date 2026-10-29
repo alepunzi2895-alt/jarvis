@@ -3,7 +3,7 @@
   if (!window.JARVIS_LOCAL) return;
   let socket, connecting, context, nextAudio = 0, current = null;
   let playback = Promise.resolve();
-  const entries = new Map(), sources = new Set(), superseded = new Set();
+  const entries = new Map(), sources = new Set(), superseded = new Set(), partials = new Map();
   let status;
   let sttReady = false;
   let micEnabled = false;
@@ -71,6 +71,12 @@
 
   function message(event) {
     const data = JSON.parse(event.data);
+    if (data.type === "partial") {
+      const onText = partials.get(data.id);
+      partials.delete(data.id);
+      onText?.(data.text || "");
+      return;
+    }
     if (data.type === "ready") {
       if (!sttReady) setStatus(data.stt_ready ? `Voce locale pronta · ${data.device}` : `Preparazione voce locale · ${data.device}`);
       sttReady = data.stt_ready;
@@ -177,6 +183,16 @@
     } catch (error) { finish(id, error.message); }
   }
 
+  // Testo provvisorio mentre si parla: nessuna connessione nuova, solo se il
+  // socket e' gia' aperto. Restituisce false se il passo non e' partito.
+  function partial(base64Wav, onText) {
+    if (socket?.readyState !== WebSocket.OPEN) return false;
+    const id = "p" + crypto.randomUUID().slice(0, 12);
+    partials.set(id, onText);
+    socket.send(JSON.stringify({ type: "partial", id, data: base64Wav }));
+    return true;
+  }
+
   function start() {
     const bar = document.createElement("div");
     bar.className = "live-controls";
@@ -220,5 +236,5 @@
     }
   }
 
-  window.JarvisDirect = { start, submit, unlock, cancel, setMicEnabled, get speaking() { return sources.size > 0; } };
+  window.JarvisDirect = { start, submit, partial, unlock, cancel, setMicEnabled, get speaking() { return sources.size > 0; } };
 })();

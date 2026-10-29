@@ -615,6 +615,8 @@ header::after {
 .entry.pending .result { color: var(--text-muted); }
 .entry.pending .result::after { content: "▍"; animation: blink 1s step-start infinite; }
 .entry.error .result { color: var(--critical); }
+.entry.live .prompt { opacity: 0.7; font-style: italic; }
+.entry.live .prompt::after { content: "▍"; animation: blink 1s step-start infinite; }
 .entry.feed .prompt::before { content: "✉ "; }
 .entry.feed .result { color: var(--text-primary); }
 

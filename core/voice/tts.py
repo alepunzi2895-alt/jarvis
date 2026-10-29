@@ -413,9 +413,22 @@ _SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+|\n+")
 _shared_engine: TTSEngine | None = None
 
 
+_URL_RE = re.compile(r"https?://\S+")
+_WIN_PATH_RE = re.compile(r"[A-Za-z]:\\\S+")
+# ID, hash, UUID e codici alfanumerici (lettere e cifre insieme, 10+ caratteri):
+# letti ad alta voce sono rumore. Le date (solo cifre e trattini) e le parole
+# normali restano. Il testo mostrato in chat non cambia.
+_CODE_RE = re.compile(r"(?<![\w-])(?=[\w-]*\d)(?=[\w-]*[^\W\d_])[\w-]{10,}(?![\w-])")
+_LONG_NUMBER_RE = re.compile(r"(?<!\d)\d{8,}(?!\d)")
+
+
 def clean_for_speech(text: str) -> str:
     """Copia ripulita per il TTS — il testo mostrato all'utente non cambia."""
     text = _MD_LINK_RE.sub(r"\1", text)
+    text = _URL_RE.sub("un link", text)
+    text = _WIN_PATH_RE.sub("un percorso", text)
+    text = _CODE_RE.sub("un codice", text)
+    text = _LONG_NUMBER_RE.sub("un numero lungo", text)
     text = _MD_SYMBOLS_RE.sub("", text)
     return text.strip()
 

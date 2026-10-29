@@ -911,6 +911,32 @@ function _pcmRms(data) {
   return Math.sqrt(sum / data.length);
 }
 
+// Testo mentre parli (solo collegamento diretto): ogni PARTIAL_EVERY_MS si
+// rispedisce la coda del segmento (al massimo PARTIAL_WINDOW_MS) al server, che
+// la trascrive con un modello leggero. Un solo passo alla volta: il server
+// risponde sempre, anche vuoto, quindi il passo successivo parte dopo.
+const PARTIAL_START_MS = 700; // prima parola sufficiente per un primo passo
+const PARTIAL_EVERY_MS = 1200;
+const PARTIAL_WINDOW_MS = 10000;
+
+function _tailFloat32(chunks, maxSamples) {
+  const picked = [];
+  let total = 0;
+  for (let i = chunks.length - 1; i >= 0 && total < maxSamples; i--) {
+    picked.unshift(chunks[i]);
+    total += chunks[i].length;
+  }
+  const all = _concatFloat32(picked);
+  return all.length > maxSamples ? all.subarray(all.length - maxSamples) : all;
+}
+
+async function _blobToBase64(blob) {
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(binary);
+}
+
 function _concatFloat32(chunks) {
   const total = chunks.reduce((s, c) => s + c.length, 0);
   const out = new Float32Array(total);
@@ -984,9 +1010,42 @@ function setupVoice() {
   let silenceMs = 0;
   let onsetCandidateMs = 0; // quanto suono continuo sopra soglia si e' visto finora, PRIMA di committare la registrazione
   let hitMaxDuration = false;
+  // Testo parziale del segmento in corso: l'entry in chat viene creata al primo
+  // testo ricevuto e riusata dal comando finale. segmentSeq scarta le risposte
+  // dei passi parziali arrivate dopo la fine del loro segmento.
+  let segmentSeq = 0;
+  let liveEntry = null;
+  let partialInFlight = false;
+  let lastPartialMs = 0;
 
   function _chunkMs(chunk) {
     return (chunk.length / audioCtx.sampleRate) * 1000;
+  }
+
+  function showLiveText(text) {
+    const clean = text.trim();
+    if (!clean) return;
+    if (!liveEntry) liveEntry = appendEntry(clean);
+    else liveEntry.querySelector(".prompt").textContent = clean;
+    liveEntry.classList.add("live");
+  }
+
+  function maybeSendPartial() {
+    if (partialInFlight || !window.JarvisDirect || segmentMs < PARTIAL_START_MS) return;
+    if (segmentMs - lastPartialMs < PARTIAL_EVERY_MS) return;
+    lastPartialMs = segmentMs;
+    const seq = segmentSeq;
+    const wav = _encodeWav(_tailFloat32(segmentChunks, PARTIAL_WINDOW_MS * audioCtx.sampleRate / 1000), audioCtx.sampleRate);
+    partialInFlight = true;
+    _blobToBase64(wav)
+      .then((b64) => {
+        const sent = window.JarvisDirect.partial(b64, (text) => {
+          partialInFlight = false;
+          if (seq === segmentSeq && recording) showLiveText(text);
+        });
+        if (!sent) partialInFlight = false;
+      })
+      .catch(() => { partialInFlight = false; });
   }
 
   function finalizeSegment() {
@@ -996,12 +1055,14 @@ function setupVoice() {
     segmentChunks = [];
     const durationMs = (samples.length / audioCtx.sampleRate) * 1000;
     const wasMaxDuration = hitMaxDuration;
+    const entry = liveEntry;
+    liveEntry = null;
     segmentMs = 0;
     silenceMs = 0;
     hitMaxDuration = false;
-    if (durationMs < MIC_MIN_SEGMENT_MS) return; // troppo corto: rumore/click, non voce vera
-    if (wasMaxDuration) return; // mai una pausa vera per 15s intere: quasi certamente rumore di fondo, non un comando
-    handleRecordedAudio(_encodeWav(samples, audioCtx.sampleRate));
+    // Rumore o segmento troppo lungo: scartato, quindi via anche il testo parziale mostrato.
+    if (durationMs < MIC_MIN_SEGMENT_MS || wasMaxDuration) { entry?.remove(); return; }
+    handleRecordedAudio(_encodeWav(samples, audioCtx.sampleRate), entry);
   }
 
   // Non accodare un'attivazione: su iOS perderebbe il gesto utente,
@@ -1130,6 +1191,9 @@ function setupVoice() {
           onsetCandidateMs = speaking ? onsetCandidateMs + chunkMs : 0;
           if (onsetCandidateMs >= onsetSustainNeeded) {
             recording = true;
+            segmentSeq++;
+            partialInFlight = false;
+            lastPartialMs = 0;
             segmentChunks = botSpeaking ? [data] : prerollChunks; // pre-buffer solo a mic normale
             segmentMs = botSpeaking ? chunkMs : prerollMs;
             silenceMs = 0;
@@ -1143,6 +1207,7 @@ function setupVoice() {
 
         segmentChunks.push(data);
         segmentMs += chunkMs;
+        maybeSendPartial();
         window.JarvisOrb?.setLevel(rms * 2.5); // reagisce al volume vero mentre registra
         if (speaking) {
           silenceMs = 0;
@@ -1174,6 +1239,9 @@ function setupVoice() {
     recording = false;
     segmentChunks = [];
     prerollChunks = [];
+    liveEntry?.remove();
+    liveEntry = null;
+    partialInFlight = false;
     if (processor) { processor.onaudioprocess = null; processor.disconnect(); }
     silentSink?.disconnect();
     stream?.getTracks().forEach((t) => { t.onended = null; t.stop(); });
@@ -1201,19 +1269,22 @@ function setupVoice() {
   // Il microfono resta spento finché l'utente non lo attiva dal pulsante.
 }
 
-async function handleRecordedAudio(blob) {
+async function handleRecordedAudio(blob, liveEl = null) {
   const reader = new FileReader();
   const audioB64 = await new Promise((resolve, reject) => {
     reader.onloadend = () => resolve(reader.result.split(",")[1]);
     reader.onerror = () => reject(reader.error);
     reader.readAsDataURL(blob);
   });
-  submitTaskAudio(audioB64);
+  submitTaskAudio(audioB64, liveEl);
 }
 
-async function submitTaskAudio(audioB64) {
+// liveEl: l'entry dove il testo parziale e' gia' comparso mentre parlavi; il comando
+// finale la riusa, cosi' il testo non salta da una riga all'altra.
+async function submitTaskAudio(audioB64, liveEl = null) {
   openWindow("win-chat");
-  const el = appendEntry("🎙️ (trascrizione in corso…)");
+  const el = liveEl ?? appendEntry("🎙️ (trascrizione in corso…)");
+  el.classList.remove("live");
   if (window.JarvisDirect) {
     return window.JarvisDirect.submit({ type: "audio", data: audioB64 }, el);
   }

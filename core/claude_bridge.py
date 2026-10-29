@@ -332,6 +332,7 @@ async def _run_post_processing(text: str, ws: str, original_prompt: str, channel
         # Fire-and-forget: e' un log di attivita', non deve aggiungere
         # tempo in coda a una risposta che l'utente sta gia' aspettando.
         threading.Thread(target=brain.log_interaction, args=(original_prompt, ws, channel), daemon=True).start()
+        threading.Thread(target=brain.learn_from_exchange, args=(original_prompt, text, ws, channel), daemon=True).start()
     if text:
         text = await browser.extract_and_execute(text)
     if text:

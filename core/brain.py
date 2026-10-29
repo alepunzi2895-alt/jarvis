@@ -290,6 +290,56 @@ def extract_and_store(result_text: str, workspace: str) -> str:
     return BRAIN_BLOCK_RE.sub("", result_text).strip()
 
 
+_LEARN_MODEL_ALIAS = os.getenv("JARVIS_BRAIN_LEARN_MODEL", "haiku")
+_LEARN_SYSTEM = (
+    "Sei la memoria a lungo termine di JARVIS. Ricevi uno scambio tra Alessandro e "
+    "JARVIS. Salva SOLO fatti durevoli e utili in conversazioni future: preferenze di "
+    "Alessandro, decisioni prese, persone e progetti, scadenze e obiettivi, correzioni "
+    "che ha fatto. NON salvare: domande una tantum, saluti, meteo, ora, esiti di task, "
+    "dati volatili (prezzi, conteggi, stati), supposizioni di JARVIS. "
+    'Rispondi SOLO con JSON valido: {"nodes":[{"label":"...","summary":"...","tags":["..."]}]}. '
+    "Massimo due nodi, label di al massimo sei parole, summary di una frase. Nessun ID, "
+    'codice o numero lungo. Se non c\'e\' nulla di durevole rispondi {"nodes":[]}.'
+)
+_JSON_OBJECT_RE = re.compile(r"\{.*\}", re.DOTALL)
+
+
+def learn_from_exchange(prompt: str, answer: str, workspace: str, channel: str) -> None:
+    """Il second brain impara da solo: dopo ogni scambio un modello leggero decide se
+    c'e' un fatto, una preferenza o una decisione durevole e lo salva, senza che
+    Alessandro debba chiederlo. Best-effort come il resto del modulo: nessun errore
+    (API, JSON, Turso) deve mai toccare la risposta gia' mostrata."""
+    if len(prompt.strip()) < 12 or not answer.strip():
+        return
+    try:
+        import anthropic
+
+        from core import costs
+
+        model = costs.resolve(_LEARN_MODEL_ALIAS)
+        message = anthropic.Anthropic().messages.create(
+            model=model,
+            max_tokens=300,
+            system=_LEARN_SYSTEM,
+            messages=[{
+                "role": "user",
+                "content": f"Canale: {channel}\nAlessandro: {prompt[:1200]}\nJARVIS: {answer[:1200]}",
+            }],
+        )
+        costs.record("memoria", model, message.usage)
+        raw = "".join(getattr(block, "text", "") for block in message.content)
+        match = _JSON_OBJECT_RE.search(raw)
+        if not match:
+            return
+        nodes = [n for n in (json.loads(match.group(0)).get("nodes") or []) if isinstance(n, dict)][:2]
+        if not nodes:
+            return
+        _bootstrap()
+        _store({"nodes": nodes, "edges": []}, workspace)
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def log_interaction(prompt: str, workspace: str, channel: str) -> None:
     """Aggiorna un nodo di log per-giorno/workspace ad OGNI interazione (comando
     rapido di core/intents.py, domanda vocale, chat testuale) — cosi' il grafo
