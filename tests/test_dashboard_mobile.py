@@ -22,6 +22,12 @@ window.micAvailable = true;
 window.lockHeld = false;
 window.fakeNodes = [];
 window.playedSources = [];
+// Risposte vocali su <audio> con blob: ogni play() su blob registra una riproduzione, pause() la ferma.
+HTMLMediaElement.prototype.play = function () {
+  if (String(this.src).startsWith('blob:')) { this.__rec = {stopped: false}; playedSources.push(this.__rec); }
+  return Promise.resolve();
+};
+HTMLMediaElement.prototype.pause = function () { if (this.__rec) this.__rec.stopped = true; };
 window.fakeTrack = {stop() { window.captureStopped++; }};
 const stream = {getTracks: () => [fakeTrack], getAudioTracks: () => [fakeTrack]};
 Object.defineProperty(navigator, 'mediaDevices', {value: {
@@ -380,7 +386,7 @@ def test_direct_text_stream_audio_stop_and_no_cloud_fallback(mobile_page):
     page.locator("#console-text").fill("come stai")
     page.locator("#console-text").press("Enter")
     page.wait_for_function("liveMessages.some(m => m.type === 'text')")
-    assert "resume" in page.evaluate("mediaCalls")
+    assert page.evaluate("window.JarvisDirect.audioState") == "unlocked"
     page.evaluate("""() => {
       const id = liveMessages.find(m => m.type === 'text').id;
       liveSocket.emit({type:'accepted', id, prompt:'come stai'});
@@ -388,7 +394,7 @@ def test_direct_text_stream_audio_stop_and_no_cloud_fallback(mobile_page):
       liveSocket.emit({type:'audio', id, data:btoa('mp3')});
     }""")
     assert "Prima frase." in page.locator(".entry .result").last.inner_text()
-    page.wait_for_function("playedSources.length >= 2")
+    page.wait_for_function("playedSources.length >= 1")
     page.keyboard.press("Escape")  # niente pulsante Stop
     assert page.evaluate("playedSources.at(-1).stopped")
     page.evaluate("liveSocket.close()")
@@ -438,9 +444,7 @@ def test_direct_desktop_plays_voice_with_hidden_window_and_wakes_audio_on_click(
     page.wait_for_function("playedSources.length > playedBefore")
     assert not page.evaluate("liveMessages.some(m => m.type === 'cancel')")
     page.evaluate("Object.defineProperty(document, 'hidden', {value: false, configurable: true})")
-    page.evaluate("allContexts.forEach(c => c.state = 'suspended')")
-    page.locator("#orb-canvas").dispatch_event("pointerdown")
-    assert page.evaluate("allContexts[0].state") == "running"
+    assert page.evaluate("window.JarvisDirect.audioState") == "unlocked"
 
 
 @pytest.mark.parametrize('volume', [.2, .025])

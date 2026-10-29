@@ -526,6 +526,20 @@ class LiveServer:
             if not socket.closed:
                 await socket.send_json(dict(type=kind, id=rid, **payload))
 
+        async def mirror(kind, rid, prompt, text=None):
+            # Il ponte rimanda le richieste fatte da un'altra superficie (telefono) alle console
+            # del PC: stesso comando e stessa risposta in chat, senza duplicare sul mittente.
+            payload = dict(type="mirror", kind=kind, id=rid, prompt=prompt)
+            if text is not None:
+                payload["text"] = text
+            for registered, _ in list(self.consoles):
+                if registered is socket or registered.closed:
+                    continue
+                try:
+                    await registered.send_json(payload)
+                except Exception:  # noqa: BLE001 — una console chiusa non deve bloccare il comando
+                    pass
+
         async def partial(body):
             # Testo provvisorio mentre si parla (solo dashboard). Mai in conflitto con la
             # trascrizione finale: se quella e' in corso il passo viene scartato. Ogni
@@ -638,6 +652,7 @@ class LiveServer:
                         from core import project_insights
                         await asyncio.to_thread(project_insights.record, "dashboard", prompt, result.get("result", ""))
                         await send("result", rid, **result)
+                        await mirror("result", rid, prompt, text=result.get("result", ""))
                         # Anche su Telegram; feed=False: in questa chat c'e' gia'.
                         asyncio.get_running_loop().run_in_executor(
                             None, telegram.send_to_owner, f'\U0001F4BB "{prompt}"\n\n{result["result"]}', None, False)
@@ -699,6 +714,7 @@ class LiveServer:
                     LOG.info("Comando precedente sostituito da %s", rid)
                 await cancel(active)
                 await send("accepted", rid, prompt=prompt, stt_ms=stt_ms)
+                await mirror("prompt", rid, prompt)
                 active = asyncio.create_task(run(rid, prompt, image, started, stt_ms))
             except asyncio.CancelledError:
                 raise

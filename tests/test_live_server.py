@@ -648,3 +648,38 @@ def test_new_audio_supersedes_pending_audio_transcription():
             assert "vecchio" not in engine.commands
             await socket.close()
     asyncio.run(scenario())
+
+
+def test_phone_command_is_mirrored_to_desktop_console_only():
+    async def scenario():
+        engine = FakeEngine()
+        client, server = await client_for(engine)
+        async with client:
+            await login(client)
+            console = await client.ws_connect("/live/ws?pc=1")
+            await until(console, "ready")
+            phone = await client.ws_connect("/live/ws")
+            await until(phone, "ready")
+            await phone.send_json(dict(type="text", id="m1", prompt="come stai"))
+            seen = []
+            for _ in range(30):
+                message = await console.receive_json(timeout=3)
+                seen.append(message)
+                if message["type"] == "mirror" and message["kind"] == "result":
+                    break
+            kinds = [m["kind"] for m in seen if m["type"] == "mirror"]
+            assert kinds == ["prompt", "result"]
+            assert seen[-1]["prompt"] == "come stai"
+            await until(phone, "done", "m1")
+            # Il telefono non riceve il proprio comando come mirror.
+            leaked = []
+            while True:
+                try:
+                    message = await phone.receive_json(timeout=0.5)
+                except Exception:
+                    break
+                leaked.append(message)
+            assert not any(m["type"] == "mirror" for m in leaked)
+            await phone.close()
+            await console.close()
+    asyncio.run(scenario())

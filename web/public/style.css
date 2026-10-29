@@ -618,6 +618,7 @@ header::after {
 .entry.live .prompt { opacity: 0.7; font-style: italic; }
 .entry.live .prompt::after { content: "▍"; animation: blink 1s step-start infinite; }
 .entry.feed .prompt::before { content: "✉ "; }
+.entry.remote .prompt::before { content: "📱 "; }
 .entry.feed .result { color: var(--text-primary); }
 
 @keyframes blink { 50% { opacity: 0; } }
@@ -1005,7 +1006,7 @@ header::after {
   /* Sfera grande con la scritta JARVIS dentro (2026-10-29: prima 140 px senza testo). */
   .orb-core { inset: 26%; }
   .orb-word { font-size: calc(var(--mobile-orb-size) * 0.1); letter-spacing: 0.2em; }
-  .orb-clock { display: none; }
+  .orb-clock { font-size: calc(var(--mobile-orb-size) * 0.05); margin-top: 4px; }
   .short-viewport .conversation-starters { display: none; }
   .floating-window, .floating-window.open {
     top: calc(var(--mobile-orb-size) + 8px);
