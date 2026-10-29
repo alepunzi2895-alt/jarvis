@@ -43,8 +43,18 @@ MAX_RECORD_SECONDS = 15
 WHISPER_BEAM_SIZE = _positive_int_env("JARVIS_WHISPER_BEAM_SIZE", 5)
 WHISPER_CPU_THREADS = _positive_int_env("JARVIS_WHISPER_THREADS", min(8, os.cpu_count() or 4))
 
+# Trascrizione parziale mentre parli (dashboard, collegamento diretto): un modello
+# piu' leggero e greedy, perche' il testo deve comparire in chat in ~1 s e la
+# versione finale, piu' accurata, arriva comunque a fine frase. Benchmark
+# 2026-10-29 su questa CPU, 9 s di parlato: base beam 5 ~1,1 s contro small
+# beam 5 ~5 s. Solo CPU: la GPU qui non e' utilizzabile (driver CUDA insufficiente).
+PARTIAL_MODEL_NAME = os.getenv("JARVIS_PARTIAL_WHISPER_MODEL", "base")
+PARTIAL_MAX_SECONDS = 10  # finestra mobile: oltre questo il parziale costa troppo per ogni passo
+
 _model: WhisperModel | None = None
 _model_lock = threading.RLock()
+_partial_model: WhisperModel | None = None
+_partial_lock = threading.RLock()
 MODEL_DEVICE = "not_loaded"
 
 
@@ -76,6 +86,16 @@ def _load_model() -> WhisperModel:
     return _model
 
 
+def _get_partial_model() -> WhisperModel:
+    global _partial_model
+    with _partial_lock:
+        if _partial_model is None:
+            _partial_model = WhisperModel(
+                PARTIAL_MODEL_NAME, device="cpu", compute_type="int8", cpu_threads=WHISPER_CPU_THREADS
+            )
+        return _partial_model
+
+
 def warm_up() -> None:
     """Carica il modello whisper subito, invece che al lazy-load della prima
     trascrizione reale (~30s la prima volta) — altrimenti la primissima
@@ -84,20 +104,43 @@ def warm_up() -> None:
     with _model_lock:
         model = _get_model()
         list(model.transcribe(np.zeros(SAMPLE_RATE, dtype=np.float32), language="it", vad_filter=True)[0])
+    with _partial_lock:
+        model = _get_partial_model()
+        list(model.transcribe(np.zeros(SAMPLE_RATE, dtype=np.float32), language="it", vad_filter=True)[0])
 
 
-def transcribe_wav(raw: bytes) -> str:
-    """Audio del collegamento diretto: validato e decodificato solo in RAM."""
+def _decode_wav(raw: bytes) -> np.ndarray:
+    """WAV mono 16 bit validato e decodificato in float32 solo in RAM."""
     from faster_whisper.audio import decode_audio
 
     with wave.open(io.BytesIO(raw), "rb") as wav:
         rate = wav.getframerate()
         if wav.getnchannels() != 1 or wav.getsampwidth() != 2 or not 8000 <= rate <= 48000:
             raise ValueError("Formato audio non supportato")
-        if not 0 < wav.getnframes() / rate <= 20:
-            raise ValueError("Registra un comando di massimo 20 secondi")
+        seconds = wav.getnframes() / rate
+    if not 0 < seconds <= 20:
+        raise ValueError("Registra un comando di massimo 20 secondi")
+    return decode_audio(io.BytesIO(raw), sampling_rate=SAMPLE_RATE)
+
+
+def transcribe_wav(raw: bytes) -> str:
+    """Audio del collegamento diretto: validato e decodificato solo in RAM."""
+    audio = _decode_wav(raw)
     with _model_lock:
-        return transcribe(decode_audio(io.BytesIO(raw), sampling_rate=SAMPLE_RATE))
+        return transcribe(audio)
+
+
+def transcribe_partial_wav(raw: bytes) -> str:
+    """Testo provvisorio mentre l'utente sta ancora parlando: modello leggero,
+    solo gli ultimi PARTIAL_MAX_SECONDS del segmento. Non tocca il modello finale."""
+    audio = _decode_wav(raw)[-PARTIAL_MAX_SECONDS * SAMPLE_RATE:]
+    with _partial_lock:
+        segments, _ = _get_partial_model().transcribe(
+            audio, language="it", initial_prompt=_WAKE_WORD_PROMPT,
+            vad_filter=True, vad_parameters=_VAD_PARAMS, beam_size=1,
+            condition_on_previous_text=False,
+        )
+        return " ".join(s.text for s in segments).strip()
 
 
 def record_until_silence(active=None) -> np.ndarray:

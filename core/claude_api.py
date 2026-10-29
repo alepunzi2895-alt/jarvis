@@ -271,6 +271,7 @@ async def run_voice_streaming(
         # (core/voice/daemon.py) — un task asyncio non atteso verrebbe
         # cancellato alla chiusura del loop prima di completare, un thread no.
         threading.Thread(target=brain.log_interaction, args=(prompt, ws, "voice"), daemon=True).start()
+        threading.Thread(target=brain.learn_from_exchange, args=(prompt, text, ws, "voice"), daemon=True).start()
 
     text = await browser.extract_and_execute(text)
     text = await mail_actions.extract_and_execute(text)

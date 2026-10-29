@@ -88,6 +88,10 @@ class Engine:
         from core.voice.stt import transcribe_wav
         return transcribe_wav(raw)
 
+    def transcribe_partial(self, raw):
+        from core.voice.stt import transcribe_partial_wav
+        return transcribe_partial_wav(raw)
+
     async def synthesize(self, text):
         from core.voice.tts import clean_for_speech, synthesize_mp3
         return await synthesize_mp3(clean_for_speech(text))
@@ -509,12 +513,33 @@ class LiveServer:
         if request.query.get("pc") == "1":
             self.consoles.add(registration)
             console_presence.write(len(self.consoles), len(self.mic_clients))
-        active = incoming = transcribing = None
+        active = incoming = transcribing = partial_task = None
+        partial_busy = False
         wake_until = 0
 
         async def send(kind, rid=None, **payload):
             if not socket.closed:
                 await socket.send_json(dict(type=kind, id=rid, **payload))
+
+        async def partial(body):
+            # Testo provvisorio mentre si parla (solo dashboard). Mai in conflitto con la
+            # trascrizione finale: se quella e' in corso il passo viene scartato. Ogni
+            # richiesta riceve sempre una risposta, anche vuota, cosi' il client sa che
+            # il passo e' finito.
+            nonlocal partial_busy
+            rid = body.get("id")
+            if partial_busy or transcribing or not self.engine.ready:
+                await send("partial", rid, text="")
+                return
+            partial_busy = True
+            try:
+                raw = base64.b64decode(body.get("data", ""), validate=True)
+                text = await finish_thread(self.engine.transcribe_partial, raw)
+            except Exception:  # noqa: BLE001 — un parziale fallito non deve disturbare il comando finale
+                text = ""
+            finally:
+                partial_busy = False
+            await send("partial", rid, text=text)
 
         async def cancel(task):
             if task and not task.done():
@@ -698,6 +723,13 @@ class LiveServer:
                     if body.get("type") == "status":
                         await send("ready", stt_ready=self.engine.ready, device=self.engine.device)
                         continue
+                    if body.get("type") == "partial":
+                        # Task a parte: il ciclo di ricezione deve restare libero per cancel/comandi.
+                        if partial_task is None or partial_task.done():
+                            partial_task = asyncio.create_task(partial(body))
+                        else:
+                            await send("partial", body.get("id"), text="")
+                        continue
                     if body.get("type") == "mic_state":
                         if registration in self.consoles:
                             if body.get("enabled") is True:
@@ -723,6 +755,7 @@ class LiveServer:
         finally:
             await cancel(incoming)
             await cancel(active)
+            await cancel(partial_task)
             self.sockets.discard(registration)
             if registration in self.consoles:
                 self.consoles.discard(registration)

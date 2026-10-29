@@ -591,3 +591,30 @@ def test_fast_answer_has_no_ack():
             assert not [m for m in messages if m["type"] == "progress"]
             await socket.close()
     asyncio.run(scenario())
+
+
+def test_partial_transcript_replies_each_step_and_never_blocks_commands():
+    class PartialEngine(FakeEngine):
+        def __init__(self):
+            super().__init__()
+            self.partials = []
+
+        def transcribe_partial(self, raw):
+            self.partials.append(raw.decode())
+            return "apri la " + raw.decode()
+
+    async def scenario():
+        engine = PartialEngine()
+        client, server = await client_for(engine)
+        async with client:
+            await login(client)
+            socket = await client.ws_connect("/live/ws")
+            await until(socket, "ready")
+            await socket.send_json(dict(type="partial", id="p1", data=base64.b64encode(b"chat").decode()))
+            reply = await until(socket, "partial", "p1")
+            assert reply[-1]["text"] == "apri la chat"
+            await socket.send_json(dict(type="text", id="cmd", prompt="ciao"))
+            await until(socket, "done", "cmd")
+            assert engine.partials == ["chat"]
+            await socket.close()
+    asyncio.run(scenario())
