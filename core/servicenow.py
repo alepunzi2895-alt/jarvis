@@ -17,6 +17,8 @@ import re
 import statistics
 import subprocess
 import threading
+import time
+import uuid
 
 ROOT = Path(__file__).resolve().parents[1]
 BASE_URL = (os.getenv("JARVIS_SERVICENOW_URL") or "https://ivgprod.service-now.com").rstrip("/")
@@ -37,7 +39,7 @@ _READY_JS = ("() => document.readyState === 'complete' && location.pathname.star
              "typeof window.g_ck === 'string' && window.g_ck.length > 10")
 _TASKS_JS = """async ({group, closedDays}) => {
   const fields = 'number,short_description,description,state,assigned_to,opened_at,closed_at,' +
-    'sys_updated_on,request_item,work_notes,active,priority';
+    'sys_updated_on,request_item,work_notes,active,priority,sys_id';
   const read = async (query) => {
     const url = '/api/now/table/sc_task?sysparm_display_value=all&sysparm_exclude_reference_link=true' +
       '&sysparm_limit=500&sysparm_fields=' + fields + '&sysparm_query=' + encodeURIComponent(query);
@@ -50,6 +52,7 @@ _TASKS_JS = """async ({group, closedDays}) => {
                 ...await read(scope + '^active=false^closed_at>=javascript:gs.daysAgoStart(' + closedDays + ')')];
   const pick = (row, key, kind) => ((row[key] || {})[kind] || '');
   return rows.map((row) => ({
+    sys_id: pick(row, 'sys_id', 'value'),
     number: pick(row, 'number', 'value'), state: pick(row, 'state', 'display_value'),
     state_code: pick(row, 'state', 'value'), active: pick(row, 'active', 'value') === 'true',
     assigned_to: pick(row, 'assigned_to', 'display_value'), ritm: pick(row, 'request_item', 'display_value'),
@@ -60,6 +63,21 @@ _TASKS_JS = """async ({group, closedDays}) => {
     work_notes: pick(row, 'work_notes', 'display_value').slice(0, 2500),
   }));
 }"""
+
+# Scrittura: stato e/o assegnatario di un task, con la sessione di Alessandro (stesso token della lettura).
+# Valori in display (es. "Work in Progress", nome persona): ServiceNow li risolve, niente codici interni.
+_UPDATE_JS = """async ({sysId, body}) => {
+  const fields = 'number,state,assigned_to,sys_updated_on';
+  const url = '/api/now/table/sc_task/' + encodeURIComponent(sysId) + '?sysparm_input_display_value=true' +
+    '&sysparm_display_value=true&sysparm_fields=' + fields;
+  const response = await fetch(url, {method: 'PATCH', body: JSON.stringify(body),
+    headers: {'X-UserToken': window.g_ck, 'Content-Type': 'application/json', Accept: 'application/json'}});
+  if (!response.ok) throw new Error('HTTP ' + response.status);
+  return (await response.json()).result || {};
+}"""
+
+PENDING_TTL = 600
+_pending_updates: dict[str, dict] = {}
 
 ANALYSIS_PROMPT = (
     "Analizzi i ticket ServiceNow del team Data Room di Alessandro (BI architect, Iveco). Il messaggio "
@@ -264,3 +282,107 @@ def recap_facts(loop, now: datetime) -> dict:
     summary["open_tickets"] = [{k: t[k] for k in ("number", "state", "assigned_to", "age_days", "days_without_notes",
                                                   "stale", "linked_development")} for t in data["stats"]["tickets"]]
     return summary
+
+
+class ServiceNowError(RuntimeError):
+    pass
+
+
+_NUMBER_RE = re.compile(r"^SCTASK\d{6,}$")
+
+
+def _browser_loop(loop):
+    """Loop del browser JARVIS: lo registra BrowserAgent.evaluate_on alla prima lettura."""
+    if loop is not None:
+        return loop
+    from core.browser import get_agent
+    return getattr(get_agent(), "loop", None)
+
+
+def _ticket(loop, number: str) -> dict:
+    number = (number or "").strip().upper()
+    if not _NUMBER_RE.match(number):
+        raise ServiceNowError("Numero non valido: serve SCTASK seguito da almeno 6 cifre.")
+    row = next((r for r in read_tasks(_browser_loop(loop)) if r["number"] == number), None)
+    if row is None:
+        raise ServiceNowError(f"{number} non trovato nel gruppo {GROUP}.")
+    return row
+
+
+def explain(loop, number: str) -> dict:
+    """Cosa chiede un ticket: descrizione, stato, assegnatario, ultime work notes. Sola lettura."""
+    row = _ticket(loop, number)
+    note_at, note_by = _last_note(row["work_notes"])
+    return dict(number=row["number"], state=row["state"], assigned_to=row["assigned_to"] or "non assegnato",
+                short_description=row["short_description"], description=row["description"],
+                last_note=note_at.strftime("%Y-%m-%d") if note_at else None, last_note_by=note_by,
+                recent_work_notes=row["work_notes"][:1500], updated_at=row["updated_at"])
+
+
+def stage_update(loop, number: str, state: str | None = None, assigned_to: str | None = None) -> dict:
+    """Prepara stato e/o assegnatario, NON li scrive. Serve /confirm <token> dell'utente."""
+    row = _ticket(loop, number)
+    if not row["sys_id"]:
+        raise ServiceNowError(f"{row['number']}: sys_id non letto, riprova.")
+    body = {}
+    if state and state.strip():
+        body["state"] = state.strip()
+    if assigned_to and assigned_to.strip():
+        body["assigned_to"] = assigned_to.strip()
+    if not body:
+        raise ServiceNowError("Indica almeno lo stato o l'assegnatario.")
+    if any(len(value) > 80 for value in body.values()):
+        raise ServiceNowError("Valore troppo lungo (max 80 caratteri).")
+    before = dict(state=row["state"], assigned_to=row["assigned_to"] or "non assegnato")
+    token = uuid.uuid4().hex[:8]
+    _pending_updates[token] = dict(at=time.time(), number=row["number"], sys_id=row["sys_id"], body=body)
+    changes = []
+    if "state" in body:
+        changes.append(f"stato '{before['state']}' -> '{body['state']}'")
+    if "assigned_to" in body:
+        changes.append(f"assegnatario '{before['assigned_to']}' -> '{body['assigned_to']}'")
+    return dict(token=token, number=row["number"], changes="; ".join(changes),
+                confirm=f"/confirm {token}", deny=f"/deny {token}")
+
+
+def confirm_update(token: str, loop=None) -> str:
+    pending = _pending_updates.pop(token, None)
+    if pending is None or time.time() - pending["at"] > PENDING_TTL:
+        raise ServiceNowError("Token non valido o scaduto.")
+    from core.browser import get_agent
+    future = asyncio.run_coroutine_threadsafe(get_agent().evaluate_on(
+        LIST_URL, _READY_JS, _UPDATE_JS, {"sysId": pending["sys_id"], "body": pending["body"]}), _browser_loop(loop))
+    try:
+        result = future.result(timeout=120)
+    except Exception:
+        future.cancel()
+        raise
+    return (f"{pending['number']} aggiornato: stato {result.get('state', '?')}, "
+            f"assegnato a {result.get('assigned_to') or 'non assegnato'}.")
+
+
+def has_pending(token: str) -> bool:
+    return token in _pending_updates
+
+
+def deny_update(token: str) -> bool:
+    return _pending_updates.pop(token, None) is not None
+
+
+def tool(action: str, number: str | None = None, state: str | None = None, assigned_to: str | None = None,
+         mode: str | None = None, dashboard: str | None = None) -> dict:
+    """Entry point del tool Claude `servicenow_ticket`. Non conferma mai: la scrittura passa da /confirm."""
+    if action == "list":
+        rows = read_tasks(_browser_loop(None))
+        tickets = stats(rows)["tickets"]
+        return dict(open=len(tickets), tickets=[{k: t[k] for k in (
+            "number", "state", "assigned_to", "age_days", "days_without_notes", "stale", "short_description")}
+            for t in tickets[:40]])
+    if action == "explain":
+        return explain(None, number)
+    if action == "stage_update":
+        return stage_update(None, number, state, assigned_to)
+    if action == "draft_genie":
+        from core import genie_code
+        return dict(number=number, draft=genie_code.draft_request(explain(None, number), mode, dashboard))
+    raise ServiceNowError(f"Azione sconosciuta: {action}")
