@@ -131,9 +131,19 @@ def read_context(key):
     return result
 
 
+_GIT_READ_FIXED = {
+    ("status", "--short", "--branch"),
+    ("log", "-1", "--format=%h %s (%cr)"),
+    # Sola lettura: nessun fetch, nessun pull. ls-remote interroga l'origine senza toccare il repo.
+    ("ls-remote", "--heads", "origin"),
+    ("rev-parse", "HEAD"),
+}
+
+
 def git_read(path, *args):
     """Solo comandi fissati dal codice, nessun argv costruito dal modello."""
-    if args not in (("status", "--short", "--branch"), ("log", "-1", "--format=%h %s (%cr)")):
+    is_cat_file = len(args) == 3 and args[:2] == ("cat-file", "-e") and re.fullmatch(r"[0-9a-f]{40}", args[2])
+    if args not in _GIT_READ_FIXED and not is_cat_file:
         raise ValueError("Comando git non ammesso")
     return subprocess.run(["git", "--no-optional-locks", "-c", "core.fsmonitor=false", "-C", str(path), *args],
                           capture_output=True, text=True, encoding="utf-8", errors="replace",

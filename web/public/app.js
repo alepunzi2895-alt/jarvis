@@ -738,7 +738,7 @@ $("#console-form").addEventListener("submit", (e) => {
 
 // Messaggi scambiati fuori da questa chat (Telegram, voce sul PC, avvisi):
 // stessa console, con l'origine nella riga meta.
-const FEED_SOURCES = { telegram: "Telegram", telegram_in: "da Telegram", voce: "voce PC" };
+const FEED_SOURCES = { telegram: "Telegram", telegram_in: "da Telegram", voce: "voce PC", claude: "Claude Code" };
 
 function appendFeed(item) {
   const el = appendEntry(item.prompt || "");

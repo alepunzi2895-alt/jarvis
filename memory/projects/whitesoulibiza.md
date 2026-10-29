@@ -17,9 +17,13 @@ Ordine di navigazione fisso e documentato in CLAUDE.md: Home → Services →
 Experiences → About → Contact (Events dentro services.html#events,
 Testimonials dentro about.html — rimossi dalla nav esplicita).
 
-## Stato (controllato 2026-09-15, sola lettura)
-Ultimo commit 2026-06-28 ("Update about page hero: warmer Ibiza scene").
-Nessuna anomalia trovata nello storico recente.
+## Stato (aggiornato 2026-10-29, sola lettura)
+Pull eseguito 2026-10-29: clone allineato a `origin/main` 7257698. Storico: clone era fermo a 4113cc8 (giugno 2026), `origin/main` avanti di 30+ commit
+(7257698, autore `ZeroDay` = Alessandro dal suo Mac, confermato 2026-10-29, ultimi 3 giorni: foto ville, pagina yachts, account/progetti
+salvati, traduzioni, `lib/server.js`, `api/google.js`, `api/translations.js`). Il clone
+non ha questi cambi: `/progetti` mostra solo "Origine avanti: 7257698", senza elenco.
+**Rischio aperto**: il token Turso read-write era hardcoded in `seed-db.js`; rimosso in
+e42f5af ma ancora nella storia git (es. e217add, cb13567). Va ruotato, non basta il fix.
 
 ## Brand e strategia (dal profilo operativo di Alessandro, 2026-09-15)
 Proprietà gestite: **Villa Vivian**, **Boutique Boat Can Vedra**. Logo

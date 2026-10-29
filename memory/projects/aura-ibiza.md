@@ -86,3 +86,16 @@ Next.js, Supabase, Claude API, Twilio, Stripe, Vercel.
 ## Collegamento con AP Systems
 AURA compare come case study nel portfolio AP Systems (vedi
 `memory/projects/ap-systems.md`) insieme a ConciergeFlow.
+
+## Prossimi step e consigli (JARVIS, aggiornato 2026-10-29)
+Dalle conversazioni con JARVIS. AURA Ibiza: repo locale sembra allineato a origin/main, ma lo stato git non è ancora verificato; restano file non tracciati AGENTS.md e .agents/ da decidere.
+
+Prossimi step:
+- Confermare su Telegram con /confirm 599e455b la verifica git (git status e confronto con origin/main).
+- Decidere sui file non tracciati AGENTS.md e .agents/skills/deploy-auraibiza: non eliminarli senza backup.
+- Se si tengono, committarli su un branch dedicato, separato dal main.
+
+Consigli:
+- L'eliminazione dei file non tracciati è definitiva: prima fare backup fuori dal repo o committare su un branch.
+- Il runbook deploy-auraibiza può servire anche senza Codex: valutare di conservarlo.
+- Suggerimento JARVIS: prima di eliminare, controllare con git status che non ci siano altri file non tracciati importanti.

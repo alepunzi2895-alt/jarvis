@@ -18,6 +18,11 @@ CONFIG = ROOT / '.tradepilot.json'
 DB = ROOT / '.tradepilot.sqlite3'
 _lock = threading.Lock()
 _cache = {'at': 0, 'value': None, 'key': ''}
+# La VPS di TradePilot e' piccola (1,6 GB, in paging): /api/autopilot ha impiegato 11-12 s.
+# Con 8 s il PC la dava per irraggiungibile anche quando era viva. Ultimo valido per endpoint:
+# se una risposta manca, si mostra quella precedente e non il vuoto.
+TIMEOUT_SEC = float(__import__('os').getenv('JARVIS_TRADEPILOT_TIMEOUT_SEC', '25'))
+_last_good = {}
 ENDPOINTS = {'meta': '/api/meta', 'account': '/api/autopilot',
              'journal': '/api/journal?limit=1', 'research': '/api/research', 'factory': '/api/factory?top=5'}
 
@@ -41,7 +46,7 @@ def settings():
 
 def _get(config, kind):
     headers = {'X-TradePilot-Remote-Key': config['remote_key']} if config.get('remote_key') else {}
-    response = requests.get(config['origin'] + ENDPOINTS[kind], headers=headers, timeout=8, allow_redirects=False)
+    response = requests.get(config['origin'] + ENDPOINTS[kind], headers=headers, timeout=TIMEOUT_SEC, allow_redirects=False)
     if response.status_code != 200:
         raise ValueError(f'TradePilot {kind}: HTTP {response.status_code}')
     return response.json()
@@ -104,8 +109,14 @@ def snapshot():
                 return kind, _get(config, kind), None
             except (requests.RequestException, ValueError, KeyError):
                 return kind, None, 'Fonte non raggiungibile o accesso negato'
-        with ThreadPoolExecutor(max_workers=3) as pool:
+        with ThreadPoolExecutor(max_workers=len(ENDPOINTS)) as pool:
             for kind, result, error in pool.map(read, ENDPOINTS):
+                if result is not None:
+                    _last_good[kind] = result
+                elif kind in _last_good:
+                    result = _last_good[kind]
+                    error = None
+                    errors[kind] = 'Ultimo dato ricevuto: la VPS non ha risposto in tempo'
                 data[kind] = result or {}
                 if error:
                     errors[kind] = error

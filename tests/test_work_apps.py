@@ -15,8 +15,9 @@ class FakeAgent:
         return f"Aperto {url}."
 
 
-def _run(agent, apps, monkeypatch, desktop=(), force=False):
+def _run(agent, apps, monkeypatch, desktop=(), force=False, launch_ok=True):
     monkeypatch.setattr(work_apps, "desktop_running", lambda app: app in desktop)
+    monkeypatch.setattr(work_apps, "launch_desktop", lambda app: launch_ok)
     monkeypatch.setattr(work_apps, "web_urls", lambda: {"teams": "T", "outlook": "O", "servicenow": "S"})
     monkeypatch.setattr("core.browser.get_agent", lambda: agent)
     return asyncio.run(work_apps.ensure_open(apps, force=force))
@@ -24,8 +25,22 @@ def _run(agent, apps, monkeypatch, desktop=(), force=False):
 
 def test_desktop_app_is_used_and_web_not_opened(monkeypatch):
     agent = FakeAgent()
+    results = _run(agent, ["teams", "outlook"], monkeypatch, desktop={"teams", "outlook"})
+    assert [r["state"] for r in results] == ["desktop", "desktop"]
+    assert agent.opened == []
+
+
+def test_closed_desktop_app_is_launched_not_web(monkeypatch):
+    agent = FakeAgent()
     results = _run(agent, ["teams", "outlook"], monkeypatch, desktop={"teams"})
-    assert [r["state"] for r in results] == ["desktop", "aperto ora"]
+    assert [r["state"] for r in results] == ["desktop", "desktop avviato"]
+    assert agent.opened == []
+
+
+def test_web_fallback_when_desktop_launch_fails(monkeypatch):
+    agent = FakeAgent()
+    results = _run(agent, ["outlook"], monkeypatch, launch_ok=False)
+    assert results[0]["state"] == "aperto ora"
     assert agent.opened == [("O", False)]
 
 

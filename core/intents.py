@@ -71,6 +71,12 @@ _BRIEFING_RE = re.compile(
 # Spesa LLM dal registro locale (core/costs.py). Serve un riferimento
 # esplicito a JARVIS/API/modelli: "quanto ho speso" da solo restera' del
 # coach finanziario.
+# Resoconto dell'ultimo lavoro Claude Code/Codex: risposta diretta, senza giro del modello.
+_CODING_STATUS_RE = re.compile(
+    r"\b(resoconto|esito|risultato|a che punto|andat\w*|finit\w*)\b.*\b(claude|codex)\b"
+    r"|\b(claude|codex)\b.*\b(resoconto|esito|risultato|a che punto|andat\w*|finit\w*)\b",
+    re.IGNORECASE,
+)
 _COSTS_RE = re.compile(
     r"\b(quanto|quanti|costi|costo|spesa|spes[oa])\b.*\b(jarvis|llm|api|claude|anthropic|token|modell[oi]|ia)\b"
     r"|\b(jarvis|llm|api|claude|anthropic|token|modell[oi]|ia)\b.*\b(costa|costi|costo|spes[oa]|spendo|spendi)\b",
@@ -168,6 +174,8 @@ def parse_intent(text: str) -> dict | None:
         return {"type": "briefing"}
     if _TRADING_PNL_RE.search(t):
         return {"type": "trading_pnl"}
+    if _CODING_STATUS_RE.search(t):
+        return {"type": "coding_status"}
     if _COSTS_RE.search(t):
         return {"type": "costs"}
 
@@ -314,6 +322,14 @@ def _execute(intent: dict, executor: SystemExecutor, voice: bool) -> str:
         from core import costs
 
         return costs.format_summary()
+
+    if kind == "coding_status":
+        from core import coding_tasks
+
+        jobs = coding_tasks.list_tasks()
+        if not jobs:
+            return "Nessun lavoro Claude Code registrato."
+        return coding_tasks.speech_summary(jobs[0])
 
     if kind == "time":
         from datetime import datetime
