@@ -186,3 +186,15 @@ def test_static_assets_served_by_vps_without_touching_pc(tmp_path):
         finally:
             await client.close()
     asyncio.run(run())
+
+
+def test_servicenow_reads_use_browser_loop_bound_at_startup():
+    # Il tool ServiceNow della chat deve trovare il loop del browser anche prima di ogni lettura.
+    from core import browser, servicenow
+    loop = asyncio.new_event_loop()
+    try:
+        browser.get_agent().loop = loop
+        assert servicenow._browser_loop(None) is loop
+    finally:
+        loop.close()
+        browser._agent.loop = None

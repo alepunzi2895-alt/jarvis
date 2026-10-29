@@ -58,6 +58,9 @@ class ProjectStatus:
     last_commit: str | None = None
     notes: str | None = None
     error: str | None = None
+    # Commit sull'origine non presenti nel clone locale: pushati da un altro dispositivo.
+    remote_commit: str | None = None
+    remote_ahead: bool = False
 
 
 def _read_notes_excerpt(notes_file: str) -> str | None:
@@ -123,7 +126,33 @@ def _check_one(cfg: ProjectConfig, executor: SystemExecutor) -> ProjectStatus:
     if log.ok and log.stdout.strip():
         status.last_commit = log.stdout.strip()
 
+    if isinstance(cfg, projects.Project) and status.branch:
+        _check_remote(status, raw_path)
     return status
+
+
+def _check_remote(status: ProjectStatus, raw_path: str) -> None:
+    """Confronta il ramo con l'origine (sola lettura). Se il commit remoto non esiste nel clone,
+    e' stato pushato da un altro dispositivo: JARVIS lo segnala, non scarica nulla."""
+    try:
+        head = projects.git_read(raw_path, "rev-parse", "HEAD")
+        remote = projects.git_read(raw_path, "ls-remote", "--heads", "origin")
+    except (OSError, subprocess.TimeoutExpired, ValueError):
+        return
+    if head.returncode != 0 or remote.returncode != 0:
+        return
+    local_head = head.stdout.strip()
+    for line in remote.stdout.splitlines():
+        remote_hash, _, ref = line.partition("	")
+        if ref != f"refs/heads/{status.branch}" or remote_hash == local_head:
+            continue
+        try:
+            known = projects.git_read(raw_path, "cat-file", "-e", remote_hash).returncode == 0
+        except (OSError, subprocess.TimeoutExpired, ValueError):
+            return
+        status.remote_commit = remote_hash[:7]
+        status.remote_ahead = not known
+        return
 
 
 def check_all(executor: SystemExecutor) -> list[ProjectStatus]:
@@ -159,6 +188,8 @@ def attention_report(statuses: list[ProjectStatus]) -> dict:
             highlights.append((0, s.key, f"{s.label}: stato Git non verificabile, controlla l'accesso al repository."))
         elif s.configured and s.notes and "🔴" in s.notes:
             highlights.append((1, s.key, f"{s.label}: una nota storica segnala un problema noto, ancora da verificare."))
+        elif s.configured and s.remote_ahead:
+            highlights.append((1, s.key, f"{s.label}: commit {s.remote_commit} pushato da un altro dispositivo, non ancora nel PC."))
         elif s.configured and s.dirty_files:
             highlights.append((2, s.key, f"{s.label}: {s.dirty_files} file modificati da rivedere prima del prossimo commit."))
     highlights.sort(key=lambda item: (item[0], item[1]))
@@ -210,6 +241,8 @@ def format_report(statuses: list[ProjectStatus], voice: bool) -> str:
         lines.append(f"• {s.label}{branch}: {dirty}")
         if s.last_commit:
             lines.append(f"  Ultimo commit: {s.last_commit}")
+        if s.remote_ahead:
+            lines.append(f"  Origine avanti: {s.remote_commit} (da scaricare con git pull)")
         if s.notes:
             lines.append(f"  Note JARVIS: {s.notes}")
         lines.append("")

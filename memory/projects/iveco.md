@@ -81,3 +81,15 @@ Attivazione completata alle 18:05 Europe/Rome: il servizio Windows JARVIS
 legge correttamente DevOps con la sessione Microsoft collegata. API e
 dashboard private mostrano PROD riuscito, QAS non eseguito e l'avviso del job;
 nessun errore di fonte o copertura parziale al controllo.
+
+## Prossimi step e consigli (JARVIS, aggiornato 2026-10-29)
+Dalle conversazioni con JARVIS. Ultima build 20261028.2 del Data Room riuscita e in PROD dal 28 ottobre alle 15:01, con QAS saltato e un avviso sul job deploy ancora da leggere.
+
+Prossimi step:
+- Leggere il testo dell'avviso sul job deploy della build 1270 su Azure DevOps, nella scheda warnings.
+- Verificare che non ci siano PR aperte, perché la lista ricevuta era troncata.
+- Decidere se testare su QAS la modifica del 28 ottobre (PR 207, parametro force_full per User Silver) che è andata in PROD senza passare dall'ambiente di test.
+
+Consigli:
+- Per le prossime modifiche non saltare QAS prima di PROD.
+- Suggerimento JARVIS: prima di usare force_full su tutti gli utenti, provarlo su un singolo utente di test.

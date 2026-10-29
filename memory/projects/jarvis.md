@@ -1171,5 +1171,14 @@ Alessandro approva la proposta B: dati sensibili (finanza, emozioni, trading per
 - Meteo: l'IP dell'hotspot Iliad risulta Milano su ip-api. `.env` ora ha `JARVIS_WEATHER_CITY=Torino` + LAT/LON fissi; il Watch prevale se manda la posizione. Quando Alessandro si sposta va cambiato a mano.
 
 ## Prossimi step per progetto, console senza finestra (2026-10-28, merge su main)
-- `core/project_insights.py`: gli scambi della dashboard (testo e voce in dashboard) ora sono salvati in `.jarvis-conversations.jsonl`; prima vivevano solo nella RAM di LiveBridge e sparivano a ogni riavvio. Con Telegram e voce PC (dal feed), una conversazione ferma da 5 minuti che nomina un progetto del catalogo (alias: nome senza "Ibiza/AI/Systems", parte prima di " — ", "Jarvis," iniziale ignorato) produce una chiamata al modello che unisce riassunto, prossimi step e consigli. Risultato in `.project-insights.json`, nella sezione "## Prossimi step e consigli" della nota del progetto in `memory/projects/` e nelle card della Panoramica (prima i progetti con step). Primo caso: White Soul (Aruba, canone manutenzione + Instagram, token Turso da chiudere).
-- Conversazione: niente finestra ne' pulsanti. Testo a sinistra in trasparenza, scorrevole, barra di input in basso al centro sopra il dock; audio sbloccato al primo clic/tasto, Esc interrompe. Su telefono la conversazione occupa lo spazio dei pannelli e si chiude quando se ne apre uno.
+- `core/project_insights.py`: gli scambi della dashboard (testo e voce in dashboard) ora sono salvati in `.jarvis-conversations.jsonl`; prima vivevano solo nella RAM di LiveBridge e sparivano a ogni riavvio. Con Telegram e voce PC (dal feed), una conversazione ferma da 5 minuti che nomina un progetto del catalogo (alias: nome senza "Ibiza/AI/Systems", parte prima di " — ", "Jarvis," iniziale ignorato) produce una chiamata al modello che unisce riassunto, prossimi step e consigli. Risultato in `.project-insights.json`, nella sezione "## Prossimi step e consigli (JARVIS, aggiornato 2026-10-29)
+Dalle conversazioni con JARVIS. JARVIS: si vuole una chat in JARVIS che invii prompt a Claude Code e mostri stato dei prompt e progetto attivo; modifiche al codice non ancora autorizzate.
+
+Prossimi step:
+- Verificare Remote Control di Claude Code sulla versione installata, avviandolo dalla sessione JARVIS in VS Code.
+- Inviare a Claude Code un prompt in sola lettura per analizzare il progetto e proporre il piano della chat con stato e prompt.
+- Ottenere una conferma esplicita per le modifiche su un branch dedicato, senza push, prima di riprovare in modalità modifica.
+
+Consigli:
+- Lo sviluppo in modalità modifica richiede autorizzazione esplicita nella richiesta.
+- Suggerimento JARVIS: definire in anticipo quali comandi la chat può inviare, per limitare rischi su sessioni attive.

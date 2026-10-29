@@ -841,6 +841,10 @@ def create_app(password, origins, engine=None, warm=True, watch_token=None, gate
             from core import iveco, telegram
             # Il browser JARVIS vive qui: il piano B Outlook gira su questo loop.
             outlook_web.bind(asyncio.get_running_loop())
+            # Tool ServiceNow dalla chat: serve il loop del browser anche prima della prima
+            # lettura (2026-10-29: LiveBridge riavviato -> "browser JARVIS non raggiungibile").
+            from core.browser import get_agent
+            get_agent().loop = asyncio.get_running_loop()
             from core import loop_watch
             loop_watch.start(asyncio.get_running_loop())
             tasks.append(asyncio.create_task(collect_equity()))

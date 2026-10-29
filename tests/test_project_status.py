@@ -130,7 +130,7 @@ def test_to_json_ready_serializes_all_fields():
         {
             "key": "aura", "label": "Aura Ibiza", "path": None, "configured": False,
             "branch": None, "dirty_files": 0, "last_commit": None,
-            "notes": None, "error": None,
+            "notes": None, "error": None, "remote_commit": None, "remote_ahead": False,
         }
     ]
 
