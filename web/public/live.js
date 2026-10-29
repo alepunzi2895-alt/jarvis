@@ -1,34 +1,37 @@
 // Attivo solo sulla dashboard servita dal PC. Mai ripiegare sulla coda cloud.
 (() => {
   if (!window.JARVIS_LOCAL) return;
-  let socket, connecting, context, nextAudio = 0, current = null;
+  let socket, connecting, current = null;
   let playback = Promise.resolve();
-  const entries = new Map(), sources = new Set(), superseded = new Set(), partials = new Map();
+  const entries = new Map(), superseded = new Set(), partials = new Map();
+  // Risposte vocali su un elemento <audio> (blob mp3), non su Web Audio: su Safari iOS il
+  // contesto Web Audio resta sospeso o muto (interruttore silenzioso) senza un gesto
+  // dell'utente, mentre l'elemento audio sbloccato una volta suona anche dopo.
+  const player = new Audio();
+  player.preload = "auto";
+  let playerUnlocked = false, playingNow = false, finishPlayback = null;
   let status;
   let sttReady = false;
   let micEnabled = false;
+  let partialEnabled = false; // testo parziale: solo se il PC lo ha attivato (JARVIS_LIVE_PARTIAL=1)
   // PC (puntatore fine): la console aperta abilita la wake word del daemon vocale.
   const coarse = window.matchMedia("(pointer: coarse)").matches;
 
   function setStatus(text) { if (status) status.textContent = text; }
 
+  // Da chiamare dentro un gesto dell'utente (tocco, tasto, microfono): sblocca l'elemento
+  // audio per tutte le risposte successive.
   function unlock() {
-    const Audio = window.AudioContext || window.webkitAudioContext;
-    if (!Audio) return;
-    if (!context || context.state === "closed") context = new Audio();
-    if (context.state !== "running") context.resume().catch(() => setStatus("Tocca lo schermo per ascoltare."));
-    // Un buffer nel gesto utente sblocca l'uscita anche su Safari iOS.
-    const source = context.createBufferSource();
-    source.buffer = context.createBuffer(1, 1, context.sampleRate);
-    source.connect(context.destination);
-    source.start();
+    if (playerUnlocked) return;
+    player.src = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=";
+    player.play().then(() => { playerUnlocked = true; player.pause(); }).catch(() => setStatus("Tocca lo schermo per ascoltare."));
   }
 
   function silence() {
     current = null;
-    for (const source of sources) { try { source.stop(); } catch {} }
-    sources.clear();
-    nextAudio = 0;
+    player.pause();
+    playingNow = false;
+    finishPlayback?.();
     botSpeaking = false;
   }
 
@@ -47,30 +50,53 @@
     setStatus("Interrotto. Puoi fare una nuova domanda.");
   }
 
-  async function play(id, data) {
-    if (id !== current || !context) return;
-    const bytes = Uint8Array.from(atob(data), c => c.charCodeAt(0));
-    const buffer = await context.decodeAudioData(bytes.buffer);
-    if (id !== current || context.state === "closed") return;
-    const source = context.createBufferSource();
-    source.buffer = buffer;
-    source.connect(context.destination);
-    sources.add(source);
-    source.onended = () => {
-      sources.delete(source);
-      botSpeaking = sources.size > 0;
-      if (!botSpeaking && orbState === "speaking") setOrbState("idle");
-    };
-    nextAudio = Math.max(context.currentTime + 0.04, nextAudio);
-    source.start(nextAudio);
-    nextAudio += buffer.duration;
-    botSpeaking = true;
-    setOrbState("speaking");
-    if (context.state !== "running") setStatus("Tocca lo schermo per ascoltare la risposta.");
+  function play(id, data) {
+    if (id !== current) return Promise.resolve();
+    return new Promise((resolve) => {
+      const url = URL.createObjectURL(new Blob([Uint8Array.from(atob(data), c => c.charCodeAt(0))], { type: "audio/mpeg" }));
+      const done = () => {
+        player.onended = player.onerror = null;
+        URL.revokeObjectURL(url);
+        if (finishPlayback === done) finishPlayback = null;
+        playingNow = false;
+        botSpeaking = false;
+        if (orbState === "speaking") setOrbState("idle");
+        resolve();
+      };
+      finishPlayback = done;
+      player.onended = done;
+      player.onerror = done;
+      player.src = url;
+      playingNow = true;
+      botSpeaking = true;
+      setOrbState("speaking");
+      player.play().catch(() => {
+        setStatus("Tocca lo schermo per ascoltare la risposta.");
+        done();
+      });
+    });
+  }
+
+  // Richieste fatte da un'altra superficie (telefono) mostrate anche in chat sul PC.
+  const mirrored = new Map();
+  function mirrorMessage(data) {
+    if (!window.appendEntry || !window.fillEntry) return;
+    let el = mirrored.get(data.id);
+    if (!el) {
+      el = window.appendEntry(data.prompt || "");
+      el.classList.add("remote");
+      mirrored.set(data.id, el);
+      window.openWindow?.("win-chat"); // il comando arrivato dal telefono si vede subito sul PC
+    }
+    if (data.kind === "result") {
+      window.fillEntry(el, { status: "done", result: data.text || "" });
+      mirrored.delete(data.id);
+    }
   }
 
   function message(event) {
     const data = JSON.parse(event.data);
+    if (data.type === "mirror") { mirrorMessage(data); return; }
     if (data.type === "partial") {
       const onText = partials.get(data.id);
       partials.delete(data.id);
@@ -78,6 +104,7 @@
       return;
     }
     if (data.type === "ready") {
+      partialEnabled = Boolean(data.partial);
       if (!sttReady) setStatus(data.stt_ready ? `Voce locale pronta · ${data.device}` : `Preparazione voce locale · ${data.device}`);
       sttReady = data.stt_ready;
       return;
@@ -123,7 +150,7 @@
       case "done": {
         const t = data.timings;
         entry.querySelector(".meta").textContent += ` · STT ${t.stt_ms} ms · testo ${t.first_text_ms ?? "—"} ms · audio ${t.first_audio_ms ?? "—"} ms`;
-        setStatus(context?.state === "running" ? "Pronto. Di’ Jarvis e la tua domanda." : "Tocca lo schermo per ascoltare.");
+        setStatus(playerUnlocked ? "Pronto. Di’ Jarvis e la tua domanda." : "Tocca lo schermo per ascoltare.");
         finish(data.id);
         break;
       }
@@ -186,7 +213,7 @@
   // Testo provvisorio mentre si parla: nessuna connessione nuova, solo se il
   // socket e' gia' aperto. Restituisce false se il passo non e' partito.
   function partial(base64Wav, onText) {
-    if (socket?.readyState !== WebSocket.OPEN) return false;
+    if (!partialEnabled || socket?.readyState !== WebSocket.OPEN) return false;
     const id = "p" + crypto.randomUUID().slice(0, 12);
     partials.set(id, onText);
     socket.send(JSON.stringify({ type: "partial", id, data: base64Wav }));
@@ -224,9 +251,6 @@
     document.addEventListener("visibilitychange", () => { if (document.hidden && coarse) silence(); });
     // Dopo un reload il browser tiene l'audio sospeso fino al primo gesto:
     // qualunque clic o tasto lo riattiva, anche senza pulsanti.
-    const wake = () => { if (context && context.state !== "running") context.resume().catch(() => {}); };
-    document.addEventListener("pointerdown", wake, true);
-    document.addEventListener("keydown", wake, true);
     window.addEventListener("pagehide", () => { cancel(); socket?.close(); });
   }
   function setMicEnabled(enabled) {
@@ -236,5 +260,5 @@
     }
   }
 
-  window.JarvisDirect = { start, submit, partial, unlock, cancel, setMicEnabled, get speaking() { return sources.size > 0; } };
+  window.JarvisDirect = { start, submit, partial, get partialEnabled() { return partialEnabled; }, get audioState() { return playerUnlocked ? 'unlocked' : 'locked'; }, unlock, cancel, setMicEnabled, get speaking() { return playingNow; } };
 })();

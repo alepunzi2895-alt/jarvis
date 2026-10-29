@@ -3,6 +3,7 @@ JARVIS — registrazione + trascrizione locale (faster-whisper), offline.
 """
 
 import os
+import re
 import io
 import threading
 import wave
@@ -54,7 +55,7 @@ PARTIAL_MAX_SECONDS = 10  # finestra mobile: oltre questo il parziale costa trop
 _model: WhisperModel | None = None
 _model_lock = threading.RLock()
 _partial_model: WhisperModel | None = None
-_partial_lock = threading.RLock()
+_partial_lock = threading.RLock()  # costruzione del modello parziale; l'inferenza usa _model_lock
 MODEL_DEVICE = "not_loaded"
 
 
@@ -130,17 +131,26 @@ def transcribe_wav(raw: bytes) -> str:
         return transcribe(audio)
 
 
+# Sul PC di Alessandro la trascrizione finale si bloccava per sempre quando
+# girava in parallelo il parziale (2026-10-29, log con DBG: "Processing audio"
+# senza mai "trascritto"). Un solo lock per tutta l'inferenza: il parziale
+# aspetta al massimo il passo in corso, il finale non si sovrappone mai.
+_PROMPT_ECHO_RE = re.compile(r"maggiordomo\s+AI\s+di\s+Iron\s+Man", re.IGNORECASE)
+
+
 def transcribe_partial_wav(raw: bytes) -> str:
     """Testo provvisorio mentre l'utente sta ancora parlando: modello leggero,
     solo gli ultimi PARTIAL_MAX_SECONDS del segmento. Non tocca il modello finale."""
     audio = _decode_wav(raw)[-PARTIAL_MAX_SECONDS * SAMPLE_RATE:]
-    with _partial_lock:
+    with _model_lock:
         segments, _ = _get_partial_model().transcribe(
             audio, language="it", initial_prompt=_WAKE_WORD_PROMPT,
             vad_filter=True, vad_parameters=_VAD_PARAMS, beam_size=1,
             condition_on_previous_text=False,
         )
-        return " ".join(s.text for s in segments).strip()
+        text = " ".join(s.text for s in segments).strip()
+    # Su audio quasi muto Whisper ripete il prompt: nel parziale non va mostrato.
+    return "" if _PROMPT_ECHO_RE.search(text) else text
 
 
 def record_until_silence(active=None) -> np.ndarray:

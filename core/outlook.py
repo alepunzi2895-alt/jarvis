@@ -238,6 +238,10 @@ def _fetch_recent_sync(count: int, unread_only: bool) -> list[EmailSummary]:
                 namespace = outlook.GetNamespace("MAPI")
                 inbox = namespace.GetDefaultFolder(_OL_FOLDER_INBOX)
                 items = inbox.Items
+                if unread_only:
+                    # Filtro lato Outlook: scorrere tutta la inbox a mano per le sole non lette
+                    # impiegava ~25 s (oltre il tetto di chiamata) con 4 mail non lette.
+                    items = items.Restrict("[UnRead] = True")
                 items.Sort("[ReceivedTime]", True)  # True = decrescente, le piu' recenti prima
 
                 results: list[EmailSummary] = []

@@ -52,3 +52,12 @@ def test_partial_rejects_unsupported_format():
     except ValueError:
         return
     raise AssertionError("formato stereo accettato")
+
+
+def test_partial_drops_echoed_wake_prompt(monkeypatch):
+    """Su audio quasi muto Whisper ripete initial_prompt: non va mostrato in chat."""
+    model = MagicMock()
+    model.transcribe.return_value = ([MagicMock(text=" Jarvis, il maggiordomo AI di Iron Man. ")], None)
+    monkeypatch.setattr(stt, "_get_partial_model", lambda: model)
+
+    assert stt.transcribe_partial_wav(_wav(1)) == ""
