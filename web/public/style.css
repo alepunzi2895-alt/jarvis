@@ -1026,9 +1026,8 @@ header::after {
   .floating-window.open { display: flex; }
   .chat-overlay { left: 4px; right: 4px; width: auto; top: calc(var(--mobile-orb-size) + 8px); bottom: 0; }
   .hud-stage:has(.floating-window.open) .chat-overlay { display: none; }
-  /* Chat compatta da telefono: solo gli ultimi tre scambi, risposta al massimo quattro righe. */
+  /* Chat compatta da telefono: solo gli ultimi tre scambi, risposta intera leggibile. */
   #console-log .entry:not(:nth-last-child(-n+3)) { display: none; }
-  #console-log .entry .result { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
   #console-log .entry .meta { display: none; }
   .console-bar { position: static; transform: none; width: auto; margin: 0 12px 6px; flex: 0 0 auto; }
   .fw-header { padding: 2px 8px 2px 16px; cursor: default; touch-action: auto; }

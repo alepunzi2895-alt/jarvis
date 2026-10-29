@@ -86,6 +86,7 @@
       el = window.appendEntry(data.prompt || "");
       el.classList.add("remote");
       mirrored.set(data.id, el);
+      window.openWindow?.("win-chat"); // il comando arrivato dal telefono si vede subito sul PC
     }
     if (data.kind === "result") {
       window.fillEntry(el, { status: "done", result: data.text || "" });
