@@ -308,46 +308,18 @@ class LiveServer:
             return web.json_response({"tasks": rows[::-1][:40]})
         if action == "runtime_status":
             return web.json_response({"speaking": False})
-        if action == "connect_apps":
-            from core import servicenow
-            apps = body.get("apps", [])
-            urls = {
-                "teams": os.getenv("JARVIS_TEAMS_URL", "https://teams.microsoft.com/v2/"),
-                "outlook": "https://outlook.office.com/mail/",
-                "servicenow": servicenow.LIST_URL,
-            }
-            if not isinstance(apps, list) or not apps or any(
-                    app not in {"teams", "outlook", "databricks_qas", "devops", "servicenow"} for app in apps):
+        if action in {"connect_apps", "ensure_work_apps"}:
+            from core import work_apps
+            # connect_apps = comando esplicito ("collega teams"): app scelte, browser in primo piano.
+            # ensure_work_apps = apertura automatica (pannello IVECO): solo cio' che manca, in silenzio.
+            apps = body.get("apps") or None
+            if apps is not None and (not isinstance(apps, list) or any(app not in work_apps.WORK_APPS for app in apps)):
                 raise web.HTTPBadRequest(text='{"error":"Servizi non validi"}', content_type="application/json")
-            from core import databricks
-            if "databricks_qas" in apps:
-                host = databricks._ENVIRONMENTS["qas"]["host"]
-                if host:
-                    urls["databricks_qas"] = host
-            missing = [app for app in apps if app not in urls and app != "devops"]
-            if missing:
-                return web.json_response({"error": "Databricks QAS non configurato nel file .env."}, status=400)
-            from core.browser import get_agent
-            results = []
-            if "devops" in apps:
-                # Token per le API dei deploy via Azure CLI (login solo se scaduto), poi la
-                # pagina del progetto nel browser JARVIS come gli altri servizi.
-                try:
-                    login = await asyncio.to_thread(azure_devops.connect)
-                    urls["devops"] = azure_devops.settings()["project_url"]
-                except Exception:
-                    LOG.exception("Collegamento Azure DevOps fallito")
-                    results.append({"app": "devops", "ok": False, "message": "Non riesco ad avviare l'accesso Azure DevOps."})
-            for app in (app for app in apps if app in urls):
-                try:
-                    message = await get_agent().open(urls[app])
-                    if app == "devops":
-                        message = f"{login} {message}"
-                    results.append({"app": app, "ok": True, "message": message})
-                except Exception:
-                    LOG.exception("Apertura servizio fallita: %s", app)
-                    results.append({"app": app, "ok": False, "message": f"Non riesco ad aprire {app}."})
-            return web.json_response({"results": results})
+            explicit = action == "connect_apps"
+            if not explicit:
+                work_apps.ensure_open_later(apps)
+                return web.json_response({"started": True})
+            return web.json_response({"results": await work_apps.ensure_open(apps, force=True)})
         if action == "costs_summary":
             from core import costs
             return web.json_response(await asyncio.to_thread(costs.summary))
@@ -559,6 +531,9 @@ class LiveServer:
                         raise
 
         async def run(rid, prompt, image, started, stt_ms):
+            from core import work_apps
+            if work_apps.IVECO_RE.search(prompt or ""):
+                work_apps.ensure_open_later()  # app di lavoro non ancora aperte, in parallelo alla risposta
             if self.command_lock.locked():
                 await send("error", rid, message="JARVIS sta completando un altro comando. Riprova tra poco.")
                 return

@@ -19,6 +19,7 @@ import threading
 ROOT = Path(__file__).resolve().parents[1]
 RECAP_FILE = ROOT / ".iveco-recap.json"
 RECAP_TIME = os.getenv("JARVIS_IVECO_RECAP_TIME", "09:30")
+WARMUP = timedelta(minutes=5)  # anticipo con cui si aprono le app necessarie al recap
 WORKSPACE_ROOT = os.getenv("JARVIS_IVECO_WORKSPACE", "/Workspace/projects/data-room")
 TEAMS_URL = os.getenv("JARVIS_TEAMS_URL", "https://teams.microsoft.com/v2/")
 # Nome visualizzato Azure DevOps (pezzo, minuscolo) -> persona nel recap: deploy divisi per persona.
@@ -443,12 +444,18 @@ async def recap_loop(send) -> None:
     if RECAP_TIME.lower() in {"", "off"}:
         return
     due = next_recap_at(datetime.now())
+    warmed = False
     LOG.info("Recap IVECO programmato per %s", due.strftime("%Y-%m-%d %H:%M"))
     while True:
         await asyncio.sleep(60)
         now = datetime.now()
         if now < due:
+            if not warmed and now >= due - WARMUP:
+                warmed = True  # 5 minuti prima: apre le app di lavoro che mancano
+                from core import work_apps
+                work_apps.ensure_open_later()
             continue
+        warmed = False
         late = now - due
         due = next_recap_at(now)
         if late > timedelta(hours=3):

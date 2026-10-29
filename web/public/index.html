@@ -199,26 +199,6 @@
         </div>
       </section>
 
-      <section class="floating-window panel-window" id="win-connections" style="--x:240px; --y:0px;">
-        <header class="fw-header">
-          <span class="fw-title">Collegamenti</span>
-          <button type="button" class="fw-close" data-close="win-connections">✕</button>
-        </header>
-        <div class="fw-body">
-          <p class="panel-footnote">Apro le app nel browser JARVIS, che conserva la sessione. Al primo accesso completa SSO e MFA nella finestra aperta.</p>
-          <div class="panel-actions">
-            <button type="button" class="panel-action" data-connect-app="teams">Collega Teams</button>
-            <button type="button" class="panel-action" data-connect-app="outlook">Collega Outlook</button>
-            <button type="button" class="panel-action" data-connect-app="databricks_qas">Collega Databricks QAS</button>
-            <button type="button" class="panel-action" data-connect-app="devops">Collega Azure DevOps</button>
-            <button type="button" class="panel-action" data-connect-app="servicenow">Collega ServiceNow</button>
-            <button type="button" class="panel-action" data-connect-app="all">Apri tutte</button>
-          </div>
-          <p class="panel-footnote">Azure DevOps apre il login Microsoft nel browser predefinito: serve ai deploy del recap.</p>
-          <p class="panel-footnote" id="connections-status" role="status" aria-live="polite">Le credenziali non vengono richieste o salvate da JARVIS.</p>
-        </div>
-      </section>
-
     </div>
 
     <form class="console-input console-bar" id="console-form">
@@ -234,7 +214,6 @@
       <button type="button" class="dock-btn" data-toggle="win-projects" title="Panoramica">🗂️</button>
       <button type="button" class="dock-btn" data-toggle="win-tradepilot" title="TradePilot" hidden>📈</button>
       <button type="button" class="dock-btn" data-toggle="win-iveco" title="IVECO" hidden>🚛</button>
-      <button type="button" class="dock-btn" data-toggle="win-connections" title="Collegamenti" hidden>🔗</button>
     </div>
   </div>
 

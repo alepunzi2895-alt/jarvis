@@ -323,7 +323,11 @@ class BrowserAgent:
             await page.close()
             self._current = previous
 
-    async def open(self, url: str) -> str:
+    def is_open(self, url: str) -> bool:
+        return self._context is not None and self._find_page(self._context, url) is not None
+
+    async def open(self, url: str, foreground: bool = True) -> str:
+        """`foreground=False`: apertura automatica, la scheda attiva e il focus restano come prima."""
         if (urlparse(url).hostname or "") in _LOCAL_HOSTS:
             return (
                 "Non apro un browser per un indirizzo locale: dashboard, second brain e "
@@ -331,14 +335,20 @@ class BrowserAgent:
             )
         page = self._find_page(self._context, url) if self._context else None
         if page is not None:
+            if not foreground:
+                return f"{url} era gia' aperto."
             await page.bring_to_front()
             self._current = page
             _bring_browser_to_foreground()
             return f"{url} era gia' aperto: riportato in primo piano."
+        previous = self._current
         page = await self._new_page()
         await page.goto(url, wait_until="domcontentloaded")
-        self._current = page
-        _bring_browser_to_foreground()
+        if foreground:
+            self._current = page
+            _bring_browser_to_foreground()
+        else:
+            self._current = previous if previous is not None and not previous.is_closed() else page
         return f"Aperto {url}."
 
     async def search(self, engine: str, query: str, open_first_result: bool = True) -> str:

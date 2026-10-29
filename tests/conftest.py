@@ -74,6 +74,13 @@ def _no_real_outlook_web(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _outlook_desktop_open(monkeypatch):
+    """Su questo PC Outlook e' aperto solo a volte: i test COM non devono dipenderne."""
+    monkeypatch.setattr("core.work_apps.desktop_running", lambda app: True)
+    monkeypatch.setattr("core.work_apps._attempted", {})
+
+
+@pytest.fixture(autouse=True)
 def _no_real_telegram(monkeypatch):
     """.env ha il token vero: senza questo i test della chat (che ora
     rispecchia le risposte su Telegram) manderebbero messaggi reali."""

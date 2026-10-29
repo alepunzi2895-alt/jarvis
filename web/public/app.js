@@ -243,6 +243,8 @@ async function refreshIvecoTickets() {
 }
 
 function refreshIveco() {
+  // Apre in automatico le app di lavoro non ancora aperte (Teams/Outlook desktop se gia' attivi).
+  if (window.JarvisDirect) api("ensure_work_apps").catch(() => {});
   refreshIvecoRecap();
   refreshIvecoJobs();
   refreshIvgAgent();
@@ -590,12 +592,6 @@ function setupWindows() {
     btn.setAttribute("aria-label", "Chiudi pannello");
     btn.addEventListener("click", () => closeWindow(btn.dataset.close));
   });
-  document.querySelectorAll("[data-connect-app]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const app = button.dataset.connectApp;
-      connectApps(app === "all" ? WORK_APPS : [app]);
-    });
-  });
   fitPanels();
   playHologramIntro();
 }
@@ -822,7 +818,6 @@ function handleVoiceUiCommand(text) {
   const closeVerb = /\b(chiudi|nascondi|spegni)\b/;
 
   if (wants(/\b(collega|connessioni|autentica)\b/) && wants(/\b(teams|outlook|databricks|devops|azure|servicenow|ticket|app|servizi)\b/)) {
-    openWindow("win-connections");
     const selected = wants(/\b(tutti|tutte|tutto|app|servizi)\b/)
       ? WORK_APPS
       : [
@@ -880,15 +875,8 @@ function handleVoiceUiCommand(text) {
 }
 
 async function connectApps(apps) {
-  const status = $("#connections-status");
-  if (!status) return;
-  status.textContent = "Apro le app nella sessione JARVIS…";
-  try {
-    const data = await api("connect_apps", { apps });
-    status.textContent = data.results.map((result) => result.message).join(" ");
-  } catch (error) {
-    status.textContent = error.message || "Collegamento non riuscito.";
-  }
+  // Comando esplicito a voce ("collega teams"): apre in primo piano, senza pannello.
+  try { await api("connect_apps", { apps }); } catch { /* nessun pannello dove mostrare l'errore */ }
 }
 
 // 2026-09-15, terzo giro: verificato dal vivo (logs/bot.log) che 0.02 era
@@ -2031,7 +2019,7 @@ async function boot() {
     $("#connected-data").hidden = false;
     $("#learned-memory").hidden = false;
     // TradePilot e IVECO leggono dati privati del PC: solo dalla dashboard locale.
-    document.querySelectorAll('[data-toggle="win-tradepilot"], [data-toggle="win-iveco"], [data-toggle="win-connections"]').forEach((b) => { b.hidden = false; });
+    document.querySelectorAll('[data-toggle="win-tradepilot"], [data-toggle="win-iveco"]').forEach((b) => { b.hidden = false; });
     $("#refresh-data-btn").onclick = refreshConnectedData;
     setupPanelTabs();
     setupIveco();
