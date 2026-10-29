@@ -593,7 +593,9 @@ def test_fast_answer_has_no_ack():
     asyncio.run(scenario())
 
 
-def test_partial_transcript_replies_each_step_and_never_blocks_commands():
+def test_partial_transcript_replies_each_step_and_never_blocks_commands(monkeypatch):
+    import core.live_server as live_server
+    monkeypatch.setattr(live_server, "LIVE_PARTIAL", True)
     class PartialEngine(FakeEngine):
         def __init__(self):
             super().__init__()
@@ -616,5 +618,33 @@ def test_partial_transcript_replies_each_step_and_never_blocks_commands():
             await socket.send_json(dict(type="text", id="cmd", prompt="ciao"))
             await until(socket, "done", "cmd")
             assert engine.partials == ["chat"]
+            await socket.close()
+    asyncio.run(scenario())
+
+
+def test_new_audio_supersedes_pending_audio_transcription():
+    class SlowEngine(FakeEngine):
+        def __init__(self):
+            super().__init__()
+            self.heard = []
+
+        def transcribe(self, raw):
+            import time
+            time.sleep(0.8 if raw == b"vecchio" else 0.05)
+            self.heard.append(raw.decode())
+            return raw.decode()
+
+    async def scenario():
+        engine = SlowEngine()
+        client, server = await client_for(engine)
+        async with client:
+            await login(client)
+            socket = await client.ws_connect("/live/ws")
+            await until(socket, "ready")
+            await socket.send_json(dict(type="audio", id="old", data=base64.b64encode(b"vecchio").decode()))
+            await asyncio.sleep(0.2)
+            await socket.send_json(dict(type="audio", id="new", data=base64.b64encode(b"Jarvis che ore sono").decode()))
+            await until(socket, "done", "new")
+            assert "vecchio" not in engine.commands
             await socket.close()
     asyncio.run(scenario())

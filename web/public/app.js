@@ -1031,7 +1031,7 @@ function setupVoice() {
   }
 
   function maybeSendPartial() {
-    if (partialInFlight || !window.JarvisDirect || segmentMs < PARTIAL_START_MS) return;
+    if (partialInFlight || !window.JarvisDirect?.partialEnabled || segmentMs < PARTIAL_START_MS) return;
     if (segmentMs - lastPartialMs < PARTIAL_EVERY_MS) return;
     lastPartialMs = segmentMs;
     const seq = segmentSeq;

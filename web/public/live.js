@@ -7,6 +7,7 @@
   let status;
   let sttReady = false;
   let micEnabled = false;
+  let partialEnabled = false; // testo parziale: solo se il PC lo ha attivato (JARVIS_LIVE_PARTIAL=1)
   // PC (puntatore fine): la console aperta abilita la wake word del daemon vocale.
   const coarse = window.matchMedia("(pointer: coarse)").matches;
 
@@ -78,6 +79,7 @@
       return;
     }
     if (data.type === "ready") {
+      partialEnabled = Boolean(data.partial);
       if (!sttReady) setStatus(data.stt_ready ? `Voce locale pronta · ${data.device}` : `Preparazione voce locale · ${data.device}`);
       sttReady = data.stt_ready;
       return;
@@ -186,7 +188,7 @@
   // Testo provvisorio mentre si parla: nessuna connessione nuova, solo se il
   // socket e' gia' aperto. Restituisce false se il passo non e' partito.
   function partial(base64Wav, onText) {
-    if (socket?.readyState !== WebSocket.OPEN) return false;
+    if (!partialEnabled || socket?.readyState !== WebSocket.OPEN) return false;
     const id = "p" + crypto.randomUUID().slice(0, 12);
     partials.set(id, onText);
     socket.send(JSON.stringify({ type: "partial", id, data: base64Wav }));
@@ -236,5 +238,5 @@
     }
   }
 
-  window.JarvisDirect = { start, submit, partial, unlock, cancel, setMicEnabled, get speaking() { return sources.size > 0; } };
+  window.JarvisDirect = { start, submit, partial, get partialEnabled() { return partialEnabled; }, unlock, cancel, setMicEnabled, get speaking() { return sources.size > 0; } };
 })();

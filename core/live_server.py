@@ -34,6 +34,9 @@ COOKIE = "jarvis_live"
 # Frase immediata se la risposta non e' partita entro questo tempo, poi la
 # percentuale a voce a intervalli (richiesta di Alessandro, 2026-10-28).
 ACK_AFTER_SEC = 1.2
+# Testo parziale mentre si parla: spento di default (2026-10-29: con il parziale attivo il
+# comando finale a volte non riceveva risposta dal PC). JARVIS_LIVE_PARTIAL=1 per riattivarlo.
+LIVE_PARTIAL = os.getenv("JARVIS_LIVE_PARTIAL", "0") == "1"
 PROGRESS_EVERY_SEC = 7
 TTL = 12 * 3600
 MAX_FRAME = 4 * 1024 * 1024
@@ -530,7 +533,7 @@ class LiveServer:
             # il passo e' finito.
             nonlocal partial_busy
             rid = body.get("id")
-            if partial_busy or transcribing or not self.engine.ready:
+            if not LIVE_PARTIAL or partial_busy or transcribing or not self.engine.ready:
                 await send("partial", rid, text="")
                 return
             partial_busy = True
@@ -665,8 +668,8 @@ class LiveServer:
                 if body["type"] == "audio":
                     if not self.engine.ready:
                         raise ValueError("Trascrizione in avvio. Attendi qualche secondo.")
-                    if self.stt_lock.locked():
-                        raise ValueError("Trascrizione occupata. Riprova tra poco.")
+                    # Nessun rifiuto se il lock e' preso: il comando precedente e' gia' annullato
+                    # e il suo thread STT finisce da solo; questo audio aspetta il proprio turno.
                     async with self.stt_lock:
                         transcribing = rid
                         try:
@@ -705,7 +708,7 @@ class LiveServer:
                 LOG.exception("Trascrizione diretta fallita")
                 await send("error", rid, message="Trascrizione non riuscita. Riprova più vicino al microfono.")
 
-        await send("ready", stt_ready=self.engine.ready, device=self.engine.device)
+        await send("ready", stt_ready=self.engine.ready, device=self.engine.device, partial=LIVE_PARTIAL)
         try:
             async for message in socket:
                 self.session(request)
@@ -723,7 +726,7 @@ class LiveServer:
                         await cancel(active)
                         continue
                     if body.get("type") == "status":
-                        await send("ready", stt_ready=self.engine.ready, device=self.engine.device)
+                        await send("ready", stt_ready=self.engine.ready, device=self.engine.device, partial=LIVE_PARTIAL)
                         continue
                     if body.get("type") == "partial":
                         # Task a parte: il ciclo di ricezione deve restare libero per cancel/comandi.
@@ -742,16 +745,14 @@ class LiveServer:
                         continue
                     if body.get("type") not in {"audio", "text"} or not isinstance(rid, str) or not re.fullmatch(r"[\w-]{1,80}", rid):
                         raise ValueError()
-                    if incoming and not incoming.done() and body["type"] == "text" and transcribing:
-                        # Testo e pulsanti sono comandi certi: non aspettano la
-                        # trascrizione CPU di un audio (spesso rumore), che viene scartato.
+                    if incoming and not incoming.done():
+                        # Un comando nuovo (testo o voce) annulla quello precedente ancora in
+                        # trascrizione: niente code, niente sovraccarico. Il thread STT gia'
+                        # partito non si puo' fermare: il nuovo audio aspetta che finisca.
                         incoming.cancel()
-                        await send("ignored", transcribing)
-                        incoming = asyncio.create_task(accept(body))
-                    elif incoming and not incoming.done():
-                        await send("error", rid, message="Sto trascrivendo il comando precedente.")
-                    else:
-                        incoming = asyncio.create_task(accept(body))
+                        if transcribing:
+                            await send("ignored", transcribing)
+                    incoming = asyncio.create_task(accept(body))
                 except (ValueError, TypeError):
                     await send("error", message="Messaggio non valido")
         finally:
