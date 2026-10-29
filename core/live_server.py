@@ -340,6 +340,19 @@ class LiveServer:
             return web.json_response(await asyncio.to_thread(costs.summary))
         if action == "memories_list":
             return web.json_response({"memories": await asyncio.to_thread(memory.entries)})
+        if action in {"project_chats", "project_chat_history", "project_chat_send", "project_chat_stop"}:
+            from core import project_chats
+            try:
+                if action == "project_chats":
+                    return web.json_response({"projects": await asyncio.to_thread(project_chats.list_projects)})
+                if action == "project_chat_history":
+                    return web.json_response(await asyncio.to_thread(
+                        project_chats.history, body.get("project", ""), int(body.get("after") or 0)))
+                if action == "project_chat_send":
+                    return web.json_response(await asyncio.to_thread(project_chats.send, body.get("project", ""), body.get("text", "")))
+                return web.json_response(await asyncio.to_thread(project_chats.stop, body.get("project", "")))
+            except ValueError as error:
+                return web.json_response({"error": str(error)}, status=400)
         if action == 'coding_tasks':
             from core import coding_tasks
             data = await asyncio.to_thread(coding_tasks.overview)
@@ -799,7 +812,10 @@ def create_app(password, origins, engine=None, warm=True, watch_token=None, gate
     app.router.add_get("/live/ws", server.websocket)
     app.router.add_post(WATCH_PATH, server.watch)
     app.router.add_post(outlook_web.PATH, server.outlook_fallback)
-    for name in ("app.js", "live.js", "orb.js", "style.css"):
+    async def progetti_page(request):
+        return web.FileResponse(ROOT / "web/public/progetti.html", headers={"Cache-Control": "no-store"})
+    app.router.add_get("/progetti", progetti_page)
+    for name in ("app.js", "live.js", "orb.js", "style.css", "progetti.js"):
         async def asset(request, filename=name):
             return web.FileResponse(ROOT / "web/public" / filename)
         app.router.add_get("/" + name, asset)

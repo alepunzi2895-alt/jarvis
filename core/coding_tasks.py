@@ -272,6 +272,18 @@ def mark_announced(job_id):
         db.execute('UPDATE jobs SET announced=1 WHERE id=?', (job_id,))
 
 
+def record_finished(provider, project, prompt, status, result, path, channel='web'):
+    """Registra un turno gia' concluso (chat di progetto): compare in coding_tasks e viene letto a voce."""
+    ident = uuid.uuid4().hex[:12]
+    now = datetime.now(timezone.utc).isoformat()
+    with closing(_db()) as db, db:
+        db.execute('INSERT INTO jobs (id,provider,project,path,prompt,mode,status,result,session_id,created_at,'
+                   'finished_at,owner_pid,channel,worker_pid) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+                   (ident, provider, project, path, prompt[:2000], 'edit', status, result[:16000], '',
+                    now, now, os.getpid(), channel, 0))
+    return ident
+
+
 def overview(job_id='', project=''):
     """Lavori avviati da JARVIS + sessioni aperte da Alessandro in VS Code,
     terminale o app Codex (core/agent_sessions.py)."""

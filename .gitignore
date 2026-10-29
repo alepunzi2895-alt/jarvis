@@ -69,3 +69,5 @@ watch/JarvisWatch/Config.swift
 /.jarvis-conversations.jsonl
 /.project-insights.json
 /.project-insights.tmp
+
+.project-chats/
