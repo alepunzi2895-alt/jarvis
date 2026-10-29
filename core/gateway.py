@@ -25,6 +25,11 @@ GATEWAY_TOKEN = os.getenv("JARVIS_GATEWAY_TOKEN", "")
 GATEWAY_USER = os.getenv("JARVIS_GATEWAY_USER", "").strip().casefold()
 SNAPSHOT_FILE = ROOT / ".relay-snapshot.json"
 OFFLINE_PAGE = ROOT / "web/public/offline.html"
+STATIC_DIR = ROOT / "web/public"
+# Asset statici serviti dalla VPS stessa: niente giro verso il PC (2026-10-29: ~0,2 s a richiesta
+# piu' il relay del telefono, il video da 1,6 MB arrivava dopo ~8 s). La VPS deve avere lo
+# stesso web/public del PC: dopo ogni merge su main, aggiornare la VPS.
+LOCAL_STATIC = {"/style.css", "/app.js", "/live.js", "/orb.js", "/media/online.mp4"}
 SNAPSHOT_MAX_ITEMS = 60
 SNAPSHOT_MAX_BYTES = 400_000
 MAX_FRAME = 4 * 1024 * 1024
@@ -128,8 +133,20 @@ class Gateway:
             headers["Cookie"] = request.headers["Cookie"]
         return headers
 
+    def local_static(self, request):
+        """File di web/public da servire qui, o None. Solo lista esplicita, niente percorsi liberi."""
+        if request.method not in ("GET", "HEAD") or request.path not in LOCAL_STATIC:
+            return None
+        path = (STATIC_DIR / request.path.lstrip("/")).resolve()
+        if not path.is_file() or not path.is_relative_to(STATIC_DIR.resolve()):
+            return None
+        return path
+
     async def proxy(self, request):
         login = self.identity(request)
+        local = self.local_static(request)
+        if local is not None:
+            return web.FileResponse(local, headers={"Cache-Control": "no-cache"})
         if not self.relay.pc_alive():
             if request.method == "GET" and request.path == "/":
                 return web.FileResponse(self.offline_page, headers={"Cache-Control": "no-store"})
@@ -142,9 +159,14 @@ class Gateway:
             async with self.session.request(request.method, self.pc_live_url + request.raw_path, data=body or None,
                                             headers=self.upstream_headers(request, login), timeout=timeout,
                                             allow_redirects=False) as upstream:
-                payload = await upstream.read()
+                # Streaming: il browser riceve i primi byte senza aspettare tutto il corpo.
                 headers = CIMultiDict((k, v) for k, v in upstream.headers.items() if k.lower() not in HOP_BY_HOP)
-                return web.Response(body=payload, status=upstream.status, headers=headers)
+                response = web.StreamResponse(status=upstream.status, headers=headers)
+                await response.prepare(request)
+                async for chunk in upstream.content.iter_chunked(65536):
+                    await response.write(chunk)
+                await response.write_eof()
+                return response
         except (OSError, asyncio.TimeoutError):
             return _json({"error": "PC non raggiungibile: riprova tra poco."}, status=503)
 

@@ -65,8 +65,8 @@ def test_offline_page_and_no_pc_services_when_pc_off(tmp_path):
             page = await client.get("/", headers=LOGIN)
             assert page.status == 200
             assert "PC spento" in await page.text()
-            # Tutto il resto dipende dal PC: 503 leggibile, non un errore di rete.
-            assert (await client.get("/live.js", headers=LOGIN)).status == 503
+            # Asset statici dalla VPS anche a PC spento; le API restano legate al PC: 503 leggibile.
+            assert (await client.get("/live.js", headers=LOGIN)).status == 200
             assert (await client.post("/api/jarvis", json={"action": "tasks_recent"}, headers=LOGIN)).status == 503
         finally:
             await client.close()
@@ -165,3 +165,24 @@ def test_live_server_accepts_gateway_identity_only_with_token():
     assert server.tailscale_identity(forged) is None
     direct = Req({"Tailscale-User-Login": "ale@example.com"})
     assert server.tailscale_identity(direct) == "ale@example.com"
+
+
+def test_static_assets_served_by_vps_without_touching_pc(tmp_path):
+    # PC irraggiungibile di proposito: i file statici devono arrivare lo stesso.
+    async def run():
+        client, relay, _, _ = await make_client(tmp_path, pc_url="http://127.0.0.1:9", user="")
+        try:
+            relay.pc_seen = time.monotonic()
+            for path in ("/live.js", "/app.js", "/style.css", "/orb.js"):
+                response = await client.get(path, headers=LOGIN)
+                assert response.status == 200, path
+                assert (await response.read()) == (gateway_module.STATIC_DIR / path[1:]).read_bytes()
+            video = await client.get("/media/online.mp4", headers={**LOGIN, "Range": "bytes=0-99"})
+            assert video.status == 206
+            assert len(await video.read()) == 100
+            # Fuori dalla lista: niente file locali, va al PC (qui irraggiungibile).
+            other = await client.get("/core/gateway.py", headers=LOGIN)
+            assert other.status == 503
+        finally:
+            await client.close()
+    asyncio.run(run())
