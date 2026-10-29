@@ -19,6 +19,8 @@ import uuid
 import anthropic
 import keyboard
 
+from core.tls import use_system_trust
+use_system_trust()
 from core import turso, intents, screen_context, telegram, conversation_memory, console_presence, feed
 from core.claude_bridge import load_state
 from core.executor_singleton import executor

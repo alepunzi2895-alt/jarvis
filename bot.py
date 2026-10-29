@@ -34,6 +34,8 @@ from dotenv import load_dotenv
 sys.stdout.reconfigure(encoding="utf-8", errors="replace", line_buffering=True)
 sys.stderr.reconfigure(encoding="utf-8", errors="replace", line_buffering=True)
 
+from core.tls import use_system_trust
+use_system_trust()
 from core.claude_bridge import (
     WORKSPACES,
     JARVIS_HOME,

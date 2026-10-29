@@ -1,4 +1,5 @@
 requests>=2.32
+truststore>=0.10  # certificati TLS dello store Windows (proxy aziendale)
 aiohttp>=3.14
 python-dotenv>=1.0
 pyyaml>=6.0
