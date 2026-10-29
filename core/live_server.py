@@ -24,6 +24,8 @@ from aiohttp import web, WSMsgType, ClientSession, ClientTimeout
 
 ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(ROOT / ".env")
+from core.tls import use_system_trust
+use_system_trust()
 from core.voice.streaming import finish_thread
 from core import conversation_memory as memory, tradepilot, azure_devops, console_presence, feed, telegram, outlook_web, progress
 
