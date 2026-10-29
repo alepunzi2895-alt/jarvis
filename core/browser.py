@@ -520,6 +520,7 @@ class BrowserAgent:
         ricaricarla; altrimenti scheda propria, mai in primo piano, chiusa alla
         fine. `ready_js` e' vero quando la pagina e' loggata e pronta."""
         host = urlparse(url).hostname
+        self.loop = asyncio.get_running_loop()  # loop su cui vive il browser: lo usano i tool ServiceNow
         context = await self._ensure_context()
         existing = next((p for p in reversed(context.pages)
                          if not p.is_closed() and urlparse(p.url).hostname == host), None)

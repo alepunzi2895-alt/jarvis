@@ -121,3 +121,66 @@ def test_read_tasks_retries_once_after_aborted_fetch(monkeypatch, browser_loop):
     monkeypatch.setattr(browser, "get_agent", lambda: Agent())
     assert servicenow.read_tasks(browser_loop) == [{"number": "SCTASK1"}]
     assert calls == [servicenow.LIST_URL] * 2
+
+
+def _row(number="SCTASK1234567", state="Work in Progress", assigned="Alessandro Punzi"):
+    return dict(sys_id="a" * 32, number=number, ritm="RITM7654321", state=state, state_code="2", active=True,
+                assigned_to=assigned, opened_at="2026-10-01 09:00:00", closed_at="", updated_at="2026-10-20 09:00:00",
+                priority="3", short_description="Template alert", description="Aggiungere il filtro per sito",
+                work_notes="")
+
+
+def test_stage_update_prepares_without_writing(monkeypatch):
+    monkeypatch.setattr(servicenow, "read_tasks", lambda loop: [_row()])
+    writes = []
+    monkeypatch.setattr(servicenow, "confirm_update", lambda token, loop=None: writes.append(token))
+    staged = servicenow.stage_update(object(), "sctask1234567", state="Pending")
+    assert staged["confirm"] == f"/confirm {staged['token']}"
+    assert "'Work in Progress' -> 'Pending'" in staged["changes"]
+    assert writes == [] and servicenow.has_pending(staged["token"])
+    assert servicenow.deny_update(staged["token"]) and not servicenow.has_pending(staged["token"])
+
+
+def test_stage_update_rejects_bad_input(monkeypatch):
+    monkeypatch.setattr(servicenow, "read_tasks", lambda loop: [_row()])
+    with pytest.raises(servicenow.ServiceNowError):
+        servicenow.stage_update(object(), "INC123")
+    with pytest.raises(servicenow.ServiceNowError):
+        servicenow.stage_update(object(), "SCTASK1234567")
+    with pytest.raises(servicenow.ServiceNowError):
+        servicenow.stage_update(object(), "SCTASK9999999", state="Pending")
+
+
+def test_confirm_update_patches_once_and_expired_token_fails(monkeypatch, browser_loop):
+    from core import browser
+    monkeypatch.setattr(servicenow, "read_tasks", lambda loop: [_row()])
+    sent = []
+
+    class Agent:
+        async def evaluate_on(self, url, ready, script, arg=None):
+            sent.append(arg)
+            return dict(state="Pending", assigned_to="Dario Campolo")
+
+    monkeypatch.setattr(browser, "get_agent", lambda: Agent())
+    staged = servicenow.stage_update(browser_loop, "SCTASK1234567", state="Pending", assigned_to="Dario Campolo")
+    message = servicenow.confirm_update(staged["token"], browser_loop)
+    assert sent == [{"sysId": "a" * 32, "body": {"state": "Pending", "assigned_to": "Dario Campolo"}}]
+    assert message == "SCTASK1234567 aggiornato: stato Pending, assegnato a Dario Campolo."
+    with pytest.raises(servicenow.ServiceNowError):
+        servicenow.confirm_update(staged["token"], browser_loop)
+    expired = servicenow.stage_update(browser_loop, "SCTASK1234567", state="Pending")
+    servicenow._pending_updates[expired["token"]]["at"] -= servicenow.PENDING_TTL + 1
+    with pytest.raises(servicenow.ServiceNowError):
+        servicenow.confirm_update(expired["token"], browser_loop)
+
+
+def test_draft_genie_new_or_existing_dashboard():
+    ticket = dict(number="SCTASK1234567", short_description="Template alert", description="Filtro per sito")
+    new = genie_code.draft_request(ticket, "new")
+    assert "Crea da zero" in new and "SCTASK1234567" in new
+    existing = genie_code.draft_request(ticket, "existing", "Alert Dashboard QAS")
+    assert "Estendi la dashboard esistente 'Alert Dashboard QAS'" in existing
+    with pytest.raises(ValueError):
+        genie_code.draft_request(ticket, "existing")
+    with pytest.raises(ValueError):
+        genie_code.draft_request(ticket, "boh")

@@ -514,6 +514,7 @@ TOOLS += [
     _tool("get_work_overview", "Agenda Outlook, tempo occupato senza sovrapposizioni, numero mail non lette, Git e obiettivi espliciti. Dati mancanti non sono zero.", {"start": {"type": "string", "description": "YYYY-MM-DD, default oggi"}, "days": {"type": "integer", "minimum": 1, "maximum": 7}}),
     _tool("focus_items", "Elenca obiettivi personali/lavorativi. Aggiungi o completa SOLO su richiesta/conferma esplicita dell'utente, mai per una tua proposta. Nessun promemoria automatico.", {"action": {"type": "string", "enum": ["list", "add", "complete"]}, "title": _STRING, "item_id": _STRING, "project": _STRING, "due": {"type": "string", "description": "Scadenza YYYY-MM-DD facoltativa"}}, ("action",)),
     _tool("inspect_databricks", "Legge inventario o metriche Databricks, solo GET. env qas (default) o prd. runs_summary: tutte le run del periodo (1-30 giorni) aggregate per job con falliti, durate, ultimo errore e copertura: preferiscilo per analisi job. compare_dashboards: dashboard AI/BI PRD contro QAS con stato di pubblicazione (env ignorato). Altri kind: jobs, runs (pagina da 25), dashboards, dashboard (definizione), job (dettaglio); workspace e notebook solo QAS. Nessun avvio/modifica. Dichiara campioni parziali.", {"kind": {"type": "string", "enum": ["runs_summary", "compare_dashboards", "jobs", "runs", "dashboards", "dashboard", "workspace", "notebook", "job"]}, "env": {"type": "string", "enum": ["qas", "prd"]}, "path": _STRING, "item_id": _STRING, "days": {"type": "integer", "minimum": 1, "maximum": 30}, "page_token": _STRING}, ("kind",)),
+    _tool("servicenow_ticket", "Ticket ServiceNow del gruppo Data Room. action: list (aperti: stato, assegnatario, eta'), explain (number: cosa chiede, descrizione, ultime note), stage_update (number + state e/o assigned_to: PREPARA la modifica, non la esegue; poi chiedi all'utente di rispondere /confirm <token> o /deny <token>), draft_genie (number + mode new|existing [+ dashboard]: bozza per Genie Code, non la invia). Non chiedere di confermare al posto dell'utente.", {"action": {"type": "string", "enum": ["list", "explain", "stage_update", "draft_genie"]}, "number": _STRING, "state": _STRING, "assigned_to": _STRING, "mode": {"type": "string", "enum": ["new", "existing"]}, "dashboard": _STRING}, ("action",)),
     _tool("query_databricks", "Query SQL QAS sola lettura, massimo 100 righe. Interpreta il campione; per totali usa aggregazioni SQL. Non usare anche il blocco dbsql.", {"sql": _STRING}, ("sql",)),
 ]
 
@@ -535,6 +536,9 @@ def _execute_tool(name: str, tool_input: dict, cwd: str) -> tuple[str, bool]:
     (testo per il tool_result, is_error) — mai solleva, un errore diventa
     sempre un tool_result con is_error=True cosi' Claude puo' reagire."""
     try:
+        if name == "servicenow_ticket":
+            from core import servicenow
+            return _truncate_tool_result(json.dumps(servicenow.tool(**tool_input), ensure_ascii=False, default=str)), False
         if name in {"open_coding_project", "start_coding_task", "coding_tasks"}:
             from core import coding_tasks
             fn = {"open_coding_project": coding_tasks.open_project, "start_coding_task": coding_tasks.start_task, "coding_tasks": coding_tasks.overview}[name]

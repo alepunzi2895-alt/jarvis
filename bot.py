@@ -277,7 +277,14 @@ async def handle(text: str) -> None:
             if result.ok:
                 return send(result.stdout.strip() or "Eseguito.")
             # Non trovato tra le azioni di SystemExecutor: puo' essere una
-            # domanda Genie su PRD in sospeso (/genie_prd) - store separato.
+            # modifica ticket ServiceNow in sospeso - store separato.
+            from core import servicenow
+            if servicenow.has_pending(arg):
+                try:
+                    return send(await asyncio.to_thread(servicenow.confirm_update, arg))
+                except Exception as error:  # noqa: BLE001 — errore mostrato all'utente
+                    return send(f"ServiceNow: {error}")
+            # Puo' essere una domanda Genie su PRD in sospeso (/genie_prd).
             try:
                 answer = await asyncio.to_thread(databricks.confirm_prd, arg)
                 return send(f"Genie (PRODUZIONE): {answer}")
@@ -287,7 +294,8 @@ async def handle(text: str) -> None:
         if cmd == "/deny":
             if not arg:
                 return send("Uso: /deny <token>")
-            return send("Annullato." if (executor.deny(arg) or databricks.deny_prd(arg)) else "Token non trovato.")
+            from core import servicenow
+            return send("Annullato." if (executor.deny(arg) or databricks.deny_prd(arg) or servicenow.deny_update(arg)) else "Token non trovato.")
 
         if cmd == "/genie_prd":
             if not arg:

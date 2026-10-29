@@ -110,3 +110,23 @@ def collect(since: datetime, loop) -> list[dict]:
     if errors:
         rows.append(dict(note="Ambienti non letti: " + ", ".join(errors)))
     return rows
+
+
+def draft_request(ticket: dict, mode: str, dashboard: str | None = None) -> str:
+    """Testo per Genie Code. Solo bozza: nessuna chat viene aperta o inviata.
+    mode 'new': da zero. mode 'existing': estende una dashboard gia' esistente (nome obbligatorio)."""
+    if mode == "existing":
+        if not (dashboard or "").strip():
+            raise ValueError("Per una dashboard esistente serve il nome.")
+        where = f"Estendi la dashboard esistente '{dashboard.strip()}'. Non crearne una nuova."
+    elif mode == "new":
+        where = "Crea da zero. Nessuna dashboard di riferimento."
+    else:
+        raise ValueError("mode deve essere 'new' o 'existing'.")
+    return "\n".join([
+        f"Ticket {ticket['number']}: {ticket['short_description']}",
+        where,
+        "Richiesta dal ticket:",
+        ticket["description"][:1500] or "(descrizione vuota)",
+        "Prima di modificare qualcosa: elenca il piano e aspetta conferma.",
+    ])
