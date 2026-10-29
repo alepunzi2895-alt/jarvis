@@ -55,6 +55,26 @@ def desktop_running(app: str) -> bool:
     return False
 
 
+# Avvio dell'app desktop se non e' aperta: Teams nuovo via AppsFolder, Outlook via App Paths.
+_DESKTOP_LAUNCH = {
+    "teams": r"shell:AppsFolder\MSTeams_8wekyb3d8bbwe!MSTeams",
+    "outlook": "outlook.exe",
+}
+
+
+def launch_desktop(app: str) -> bool:
+    """Avvia l'app desktop con l'account Windows (SSO). False se non parte."""
+    target = _DESKTOP_LAUNCH.get(app)
+    if not target:
+        return False
+    try:
+        os.startfile(target)  # solo Windows
+        return True
+    except OSError:
+        LOG.exception("Avvio app desktop fallito: %s", app)
+        return False
+
+
 def web_urls() -> dict[str, str]:
     """Indirizzi web delle app configurate (Databricks QAS solo se nel .env)."""
     from core import databricks, servicenow
@@ -70,8 +90,12 @@ def web_urls() -> dict[str, str]:
 
 
 async def _open_one(app: str, urls: dict[str, str], agent, force: bool) -> dict:
-    if app in _DESKTOP_PROCESSES and await asyncio.to_thread(desktop_running, app):
-        return dict(app=app, ok=True, state="desktop", message=f"{app}: uso l'app desktop gia' aperta.")
+    if app in _DESKTOP_PROCESSES:
+        if await asyncio.to_thread(desktop_running, app):
+            return dict(app=app, ok=True, state="desktop", message=f"{app}: uso l'app desktop gia' aperta.")
+        # PC acceso ma app desktop chiusa: la avvio (login Windows), web solo se non parte.
+        if await asyncio.to_thread(launch_desktop, app):
+            return dict(app=app, ok=True, state="desktop avviato", message=f"{app}: app desktop avviata.")
     if app == "devops":
         from core import azure_devops
         url = azure_devops.settings()["project_url"]
