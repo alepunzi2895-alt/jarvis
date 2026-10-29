@@ -28,7 +28,10 @@ from core.win_focus import bring_matching_to_foreground_bg
 
 BROWSER_BLOCK_RE = re.compile(r"```browser\s*\n(.*?)\n```", re.DOTALL)
 
-PROFILE_DIR = Path(os.getenv("JARVIS_HOME", str(Path(__file__).parent.parent))) / ".browser_profile"
+# Cartella profilo del Chrome di Alessandro con porta di debug (impostata nei suoi collegamenti).
+CHROME_PROFILE_MARKER = ".jarvis-chrome"
+CHROME_DEBUG_PORT = int(os.getenv("JARVIS_CHROME_DEBUG_PORT", "9333"))
+PROFILE_DIR =Path(os.getenv("JARVIS_HOME", str(Path(__file__).parent.parent))) / ".browser_profile"
 
 # Nessun indirizzo locale e' mai un sito vero da navigare (dashboard, second
 # brain, webcam sono concetti locali, non pagine web — il SYSTEM prompt lo
@@ -232,6 +235,7 @@ _PROFILE_MARKER = PROFILE_DIR.name  # ".browser_profile" - distintivo, non l'int
 
 def _bring_browser_to_foreground() -> None:
     bring_matching_to_foreground_bg(_PROFILE_MARKER)
+    bring_matching_to_foreground_bg(CHROME_PROFILE_MARKER)  # Chrome di Alessandro, se agganciato
 
 
 class BrowserAgent:
@@ -258,6 +262,14 @@ class BrowserAgent:
     async def _ensure_context(self) -> BrowserContext:
         if self._context is None:
             self._playwright = await async_playwright().start()
+            self._context = await self._attach_user_chrome()
+            if self._context is not None:
+                # Chrome di Alessandro (avviato con --remote-debugging-port, vedi
+                # CHROME_DEBUG_PORT): niente browser JARVIS. Nessun handler sui dialoghi
+                # e sulle schede sue: li gestisce lui. Le schede aperte da JARVIS sono
+                # "attive" per read/click come prima.
+                self._context.on("page", self._track_page)
+                return self._context
             PROFILE_DIR.mkdir(parents=True, exist_ok=True)
             self._context = await self._playwright.chromium.launch_persistent_context(
                 str(PROFILE_DIR), headless=False, viewport=None
@@ -276,6 +288,17 @@ class BrowserAgent:
             self._context.on("page", lambda page: page.on("dialog", self._auto_dismiss_dialog))
             self._context.on("page", self._track_page)
         return self._context
+
+    async def _attach_user_chrome(self) -> BrowserContext | None:
+        """Contesto del Chrome di Alessandro se e' aperto con la porta di debug
+        (il collegamento di Chrome la imposta, con un profilo dedicato: da Chrome
+        136 la porta e' ignorata sul profilo predefinito). None = browser JARVIS."""
+        try:
+            browser = await self._playwright.chromium.connect_over_cdp(
+                f"http://127.0.0.1:{CHROME_DEBUG_PORT}", timeout=15000)
+        except Exception:  # noqa: BLE001 — Chrome chiuso o senza porta: si usa il browser JARVIS
+            return None
+        return browser.contexts[0] if browser.contexts else None
 
     def _track_page(self, page) -> None:
         # Una scheda nuova (anche aperta da un link) diventa quella attiva,
