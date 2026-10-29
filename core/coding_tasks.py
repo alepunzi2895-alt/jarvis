@@ -13,7 +13,7 @@ import uuid
 
 import psutil
 
-from core import projects, conversation_memory as memory
+from core import feed, projects, conversation_memory as memory
 from core.executor_singleton import executor
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -43,6 +43,9 @@ def _db():
         mode TEXT, status TEXT, result TEXT, session_id TEXT, created_at TEXT,
         finished_at TEXT, owner_pid INTEGER, channel TEXT, worker_pid INTEGER DEFAULT 0)''')
     db.execute("CREATE UNIQUE INDEX IF NOT EXISTS active_project ON jobs(path) WHERE status='running'")
+    # Lavori finiti non ancora letti a voce/dashboard (migrazione per DB gia' esistenti).
+    if 'announced' not in {row['name'] for row in db.execute('PRAGMA table_info(jobs)')}:
+        db.execute('ALTER TABLE jobs ADD COLUMN announced INTEGER DEFAULT 0')
     return db
 
 
@@ -113,7 +116,7 @@ def list_tasks(job_id='', project=''):
         return output
 
 
-def start_task(provider, project, prompt, mode='read', previous_job='', explicit=False):
+def start_task(provider, project, prompt, mode='read', previous_job='', explicit=False, channel='web'):
     """explicit: richiesta da un pulsante dedicato (pannello IVECO), non da una
     conversazione: il clic e' gia' la richiesta esplicita di delega."""
     key, path = _resolve(project)
@@ -132,7 +135,7 @@ def start_task(provider, project, prompt, mode='read', previous_job='', explicit
         if previous[0]['status'] == 'running' or not previous[0]['session_id']:
             raise ValueError('Sessione non ancora riprendibile.')
         session_id = previous[0]['session_id']
-    request = {'prompt': prompt, 'channel': 'web'} if explicit else memory.current_request()
+    request = {'prompt': prompt, 'channel': channel} if explicit else memory.current_request()
     if request is None:
         raise ValueError('La delega richiede una conversazione utente attiva.')
     if not explicit and not previous_job and not re.search(r'\b(codex|claude|vscode|vs code|visual studio|vs studio)\b', request['prompt'], re.I):
@@ -143,7 +146,8 @@ def start_task(provider, project, prompt, mode='read', previous_job='', explicit
     ident = uuid.uuid4().hex[:12]
     with closing(_db()) as db, db:
         try:
-            db.execute('INSERT INTO jobs VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+            db.execute('INSERT INTO jobs (id,provider,project,path,prompt,mode,status,result,session_id,created_at,'
+                       'finished_at,owner_pid,channel,worker_pid) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
                        (ident, provider, key, path, prompt.strip(), mode, 'running', '', session_id,
                         datetime.now(timezone.utc).isoformat(), '', os.getpid(), request.get('channel', 'web'), 0))
         except sqlite3.IntegrityError:
@@ -236,6 +240,36 @@ def _run(ident):
     if job['channel'] == 'telegram':
         from core.telegram import send_to_owner
         send_to_owner(f"{job['provider']} · {job['project']} · {status}\n{result}\nLavoro {ident}")
+        mark_announced(ident)  # Telegram lo ha gia' ricevuto: niente lettura vocale doppia
+    # Chat dashboard: il resoconto resta leggibile anche senza Telegram.
+    feed.add('claude', f"{job['provider']} · {job['project']} · {status}\n{result}\nLavoro {ident}", prompt=job['prompt'][:300])
+
+
+_STATUS_IT = {'running': 'ancora in corso', 'done': 'completato', 'blocked': 'bloccato dai permessi o dai turni',
+              'error': 'in errore', 'interrupted': 'interrotto'}
+_ANNOUNCE_WINDOW = '-6 hours'
+
+
+def speech_summary(job):
+    """Frase breve da leggere a voce: stato e inizio del resoconto, mai il testo intero."""
+    text = ' '.join(re.sub(r'[*`#]+', '', job.get('result') or '').split())
+    if len(text) > 500:
+        text = text[:500].rsplit(' ', 1)[0] + '...'
+    return f"Claude Code su {job['project']}: {_STATUS_IT.get(job['status'], job['status'])}. {text}".strip()
+
+
+def pending_announcements():
+    """Lavori finiti da voce o dashboard, non ancora letti. Solo quelli recenti."""
+    with closing(_db()) as db, db:
+        rows = db.execute("""SELECT * FROM jobs WHERE announced=0 AND status!='running'
+                              AND channel IN ('voice','web') AND replace(substr(finished_at,1,19),'T',' ') >= datetime('now', ?)
+                              ORDER BY finished_at""", (_ANNOUNCE_WINDOW,)).fetchall()
+        return [dict(row) for row in rows]
+
+
+def mark_announced(job_id):
+    with closing(_db()) as db, db:
+        db.execute('UPDATE jobs SET announced=1 WHERE id=?', (job_id,))
 
 
 def overview(job_id='', project=''):

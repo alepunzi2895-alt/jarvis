@@ -14,6 +14,7 @@ import asyncio
 import os
 import sys
 import threading
+import time
 import uuid
 
 import anthropic
@@ -21,7 +22,7 @@ import keyboard
 
 from core.tls import use_system_trust
 use_system_trust()
-from core import turso, intents, screen_context, telegram, conversation_memory, console_presence, feed
+from core import turso, intents, screen_context, telegram, conversation_memory, console_presence, feed, coding_tasks
 from core.claude_bridge import load_state
 from core.executor_singleton import executor
 from core.voice import camera, stt, tts, agent
@@ -53,6 +54,9 @@ WAKE_WORD_MODE = os.getenv("JARVIS_WAKE_WORD_MODE", "console").strip().lower()
 # microfono aperto in più per il tempo restante — nessun effetto collaterale
 # oltre a un uso leggermente ridondante del microfono.
 INTERRUPT_WATCH_SECONDS = 15
+# Lavori Claude Code finiti: il controllo ogni 5 s, la lettura avviene quando la voce e' in attesa.
+ANNOUNCE_POLL_SECONDS = 5
+_announce_due = threading.Event()
 
 
 def _wake_word_allowed() -> bool:
@@ -63,14 +67,39 @@ def _wake_word_allowed() -> bool:
 
 def _wait_activation(listener: WakeWordListener, hotkey_pressed: threading.Event) -> bool:
     """True = attivazione (wake word o hotkey). False = la console si e'
-    aperta o chiusa: il chiamante ricontrolla e riprova."""
+    aperta o chiusa, oppure c'e' un resoconto Claude Code da leggere: il
+    chiamante ricontrolla e riprova."""
     if _wake_word_allowed():
-        return listener.wait(cancel_event=hotkey_pressed, active=_wake_word_allowed)
+        return listener.wait(cancel_event=hotkey_pressed,
+                             active=lambda: _wake_word_allowed() and not _announce_due.is_set())
     # Console chiusa: nessuno stream microfono aperto, solo la hotkey.
     while not hotkey_pressed.wait(timeout=1):
-        if _wake_word_allowed():
+        if _wake_word_allowed() or _announce_due.is_set():
             return False
     return True
+
+
+def _announce_watch() -> None:
+    """Thread di sfondo: segnala al loop vocale i lavori Claude Code finiti."""
+    while True:
+        try:
+            if coding_tasks.pending_announcements():
+                _announce_due.set()
+        except Exception as error:  # noqa: BLE001 — il controllo non deve fermare la voce
+            print(f"(controllo lavori Claude Code fallito: {error})")
+        time.sleep(ANNOUNCE_POLL_SECONDS)
+
+
+def _announce_pending(engine: tts.TTSEngine, listener: WakeWordListener) -> None:
+    """Legge a voce i resoconti dei lavori Claude Code finiti, uno alla volta."""
+    _announce_due.clear()
+    if not _voice_enabled():
+        return  # restano da leggere: il prossimo giro li riprende
+    for job in coding_tasks.pending_announcements():
+        text = conversation_memory.clean_output(coding_tasks.speech_summary(job)) or "Lavoro concluso."
+        print(f"< {text}")
+        _speak_with_interrupt(engine, listener, text)
+        coding_tasks.mark_announced(job["id"])
 
 
 def _voice_enabled() -> bool:
@@ -169,6 +198,7 @@ def main() -> None:
 
     hotkey_pressed = threading.Event()
     keyboard.add_hotkey(HOTKEY, hotkey_pressed.set)
+    threading.Thread(target=_announce_watch, daemon=True).start()
     # Mantiene lo stesso loop per i client async tra i turni vocali.
     voice_loop = asyncio.new_event_loop()
     print(
@@ -179,6 +209,9 @@ def main() -> None:
     wake_state = None
     while True:
         try:
+            if _announce_due.is_set():
+                _announce_pending(engine, listener)
+                continue
             hotkey_pressed.clear()
             allowed = _wake_word_allowed()
             if allowed != wake_state:

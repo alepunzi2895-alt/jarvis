@@ -146,3 +146,37 @@ def test_ivgagent_runs_claude_read_only_with_dbx_wrapper_only(coding, monkeypatc
 def test_explicit_flag_is_needed_without_conversation(coding):
     with pytest.raises(ValueError, match='conversazione'):
         tasks.start_task('claude', 'demo', 'Leggi')
+
+
+def test_finished_voice_job_is_announced_once(monkeypatch, tmp_path):
+    monkeypatch.setattr(tasks, 'DB', tmp_path / 'coding.sqlite3')
+    with closing(tasks._db()) as db, db:
+        db.execute("INSERT INTO jobs (id,provider,project,path,prompt,mode,status,result,session_id,created_at,"
+                   "finished_at,owner_pid,channel,worker_pid) VALUES ('j1','claude','aura','p','x','edit','done',"
+                   "'Bug sistemato.','s',datetime('now'),datetime('now'),0,'voice',0)")
+        db.execute("INSERT INTO jobs (id,provider,project,path,prompt,mode,status,result,session_id,created_at,"
+                   "finished_at,owner_pid,channel,worker_pid) VALUES ('j2','claude','aura','p','x','edit','running',"
+                   "'','s',datetime('now'),'',0,'voice',0)")
+    pending = tasks.pending_announcements()
+    assert [job['id'] for job in pending] == ['j1']
+    speech = tasks.speech_summary(pending[0])
+    assert 'completato' in speech and 'Bug sistemato.' in speech
+    tasks.mark_announced('j1')
+    assert tasks.pending_announcements() == []
+
+
+def test_telegram_job_is_not_read_aloud_again(monkeypatch, tmp_path):
+    monkeypatch.setattr(tasks, 'DB', tmp_path / 'coding.sqlite3')
+    with closing(tasks._db()) as db, db:
+        db.execute("INSERT INTO jobs (id,provider,project,path,prompt,mode,status,result,session_id,created_at,"
+                   "finished_at,owner_pid,channel,worker_pid) VALUES ('t1','claude','aura','p','x','edit','done',"
+                   "'ok','s',datetime('now'),datetime('now'),0,'telegram',0)")
+    assert tasks.pending_announcements() == []
+
+
+def test_coding_status_intent_reads_last_job_summary(monkeypatch):
+    monkeypatch.setattr(tasks, 'list_tasks', lambda *a, **k: [
+        {'project': 'aura', 'status': 'done', 'result': 'Modifica completata.'}])
+    assert intents.parse_intent('resoconto claude code') == {'type': 'coding_status'}
+    text = intents.execute_intent({'type': 'coding_status'}, Mock(), voice=True)
+    assert text.startswith('Claude Code su aura: completato.') and 'Modifica completata.' in text
