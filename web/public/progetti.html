@@ -96,7 +96,8 @@
     .embedded .wrap { grid-template-columns: 1fr; }
     @media (max-width: 760px) {
       .wrap { grid-template-columns: 1fr; }
-      aside { border-right: 0; border-bottom: 1px solid var(--line); max-height: 46vh; }
+      aside { display: none; }  /* sul telefono il progetto si sceglie dal menu a tendina: chat a tutta altezza */
+      main { height: calc(100dvh - 8px); }
       .orb { width: 120px; height: 120px; }
       #projects { flex-direction: row; overflow-x: auto; }
       .proj { min-width: 150px; }

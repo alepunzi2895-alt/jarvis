@@ -1002,6 +1002,10 @@ header::after {
   .hud-mini, .hud-dots, .hud-stage::before, .hud-stage::after { display: none; }
   body::after { display: none; }
   .hud-stage { margin: 8px 12px 0; --mobile-orb-size: clamp(170px, calc(var(--app-height, 100dvh) - 430px), 280px); }
+  /* Finestra aperta sul telefono: la sfera si rimpicciolisce, la finestra ha spazio sotto. */
+  #app:has(.floating-window.open) .hud-stage { --mobile-orb-size: clamp(110px, calc(var(--app-height, 100dvh) - 560px), 170px); }
+  #app:has(.floating-window.open) .orb-word { font-size: calc(var(--mobile-orb-size) * 0.09); }
+  .proj-frame { height: calc(var(--app-height, 100dvh) - var(--mobile-orb-size, 200px) - 150px); min-height: 280px; }
   .jarvis-orb { top: 0; width: var(--mobile-orb-size); height: var(--mobile-orb-size); margin: 0; transform: translateX(-50%); }
   /* Sfera grande con la scritta JARVIS dentro (2026-10-29: prima 140 px senza testo). */
   .orb-core { inset: 26%; }
