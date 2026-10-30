@@ -35,6 +35,14 @@
     button.stop { background: #3a3a3a; }
     button:disabled { opacity: .4; cursor: default; }
     .hint { color: var(--muted); padding: 24px; }
+    /* Dentro il pannello Progetti della dashboard (iframe): elenco in alto, chat a tutta altezza */
+    .embedded, .embedded body { height: 100%; }
+    .embedded .wrap { height: 100%; grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
+    .embedded aside { border-right: 0; border-bottom: 1px solid var(--line); display: flex; gap: 6px; overflow-x: auto; overflow-y: hidden; padding: 6px; }
+    .embedded aside h1 { display: none; }
+    .embedded .proj { width: auto; white-space: nowrap; }
+    .embedded main { height: auto; min-height: 0; }
+    .embedded #log { min-height: 0; }
     @media (max-width: 720px) {
       .wrap { grid-template-columns: 1fr; height: auto; min-height: 100vh; }
       aside { border-right: 0; border-bottom: 1px solid var(--line); display: flex; gap: 6px; overflow-x: auto; padding: 8px 16px; }
@@ -66,6 +74,7 @@
       </form>
     </main>
   </div>
+  <script>if (window.top !== window.self) document.documentElement.classList.add("embedded");</script>
   <script src="/progetti.js"></script>
 </body>
 </html>
