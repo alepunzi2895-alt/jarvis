@@ -822,6 +822,7 @@ def create_app(password, origins, engine=None, warm=True, watch_token=None, gate
     async def progetti_page(request):
         return web.FileResponse(ROOT / "web/public/progetti.html", headers={"Cache-Control": "no-store"})
     app.router.add_get("/progetti", progetti_page)
+    app.router.add_get("/claude", progetti_page)  # chat Claude Code a parte, a schermo intero
     for name in ("app.js", "live.js", "orb.js", "style.css", "progetti.js"):
         async def asset(request, filename=name):
             return web.FileResponse(ROOT / "web/public" / filename)

@@ -203,7 +203,7 @@ class ProjectChat:
     def _record(self, text: str, status: str) -> None:
         from core import coding_tasks
         try:
-            coding_tasks.record_finished("claude", self.key, self.last_prompt, status, text, self.path)
+            coding_tasks.record_finished("claude", self.key, self.last_prompt, status, text, self.path, channel="chat")
         except Exception:  # noqa: BLE001 — il registro non deve fermare la chat
             pass
 

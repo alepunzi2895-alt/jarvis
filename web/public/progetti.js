@@ -169,5 +169,14 @@
     rec.onend = () => { if (el("status").textContent === "ascolto…") setStatus(""); };
   }
 
-  loadProjects().catch((error) => setStatus(error.message));
+  // /claude?project=KEY apre direttamente il progetto indicato.
+  const wanted = new URLSearchParams(location.search).get("project");
+  loadProjects()
+    .then(async () => {
+      if (!wanted) return;
+      const { projects } = await api("project_chats");
+      const match = projects.find((p) => p.key === wanted);
+      if (match) await openProject(match);
+    })
+    .catch((error) => setStatus(error.message));
 })();
