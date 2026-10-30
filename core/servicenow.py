@@ -8,6 +8,7 @@ credenziale salvata. Le statistiche sono calcolate nel codice; il modello
 scrive solo l'analisi, partendo da questi numeri.
 """
 import asyncio
+from collections import Counter
 from datetime import datetime, timedelta, timezone
 import json
 import logging
@@ -26,6 +27,10 @@ GROUP = os.getenv("JARVIS_SERVICENOW_GROUP") or "E_ITA_XXX_INNOVATION_REPORTING"
 # Stessa lista che Alessandro apre a mano, anche per il pulsante Collegamenti.
 LIST_URL = (f"{BASE_URL}/now/nav/ui/classic/params/target/sc_task_list.do%3Fsysparm_query%3D"
             f"assignment_group.nameSTARTSWITH{GROUP}%26sysparm_first_row%3D1%26sysparm_view%3D")
+# Incident del gruppo non collegati a una richiesta (Richiesta di Alessandro del 2026-10-30).
+INCIDENT_LIST_URL = (f"{BASE_URL}/now/nav/ui/classic/params/target/incident_list.do%3Fsysparm_query%3D"
+                     f"active%253Dtrue%255Euniversal_requestISEMPTY%255Eassignment_group.nameSTARTSWITH{GROUP}"
+                     "%26sysparm_first_row%3D1%26sysparm_view%3D")
 TICKETS_FILE = ROOT / ".iveco-tickets.json"
 CLOSED_DAYS = 120
 STALE_DAYS = 30
@@ -61,6 +66,23 @@ _TASKS_JS = """async ({group, closedDays}) => {
     short_description: pick(row, 'short_description', 'display_value'),
     description: pick(row, 'description', 'display_value').slice(0, 800),
     work_notes: pick(row, 'work_notes', 'display_value').slice(0, 2500),
+  }));
+}"""
+
+# Incident: stessa sessione del browser, sola lettura. Query = vista "incident_list" aperta a mano.
+_INCIDENTS_JS = """async ({group}) => {
+  const fields = 'number,short_description,state,assigned_to,priority,opened_at,sys_updated_on';
+  const query = 'active=true^universal_requestISEMPTY^assignment_group.nameSTARTSWITH' + group;
+  const url = '/api/now/table/incident?sysparm_display_value=all&sysparm_exclude_reference_link=true' +
+    '&sysparm_limit=500&sysparm_fields=' + fields + '&sysparm_query=' + encodeURIComponent(query);
+  const response = await fetch(url, {headers: {'X-UserToken': window.g_ck, Accept: 'application/json'}});
+  if (!response.ok) throw new Error('HTTP ' + response.status);
+  const pick = (row, key, kind) => ((row[key] || {})[kind] || '');
+  return ((await response.json()).result || []).map((row) => ({
+    number: pick(row, 'number', 'value'), state: pick(row, 'state', 'display_value'),
+    assigned_to: pick(row, 'assigned_to', 'display_value'), priority: pick(row, 'priority', 'display_value'),
+    opened_at: pick(row, 'opened_at', 'value'), updated_at: pick(row, 'sys_updated_on', 'value'),
+    short_description: pick(row, 'short_description', 'display_value'),
   }));
 }"""
 
@@ -104,8 +126,8 @@ def _utc(value: str) -> datetime | None:
         return None
 
 
-def read_tasks(loop) -> list[dict]:
-    """Task attivi + chiusi negli ultimi CLOSED_DAYS giorni, dal browser JARVIS."""
+def _read_on_browser(loop, url: str, script: str, args: dict):
+    """Esegue `script` sulla pagina `url` nel browser JARVIS e ritorna il risultato."""
     if loop is None:
         raise RuntimeError("browser JARVIS non raggiungibile da questo processo")
     from core.browser import get_agent
@@ -113,8 +135,7 @@ def read_tasks(loop) -> list[dict]:
     # alla UI unificata dopo aver gia' esposto g_ck (fetch interrotta dalla navigazione).
     # Si apre direttamente l'URL finale e si ritenta una volta.
     for attempt in range(2):
-        future = asyncio.run_coroutine_threadsafe(get_agent().evaluate_on(
-            LIST_URL, _READY_JS, _TASKS_JS, {"group": GROUP, "closedDays": CLOSED_DAYS}), loop)
+        future = asyncio.run_coroutine_threadsafe(get_agent().evaluate_on(url, _READY_JS, script, args), loop)
         try:
             return future.result(timeout=120)
         except Exception as error:  # noqa: BLE001
@@ -122,6 +143,39 @@ def read_tasks(loop) -> list[dict]:
                 raise
         finally:
             future.cancel()
+
+
+def read_tasks(loop) -> list[dict]:
+    """Task attivi + chiusi negli ultimi CLOSED_DAYS giorni, dal browser JARVIS."""
+    return _read_on_browser(loop, LIST_URL, _TASKS_JS, {"group": GROUP, "closedDays": CLOSED_DAYS})
+
+
+def read_incidents(loop) -> list[dict]:
+    """Incident attivi del gruppo senza richiesta collegata, dal browser JARVIS (sola lettura)."""
+    return _read_on_browser(loop, INCIDENT_LIST_URL, _INCIDENTS_JS, {"group": GROUP})
+
+
+def incident_stats(rows: list[dict], now: datetime | None = None) -> dict:
+    """Numeri e elenco degli incident aperti, dal piu' urgente al piu' vecchio."""
+    now = (now or datetime.now()).astimezone()
+    items = []
+    for row in rows:
+        opened, updated = _utc(row["opened_at"]), _utc(row["updated_at"])
+        items.append(dict(number=row["number"], state=row["state"], assigned_to=row["assigned_to"] or "non assegnato",
+                          priority=row["priority"] or "n/d", age_days=(now - opened).days if opened else None,
+                          days_since_update=(now - updated).days if updated else None,
+                          short_description=row["short_description"]))
+    items.sort(key=lambda r: (r["priority"], -(r["age_days"] or 0)))
+    count = lambda key: dict(Counter(i[key] for i in items).most_common())
+    return dict(group=GROUP, observed_at=now.strftime("%Y-%m-%d %H:%M"), open=len(items),
+                by_state=count("state"), by_priority=count("priority"), by_person=count("assigned_to"),
+                stale=sum(i["days_since_update"] is not None and i["days_since_update"] > STALE_DAYS for i in items),
+                items=items)
+
+
+def incidents(loop) -> dict:
+    """Pannello Incident: lettura live, nessuna scrittura e nessun modello."""
+    return incident_stats(read_incidents(loop))
 
 
 def _last_note(text: str) -> tuple[datetime | None, str]:
