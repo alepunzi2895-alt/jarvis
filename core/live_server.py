@@ -342,7 +342,8 @@ class LiveServer:
         if action == "memories_list":
             return web.json_response({"memories": await asyncio.to_thread(memory.entries)})
         if action in {"project_chats", "project_chat_history", "project_chat_send", "project_chat_stop",
-                      "project_chat_sessions", "project_chat_attach", "project_chat_usage"}:
+                      "project_chat_sessions", "project_chat_attach", "project_chat_usage", "project_chat_new",
+                      "project_chat_config"}:
             from core import project_chats
             try:
                 if action == "project_chats":
@@ -350,6 +351,11 @@ class LiveServer:
                 if action == "project_chat_history":
                     return web.json_response(await asyncio.to_thread(
                         project_chats.history, body.get("project", ""), int(body.get("after") or 0)))
+                if action == "project_chat_config":
+                    return web.json_response(await asyncio.to_thread(
+                        project_chats.set_config, body.get("project", ""), body.get("model", ""), body.get("effort", "")))
+                if action == "project_chat_new":
+                    return web.json_response(await asyncio.to_thread(project_chats.new, body.get("project", "")))
                 if action == "project_chat_usage":
                     return web.json_response(await asyncio.to_thread(project_chats.usage))
                 if action == "project_chat_sessions":

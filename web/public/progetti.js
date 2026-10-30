@@ -139,6 +139,11 @@
       const data = await api("project_chat_history", { project: state.project, after: state.lastId });
       render(data.events);
       state.busy = data.busy;
+      if (data.config && !el("model").matches(":focus") && !el("effort").matches(":focus")) {
+        el("model").value = data.config.model || "";
+        el("effort").value = data.config.effort || "";
+      }
+      el("model").disabled = el("effort").disabled = el("newsess").disabled = !state.project;
       state.live = data.live;
       el("stop").disabled = !state.busy;
       el("send").disabled = !state.editable || state.busy;
@@ -175,6 +180,32 @@
       select.hidden = true;
     }
   }
+
+  async function saveConfig() {
+    if (!state.project) return;
+    try {
+      await api("project_chat_config", { project: state.project, model: el("model").value, effort: el("effort").value });
+      setStatus(`modello ${el("model").value || "default"} · effort ${el("effort").value || "default"}`);
+      await poll();
+    } catch (error) {
+      setStatus(error.message);
+    }
+  }
+  el("model").addEventListener("change", saveConfig);
+  el("effort").addEventListener("change", saveConfig);
+
+  el("newsess").addEventListener("click", async () => {
+    if (!state.project) return;
+    try {
+      await api("project_chat_new", { project: state.project });
+      state.lastId = 0;
+      el("log").textContent = "";
+      await loadSessions();
+      await poll();
+    } catch (error) {
+      setStatus(error.message);
+    }
+  });
 
   el("session").addEventListener("change", async (event) => {
     if (!state.project || !event.target.value) return;

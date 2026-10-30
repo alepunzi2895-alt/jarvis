@@ -26,6 +26,8 @@ from core.executor_singleton import executor
 
 ROOT = Path(__file__).resolve().parents[1]
 STORE = ROOT / ".project-chats"
+MODELS = ("", "haiku", "sonnet", "opus")
+EFFORTS = ("", "low", "medium", "high", "xhigh", "max")
 
 ALLOWED_TOOLS = [
     "Read", "Glob", "Grep", "Edit", "Write",
@@ -70,6 +72,8 @@ class ProjectChat:
         self.session_id = ""
         self.busy = False
         self.last_prompt = ""
+        self.model = ""
+        self.effort = ""
         self.events = self._load()
 
     # ── persistenza ────────────────────────────────────────────────
@@ -85,10 +89,41 @@ class ProjectChat:
             except ValueError:
                 continue
         for item in reversed(items):
+            if item.get("kind") == "config" and not self.model and not self.effort:
+                self.model, self.effort = item.get("model", ""), item.get("effort", "")
+            if item.get("kind") == "new":
+                break  # nuova sessione richiesta: niente ripresa automatica
             if item.get("kind") == "session" and item.get("session_id"):
                 self.session_id = item["session_id"]
                 break
         return items
+
+    def fresh(self) -> bool:
+        """True se l'ultima scelta e' 'nuova sessione': niente collegamento automatico alle sessioni vecchie."""
+        for item in reversed(self.events):
+            if item.get("kind") in ("new", "session"):
+                return item["kind"] == "new"
+        return False
+
+    def set_config(self, model: str, effort: str) -> None:
+        with self.lock:
+            if self.busy:
+                raise ValueError("Claude Code sta lavorando: attendi la fine del turno prima di cambiare modello.")
+            if self.proc and self.proc.poll() is None:
+                self.proc.terminate()  # il prossimo messaggio riparte con la nuova configurazione, stessa sessione
+            self.proc = None
+            self.model, self.effort = model, effort
+            self._add("config", f"Modello {model or 'default'}, effort {effort or 'default'}.", model=model, effort=effort)
+
+    def new_session(self) -> None:
+        with self.lock:
+            if self.busy:
+                raise ValueError("Claude Code sta lavorando: ferma il turno prima di aprire una nuova sessione.")
+            if self.proc and self.proc.poll() is None:
+                self.proc.terminate()
+            self.proc = None
+            self.session_id = ""
+            self._add("new", "Nuova sessione Claude Code.")
 
     def _add(self, kind: str, text: str = "", **extra) -> dict:
         item = dict(id=(self.events[-1]["id"] + 1) if self.events else 1, at=_now(), kind=kind,
@@ -118,6 +153,10 @@ class ProjectChat:
                "--output-format", "stream-json", "--verbose", "--permission-mode", "acceptEdits",
                "--permission-prompts", "none", "--strict-mcp-config", "--max-turns", "60",
                "--append-system-prompt", GUIDANCE, "--allowedTools", *ALLOWED_TOOLS]
+        if self.model:
+            cmd += ["--model", self.model]
+        if self.effort:
+            cmd += ["--effort", self.effort]
         if self.session_id:
             cmd += ["--resume", self.session_id]
         return cmd
@@ -276,7 +315,7 @@ def prepare(project: str) -> str:
     """Chiamata all'apertura del progetto (anche a voce): se la chat non ha ancora una sessione,
     collega l'ultima sessione Claude Code del progetto (quella di VS Code o del terminale)."""
     chat = _chat(project)
-    if chat.session_id:
+    if chat.session_id or chat.fresh():
         return chat.session_id
     files = _transcripts(chat.path)
     if not files:
@@ -296,7 +335,7 @@ def _chat(project: str) -> ProjectChat:
     with _registry_lock:
         if found.key not in _chats:
             chat = ProjectChat(found.key, str(Path(found.path).resolve()))
-            if not chat.session_id and _transcripts(chat.path):
+            if not chat.session_id and not chat.fresh() and _transcripts(chat.path):
                 chat.attach(_transcripts(chat.path)[0].stem)  # prima apertura: ultima sessione del progetto
             _chats[found.key] = chat
         return _chats[found.key]
@@ -364,13 +403,32 @@ def history(project: str, after: int = 0) -> dict:
         # Sessione collegata: si vede cio' che sta scrivendo, anche se e' stata avviata da VS Code.
         items = [item for item in _transcript_items(transcript) if item["id"] > after]
         live = chat.busy or (datetime.now().timestamp() - transcript.stat().st_mtime) < RECENT_SEC
-        return {"events": items[-300:], "busy": chat.busy, "live": live, "session_id": chat.session_id}
-    items = [item for item in chat.events if item["id"] > after]
-    return {"events": items[-300:], "busy": chat.busy, "live": chat.busy, "session_id": chat.session_id}
+        return {"events": items[-300:], "busy": chat.busy, "live": live, "session_id": chat.session_id,
+                "config": {"model": chat.model, "effort": chat.effort}}
+    events = chat.events
+    for index in range(len(events) - 1, -1, -1):
+        if events[index].get("kind") == "new":
+            events = events[index + 1:]
+            break
+    items = [item for item in events if item["id"] > after]
+    return {"events": items[-300:], "busy": chat.busy, "live": chat.busy, "session_id": chat.session_id,
+            "config": {"model": chat.model, "effort": chat.effort}}
 
 
 def send(project: str, text: str) -> dict:
     _chat(project).send(text)
+    return {"ok": True}
+
+
+def set_config(project: str, model: str, effort: str) -> dict:
+    if model not in MODELS or effort not in EFFORTS:
+        raise ValueError("Modello o effort non ammessi.")
+    _chat(project).set_config(model, effort)
+    return {"ok": True, "model": model, "effort": effort}
+
+
+def new(project: str) -> dict:
+    _chat(project).new_session()
     return {"ok": True}
 
 
