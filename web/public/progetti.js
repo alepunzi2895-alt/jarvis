@@ -59,12 +59,43 @@
       const data = await api("project_chat_history", { project: state.project, after: state.lastId });
       render(data.events);
       state.busy = data.busy;
-      setStatus(data.busy ? "Claude Code al lavoro…" : "pronto");
+      setStatus(data.busy ? "Claude Code al lavoro…" : data.live ? "sessione in corso (altrove)…" : "pronto");
       updateControls();
     } catch (error) {
       setStatus(error.message);
     }
   }
+
+  // Sessioni Claude Code del progetto (VS Code o terminale): si puo' collegare una diversa.
+  async function loadSessions() {
+    const select = el("session");
+    try {
+      const { sessions, current } = await api("project_chat_sessions", { project: state.project });
+      select.textContent = "";
+      for (const s of sessions) {
+        const option = document.createElement("option");
+        option.value = s.session_id;
+        option.textContent = `${s.active ? "● " : ""}${s.modified} · ${s.session_id.slice(0, 8)}`;
+        option.selected = s.session_id === current;
+        select.append(option);
+      }
+      select.hidden = !sessions.length;
+    } catch (error) {
+      select.hidden = true;
+    }
+  }
+
+  el("session").addEventListener("change", async (event) => {
+    if (!state.project || !event.target.value) return;
+    try {
+      await api("project_chat_attach", { project: state.project, session_id: event.target.value });
+      state.lastId = 0;
+      el("log").textContent = "";
+      await poll();
+    } catch (error) {
+      setStatus(error.message);
+    }
+  });
 
   function updateControls() {
     const enabled = state.editable && !state.busy;
@@ -79,6 +110,7 @@
     state.lastId = 0;
     el("title").textContent = p.label;
     el("log").textContent = "";
+    await loadSessions();
     if (state.timer) clearInterval(state.timer);
     state.timer = setInterval(poll, 2000);
     await loadProjects();
@@ -117,5 +149,34 @@
     }
   });
 
-  loadProjects().catch((error) => setStatus(error.message));
+  // Dettatura: il microfono del browser trascrive e invia il prompt a Claude Code.
+  const Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (Rec) {
+    const rec = new Rec();
+    rec.lang = "it-IT";
+    rec.interimResults = false;
+    el("mic").hidden = false;
+    el("mic").addEventListener("click", () => {
+      if (!state.project || !state.editable) return;
+      rec.start();
+      setStatus("ascolto…");
+    });
+    rec.onresult = (event) => {
+      el("input").value = event.results[0][0].transcript;
+      el("form").requestSubmit();
+    };
+    rec.onerror = (event) => setStatus(`microfono: ${event.error}`);
+    rec.onend = () => { if (el("status").textContent === "ascolto…") setStatus(""); };
+  }
+
+  // /claude?project=KEY apre direttamente il progetto indicato.
+  const wanted = new URLSearchParams(location.search).get("project");
+  loadProjects()
+    .then(async () => {
+      if (!wanted) return;
+      const { projects } = await api("project_chats");
+      const match = projects.find((p) => p.key === wanted);
+      if (match) await openProject(match);
+    })
+    .catch((error) => setStatus(error.message));
 })();

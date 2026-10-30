@@ -221,7 +221,8 @@ class LiveServer:
         response.headers["Cache-Control"] = "no-store"
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "no-referrer"
-        response.headers["X-Frame-Options"] = "DENY"
+        # SAMEORIGIN: la chat progetti e' incorporata nel pannello della dashboard (stessa origine).
+        response.headers["X-Frame-Options"] = "SAMEORIGIN"
         return response
 
     def tailscale_identity(self, request):
@@ -340,7 +341,8 @@ class LiveServer:
             return web.json_response(await asyncio.to_thread(costs.summary))
         if action == "memories_list":
             return web.json_response({"memories": await asyncio.to_thread(memory.entries)})
-        if action in {"project_chats", "project_chat_history", "project_chat_send", "project_chat_stop"}:
+        if action in {"project_chats", "project_chat_history", "project_chat_send", "project_chat_stop",
+                      "project_chat_sessions", "project_chat_attach"}:
             from core import project_chats
             try:
                 if action == "project_chats":
@@ -348,6 +350,11 @@ class LiveServer:
                 if action == "project_chat_history":
                     return web.json_response(await asyncio.to_thread(
                         project_chats.history, body.get("project", ""), int(body.get("after") or 0)))
+                if action == "project_chat_sessions":
+                    return web.json_response(await asyncio.to_thread(project_chats.sessions, body.get("project", "")))
+                if action == "project_chat_attach":
+                    return web.json_response(await asyncio.to_thread(
+                        project_chats.attach, body.get("project", ""), body.get("session_id", "")))
                 if action == "project_chat_send":
                     return web.json_response(await asyncio.to_thread(project_chats.send, body.get("project", ""), body.get("text", "")))
                 return web.json_response(await asyncio.to_thread(project_chats.stop, body.get("project", "")))
@@ -815,6 +822,7 @@ def create_app(password, origins, engine=None, warm=True, watch_token=None, gate
     async def progetti_page(request):
         return web.FileResponse(ROOT / "web/public/progetti.html", headers={"Cache-Control": "no-store"})
     app.router.add_get("/progetti", progetti_page)
+    app.router.add_get("/claude", progetti_page)  # chat Claude Code a parte, a schermo intero
     for name in ("app.js", "live.js", "orb.js", "style.css", "progetti.js"):
         async def asset(request, filename=name):
             return web.FileResponse(ROOT / "web/public" / filename)
