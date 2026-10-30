@@ -133,6 +133,21 @@
         </div>
         <div style="display:flex;gap:8px;align-items:center">
           <select id="session" title="Sessione Claude Code collegata" hidden></select>
+          <select id="model" title="Modello Claude Code" disabled>
+            <option value="">modello: default</option>
+            <option value="haiku">haiku</option>
+            <option value="sonnet">sonnet</option>
+            <option value="opus">opus</option>
+          </select>
+          <select id="effort" title="Effort Claude Code" disabled>
+            <option value="">effort: default</option>
+            <option value="low">low</option>
+            <option value="medium">medium</option>
+            <option value="high">high</option>
+            <option value="xhigh">xhigh</option>
+            <option value="max">max</option>
+          </select>
+          <button type="button" class="ghost" id="newsess" title="Nuova sessione Claude Code" disabled>Nuova</button>
           <button type="button" class="ghost" id="stop" disabled>Ferma</button>
         </div>
       </header>
