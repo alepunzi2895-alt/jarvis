@@ -111,11 +111,11 @@ def test_teams_reads_chat_list_on_browser_loop(monkeypatch):
 
 
 def test_recap_loop_sends_due_recap_with_browser_loop(monkeypatch):
-    clock = iter([datetime(2026, 10, 16, 9, 0), datetime(2026, 10, 16, 9, 31)])
+    times = [datetime(2026, 10, 16, 9, 0), datetime(2026, 10, 16, 9, 31)]
     class Clock(datetime):
         @classmethod
         def now(cls, tz=None):
-            return next(clock)
+            return times.pop(0) if len(times) > 1 else times[0]  # ultimo valore ripetuto
     sent, loops = [], []
     def build(now=None, loop=None):
         loops.append(loop)

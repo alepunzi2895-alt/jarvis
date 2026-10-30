@@ -18,6 +18,7 @@ class FakeAgent:
 def _run(agent, apps, monkeypatch, desktop=(), force=False, launch_ok=True):
     monkeypatch.setattr(work_apps, "desktop_running", lambda app: app in desktop)
     monkeypatch.setattr(work_apps, "launch_desktop", lambda app: launch_ok)
+    monkeypatch.setattr(work_apps, "ensure_debug_chrome", lambda: True)
     monkeypatch.setattr(work_apps, "web_urls", lambda: {"teams": "T", "outlook": "O", "servicenow": "S"})
     monkeypatch.setattr("core.browser.get_agent", lambda: agent)
     return asyncio.run(work_apps.ensure_open(apps, force=force))

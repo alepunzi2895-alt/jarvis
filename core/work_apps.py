@@ -17,7 +17,9 @@ import asyncio
 import logging
 import os
 import re
+import subprocess
 import time
+import urllib.request
 
 import psutil
 
@@ -89,6 +91,40 @@ def web_urls() -> dict[str, str]:
     return urls
 
 
+CDP_PORT = 9333  # Chrome con debug: il browser JARVIS vi si collega e vede le schede gia' aperte
+WEB_APPS = ("databricks_qas", "devops", "servicenow")
+
+
+def _cdp_up() -> bool:
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{CDP_PORT}/json/version", timeout=1) as response:
+            return response.status == 200
+    except OSError:
+        return False
+
+
+def ensure_debug_chrome() -> bool:
+    """Avvia Chrome sul profilo JARVIS con la porta di debug se non e' gia' attiva, cosi' le app
+    gia' aperte si riconoscono (is_open) e non vengono riaperte."""
+    if _cdp_up():
+        return True
+    chrome = next((p for p in (
+        os.path.join(os.environ.get("ProgramFiles", r"C:\Program Files"), "Google", "Chrome", "Application", "chrome.exe"),
+        os.path.join(os.environ.get("LOCALAPPDATA", ""), "Google", "Chrome", "Application", "chrome.exe"),
+    ) if os.path.isfile(p)), None)
+    if not chrome:
+        LOG.warning("Chrome non trovato: impossibile collegare il browser JARVIS")
+        return False
+    profile = os.path.join(os.environ.get("USERPROFILE", ""), ".jarvis-chrome")
+    subprocess.Popen([chrome, f"--remote-debugging-port={CDP_PORT}", f"--user-data-dir={profile}"],
+                     creationflags=getattr(subprocess, "DETACHED_PROCESS", 0))
+    for _ in range(30):
+        time.sleep(0.5)
+        if _cdp_up():
+            return True
+    return False
+
+
 async def _open_one(app: str, urls: dict[str, str], agent, force: bool) -> dict:
     if app in _DESKTOP_PROCESSES:
         if await asyncio.to_thread(desktop_running, app):
@@ -119,6 +155,8 @@ async def ensure_open(apps=None, *, force: bool = False) -> list[dict]:
     from core.browser import get_agent
     agent = get_agent()
     results = []
+    if any(app in WEB_APPS for app in (apps or WORK_APPS)):
+        await asyncio.to_thread(ensure_debug_chrome)  # prima di aprire: cosi' vede cio' che e' gia' aperto
     for app in apps or WORK_APPS:
         if not force and time.monotonic() - _attempted.get(app, -RETRY_AFTER_SEC) < RETRY_AFTER_SEC:
             results.append(dict(app=app, ok=True, state="recente", message=f"{app}: controllato da poco."))

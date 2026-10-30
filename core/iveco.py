@@ -444,6 +444,16 @@ async def recap_loop(send) -> None:
     if RECAP_TIME.lower() in {"", "off"}:
         return
     due = next_recap_at(datetime.now())
+    # Riavvio dopo l'orario del recap (es. LiveBridge riavviato alle 09:50): se il recap di oggi
+    # non esiste ancora, lo genera subito invece di saltare al giorno utile successivo.
+    now0 = datetime.now()
+    today_due = now0.replace(hour=int(RECAP_TIME.split(":")[0]), minute=int(RECAP_TIME.split(":")[1]),
+                             second=0, microsecond=0)
+    last = latest() or {}
+    if (is_recap_day(now0.date()) and today_due <= now0 <= today_due + timedelta(hours=3)
+            and not str(last.get("generated_at", "")).startswith(now0.strftime("%Y-%m-%d"))):
+        due = now0
+        LOG.info("Recap IVECO di oggi mancante: generazione subito")
     warmed = False
     LOG.info("Recap IVECO programmato per %s", due.strftime("%Y-%m-%d %H:%M"))
     while True:

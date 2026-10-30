@@ -59,7 +59,7 @@
       const data = await api("project_chat_history", { project: state.project, after: state.lastId });
       render(data.events);
       state.busy = data.busy;
-      setStatus(data.busy ? "Claude Code al lavoro…" : "pronto");
+      setStatus(data.busy ? "Claude Code al lavoro…" : data.live ? "sessione in corso (altrove)…" : "pronto");
       updateControls();
     } catch (error) {
       setStatus(error.message);
@@ -148,6 +148,26 @@
       setStatus(error.message);
     }
   });
+
+  // Dettatura: il microfono del browser trascrive e invia il prompt a Claude Code.
+  const Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (Rec) {
+    const rec = new Rec();
+    rec.lang = "it-IT";
+    rec.interimResults = false;
+    el("mic").hidden = false;
+    el("mic").addEventListener("click", () => {
+      if (!state.project || !state.editable) return;
+      rec.start();
+      setStatus("ascolto…");
+    });
+    rec.onresult = (event) => {
+      el("input").value = event.results[0][0].transcript;
+      el("form").requestSubmit();
+    };
+    rec.onerror = (event) => setStatus(`microfono: ${event.error}`);
+    rec.onend = () => { if (el("status").textContent === "ascolto…") setStatus(""); };
+  }
 
   loadProjects().catch((error) => setStatus(error.message));
 })();

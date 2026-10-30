@@ -266,10 +266,60 @@ def list_projects() -> list[dict]:
     return rows
 
 
+_TRANSCRIPT_CACHE: dict[str, tuple[float, list[dict]]] = {}
+
+
+def _transcript_items(path: Path) -> list[dict]:
+    """Messaggi di una sessione Claude Code letti dal transcript: stessa fonte per la chat JARVIS,
+    per la sessione di VS Code e per il terminale (sono lo stesso file). Testo utente/assistente e strumenti."""
+    try:
+        mtime = path.stat().st_mtime
+    except OSError:
+        return []
+    cached = _TRANSCRIPT_CACHE.get(str(path))
+    if cached and cached[0] == mtime:
+        return cached[1]
+    items = []
+    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    for line in lines:
+        try:
+            record = json.loads(line)
+        except ValueError:
+            continue
+        message = record.get("message") or {}
+        content = message.get("content")
+        stamp = str(record.get("timestamp", ""))[11:19]
+        kind = record.get("type")
+        if kind == "user":
+            texts = [content] if isinstance(content, str) else [
+                block.get("text", "") for block in content or [] if isinstance(block, dict) and block.get("type") == "text"]
+            for text in texts:
+                if text.strip() and not text.startswith("<"):
+                    items.append(dict(kind="user", text=text[:8000], at=stamp))
+        elif kind == "assistant":
+            for block in content or []:
+                if block.get("type") == "text" and block.get("text", "").strip():
+                    items.append(dict(kind="text", text=block["text"][:8000], at=stamp))
+                elif block.get("type") == "tool_use":
+                    tool_input = block.get("input") or {}
+                    target = tool_input.get("file_path") or tool_input.get("command") or tool_input.get("pattern") or ""
+                    items.append(dict(kind="tool", text=f"{block.get('name', '')} {str(target)[:200]}".strip(), at=stamp))
+    for index, item in enumerate(items, start=1):
+        item["id"] = index
+    _TRANSCRIPT_CACHE[str(path)] = (mtime, items)
+    return items
+
+
 def history(project: str, after: int = 0) -> dict:
     chat = _chat(project)
+    transcript = _transcript_dir(chat.path) / f"{chat.session_id}.jsonl" if chat.session_id else None
+    if transcript and transcript.is_file():
+        # Sessione collegata: si vede cio' che sta scrivendo, anche se e' stata avviata da VS Code.
+        items = [item for item in _transcript_items(transcript) if item["id"] > after]
+        live = chat.busy or (datetime.now().timestamp() - transcript.stat().st_mtime) < RECENT_SEC
+        return {"events": items[-300:], "busy": chat.busy, "live": live, "session_id": chat.session_id}
     items = [item for item in chat.events if item["id"] > after]
-    return {"events": items[-300:], "busy": chat.busy, "session_id": chat.session_id}
+    return {"events": items[-300:], "busy": chat.busy, "live": chat.busy, "session_id": chat.session_id}
 
 
 def send(project: str, text: str) -> dict:

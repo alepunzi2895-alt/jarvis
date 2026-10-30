@@ -146,7 +146,8 @@ def start_task(provider, project, prompt, mode='read', previous_job='', explicit
         raise ValueError('La delega richiede una conversazione utente attiva.')
     if not explicit and not previous_job and not re.search(r'\b(codex|claude|vscode|vs code|visual studio|vs studio)\b', request['prompt'], re.I):
         raise ValueError('Delega un nuovo lavoro solo su richiesta esplicita di usare Codex o Claude Code.')
-    if mode == 'edit' and not re.search(r'\b(modifica|modificare|correggi|sistema|implementa|crea|scrivi|fix|aggiorna)\b', request['prompt'], re.I):
+    # Chat progetti / pulsante dedicato: la richiesta esplicita e' gia' l'autorizzazione alle modifiche.
+    if mode == 'edit' and not explicit and not re.search(r'\b(modifica|modificare|correggi|sistema|implementa|crea|scrivi|fix|aggiorna)\b', request['prompt'], re.I):
         raise ValueError('La richiesta utente non autorizza modifiche: usa read.')
     list_tasks()  # riconcilia eventuali lavori interrotti
     ident = uuid.uuid4().hex[:12]
