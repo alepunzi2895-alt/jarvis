@@ -88,8 +88,10 @@ class ProjectChat:
                 items.append(json.loads(line))
             except ValueError:
                 continue
+        config_seen = False
         for item in reversed(items):
-            if item.get("kind") == "config" and not self.model and not self.effort:
+            if item.get("kind") == "config" and not config_seen:
+                config_seen = True  # solo l'ultima scelta vale
                 self.model, self.effort = item.get("model", ""), item.get("effort", "")
             if item.get("kind") == "new":
                 break  # nuova sessione richiesta: niente ripresa automatica
