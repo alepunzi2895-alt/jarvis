@@ -488,17 +488,21 @@ def _events_from_web(error: OutlookError, start: dt.datetime, end: dt.datetime,
     return sorted(events.values(), key=lambda e: e.start)
 
 
-async def get_upcoming_events(minutes_ahead: int = 20) -> list[CalendarEvent]:
+async def get_upcoming_events(minutes_ahead: int = 20, web: bool = True) -> list[CalendarEvent]:
     import asyncio
 
-    return await asyncio.to_thread(get_upcoming_events_sync, minutes_ahead)
+    return await asyncio.to_thread(get_upcoming_events_sync, minutes_ahead, web)
 
 
-def get_upcoming_events_sync(minutes_ahead: int = 20) -> list[CalendarEvent]:
-    """Per chiamanti gia' sincroni (core/intents.py) — vedi list_recent_emails_sync."""
+def get_upcoming_events_sync(minutes_ahead: int = 20, web: bool = True) -> list[CalendarEvent]:
+    """Per chiamanti gia' sincroni (core/intents.py) — vedi list_recent_emails_sync.
+    web=False: solo Outlook desktop, nessun fallback su Outlook Web (il promemoria
+    ogni 2 minuti non deve aprire e chiudere il calendario nel browser)."""
     try:
         return _run_in_fresh_thread(_fetch_upcoming_sync, minutes_ahead)
     except OutlookError as error:
+        if not web:
+            raise
         now = dt.datetime.now()
         return _events_from_web(error, now, now + dt.timedelta(minutes=minutes_ahead))
 
