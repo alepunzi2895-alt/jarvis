@@ -36,6 +36,18 @@ def test_gather_survives_every_source_failing(monkeypatch):
     assert data["sources"]["teams"] == "non disponibile (RuntimeError)"  # nessun loop browser
 
 
+def test_gather_includes_incidents_without_full_list(monkeypatch):
+    from core import servicenow
+    items = [dict(number=f"INC{n:03}", state="In corso", priority="2", assigned_to="x", age_days=n,
+                  days_since_update=n, short_description="d") for n in range(15)]
+    monkeypatch.setattr(servicenow, "incidents", lambda loop: dict(open=15, stale=2, by_state={"In corso": 15}, items=items))
+    monkeypatch.setattr(servicenow, "_browser_loop", lambda loop: loop)
+    facts = iveco._incidents(None)
+    assert facts["open"] == 15 and facts["stale"] == 2 and "items" not in facts
+    assert len(facts["top"]) == 10
+    assert "incident" in iveco.SUMMARY_PROMPT.lower()
+
+
 def test_build_recap_saves_summary_and_sources(monkeypatch, tmp_path):
     monkeypatch.setattr(iveco, "RECAP_FILE", tmp_path / ".iveco-recap.json")
     monkeypatch.setattr(iveco, "gather", lambda now=None, loop=None: dict(now="2026-10-16 09:30", since="2026-10-15 00:00",

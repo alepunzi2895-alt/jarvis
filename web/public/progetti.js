@@ -298,15 +298,21 @@
       const [usage, plan] = await Promise.all([api("project_chat_usage"), api("claude_limits")]);
       const { windows } = usage;
       const planWindows = plan.windows || {};
+      // Senza percentuale del piano la barra torna alla scala relativa al massimo osservato (solo andamento).
+      const maxOut = Math.max(windows["5h"].output, windows["7d"].output, 1);
       for (const [label, win, id, bar] of [["5h", "5h", "u5", "b5"], ["7g", "7d", "u7", "b7"]]) {
         const w = planWindows[label] || {};
-        const known = w.percent != null;
+        // Finestra gia' scaduta: la percentuale salvata appartiene al periodo precedente.
+        const expired = w.resets_at && new Date(w.resets_at).getTime() <= Date.now();
+        const known = w.percent != null && !expired;
         const reset = known && w.resets_at
           ? ` · reset ${new Date(w.resets_at).toLocaleString("it-IT", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}`
           : "";
         const tokens = `${fmt(windows[win].output)} out · ${windows[win].messages} msg`;
         el(id).textContent = `${known ? `${Math.round(w.percent)}%` : "—"}${reset} · ${tokens}`;
-        el(bar).style.width = known ? `${Math.min(100, Math.round(w.percent))}%` : "0%";
+        const width = known ? Math.min(100, Math.max(0, Math.round(w.percent))) : Math.round((windows[win].output / maxOut) * 100);
+        el(bar).style.width = `${width}%`;
+        el(bar).style.opacity = known ? "" : ".45";
       }
       if (!plan.available) note.textContent = plan.note;
       else note.textContent = `Letto alle ${new Date(plan.at).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" })}` +
