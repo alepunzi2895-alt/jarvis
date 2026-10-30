@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import threading
 
@@ -40,6 +41,22 @@ GUIDANCE = ("Sei Claude Code in una chat di progetto aperta da JARVIS per Alessa
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+CLAUDE_DIR = Path.home() / ".claude" / "projects"
+RECENT_SEC = 120  # transcript modificato da meno di 2 minuti = sessione probabilmente in uso
+
+
+def _transcript_dir(path) -> Path:
+    """Claude Code salva le sessioni in ~/.claude/projects/<cwd con ogni carattere non alfanumerico -> ->."""
+    return CLAUDE_DIR / re.sub(r"[^A-Za-z0-9]", "-", str(path))
+
+
+def _transcripts(path) -> list[Path]:
+    folder = _transcript_dir(path)
+    if not folder.is_dir():
+        return []
+    return sorted(folder.glob("*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True)
 
 
 class ProjectChat:
@@ -79,6 +96,19 @@ class ProjectChat:
         with self.file.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(item, ensure_ascii=False) + "\n")
         return item
+
+    # ── collegamento alla sessione (VS Code / terminale) ──────────
+    def attach(self, session_id: str) -> None:
+        """Riprende una sessione Claude Code esistente (--resume). Il prossimo messaggio continua da li'."""
+        with self.lock:
+            if self.busy:
+                raise ValueError("Claude Code sta lavorando: attendi la fine del turno prima di cambiare sessione.")
+            if self.proc and self.proc.poll() is None:
+                self.proc.terminate()
+            self.proc = None
+            self.session_id = session_id
+            self._add("session", session_id=session_id)
+            self._add("status", f"Collegata alla sessione {session_id[:8]}.")
 
     # ── processo ───────────────────────────────────────────────────
     def _command(self) -> list[str]:
@@ -178,6 +208,36 @@ class ProjectChat:
             pass
 
 
+def sessions(project: str) -> dict:
+    chat = _chat(project)
+    rows = []
+    for file in _transcripts(chat.path)[:8]:
+        age = datetime.now().timestamp() - file.stat().st_mtime
+        rows.append(dict(session_id=file.stem, modified=datetime.fromtimestamp(file.stat().st_mtime).strftime("%H:%M"),
+                         active=age < RECENT_SEC))
+    return {"sessions": rows, "current": chat.session_id}
+
+
+def attach(project: str, session_id: str) -> dict:
+    if not re.fullmatch(r"[0-9a-f-]{20,}", session_id or ""):
+        raise ValueError("Sessione non valida.")
+    _chat(project).attach(session_id)
+    return {"ok": True}
+
+
+def prepare(project: str) -> str:
+    """Chiamata all'apertura del progetto (anche a voce): se la chat non ha ancora una sessione,
+    collega l'ultima sessione Claude Code del progetto (quella di VS Code o del terminale)."""
+    chat = _chat(project)
+    if chat.session_id:
+        return chat.session_id
+    files = _transcripts(chat.path)
+    if not files:
+        return ""
+    chat.attach(files[0].stem)
+    return files[0].stem
+
+
 _chats: dict[str, ProjectChat] = {}
 _registry_lock = threading.Lock()
 
@@ -188,7 +248,10 @@ def _chat(project: str) -> ProjectChat:
         raise ValueError("Progetto senza cartella locale.")
     with _registry_lock:
         if found.key not in _chats:
-            _chats[found.key] = ProjectChat(found.key, str(Path(found.path).resolve()))
+            chat = ProjectChat(found.key, str(Path(found.path).resolve()))
+            if not chat.session_id and _transcripts(chat.path):
+                chat.attach(_transcripts(chat.path)[0].stem)  # prima apertura: ultima sessione del progetto
+            _chats[found.key] = chat
         return _chats[found.key]
 
 

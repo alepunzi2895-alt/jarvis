@@ -91,6 +91,12 @@ def open_project(provider, project):
         proc = subprocess.Popen([exe, path])
         from core.win_focus import bring_pid_to_foreground_bg
         bring_pid_to_foreground_bg(proc.pid)
+        # Chat progetti collegata all'ultima sessione Claude Code di questo progetto.
+        try:
+            from core import project_chats
+            project_chats.prepare(key)
+        except Exception:  # noqa: BLE001 — il collegamento e' un di piu', VS Code e' gia' aperto
+            pass
     else:
         raise ValueError('Agente ammesso: codex oppure claude')
     return {'opened': provider, 'project': key}

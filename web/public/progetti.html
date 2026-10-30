@@ -53,7 +53,10 @@
     <main>
       <header>
         <strong id="title">Scegli un progetto</strong>
-        <div><span id="status"></span> <button class="stop" id="stop" disabled>Ferma</button></div>
+        <div>
+          <select id="session" title="Sessione Claude Code collegata" hidden></select>
+          <span id="status"></span> <button class="stop" id="stop" disabled>Ferma</button>
+        </div>
       </header>
       <div id="log"><div class="hint">Seleziona un progetto per aprire la sua sessione Claude Code.</div></div>
       <form id="form">

@@ -66,6 +66,37 @@
     }
   }
 
+  // Sessioni Claude Code del progetto (VS Code o terminale): si puo' collegare una diversa.
+  async function loadSessions() {
+    const select = el("session");
+    try {
+      const { sessions, current } = await api("project_chat_sessions", { project: state.project });
+      select.textContent = "";
+      for (const s of sessions) {
+        const option = document.createElement("option");
+        option.value = s.session_id;
+        option.textContent = `${s.active ? "● " : ""}${s.modified} · ${s.session_id.slice(0, 8)}`;
+        option.selected = s.session_id === current;
+        select.append(option);
+      }
+      select.hidden = !sessions.length;
+    } catch (error) {
+      select.hidden = true;
+    }
+  }
+
+  el("session").addEventListener("change", async (event) => {
+    if (!state.project || !event.target.value) return;
+    try {
+      await api("project_chat_attach", { project: state.project, session_id: event.target.value });
+      state.lastId = 0;
+      el("log").textContent = "";
+      await poll();
+    } catch (error) {
+      setStatus(error.message);
+    }
+  });
+
   function updateControls() {
     const enabled = state.editable && !state.busy;
     el("input").disabled = !state.editable;
@@ -79,6 +110,7 @@
     state.lastId = 0;
     el("title").textContent = p.label;
     el("log").textContent = "";
+    await loadSessions();
     if (state.timer) clearInterval(state.timer);
     state.timer = setInterval(poll, 2000);
     await loadProjects();
