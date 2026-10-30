@@ -683,3 +683,20 @@ def test_phone_command_is_mirrored_to_desktop_console_only():
             await phone.close()
             await console.close()
     asyncio.run(scenario())
+
+
+def test_mobile_webcam_request_never_captures_pc_camera(monkeypatch):
+    from core.live_server import Engine, MOBILE_CAMERA_HINT
+    from core import claude_bridge as bridge
+    from core.voice import camera
+    monkeypatch.setattr(bridge, "TEXT_ENGINE", "api")
+    monkeypatch.setattr(camera, "capture_frame_b64", Mock(side_effect=AssertionError("webcam del PC")))
+    answer = AsyncMock(return_value=("non deve servire", None, .001))
+    monkeypatch.setattr(bridge, "_run_claude_api", answer)
+    engine = Engine()
+    engine.contexts["jarvis"] = "Contesto"
+    sentences = AsyncMock()
+    result = asyncio.run(engine.respond("cosa vedi dalla webcam", None, {}, sentences, device="mobile"))
+    assert result["result"] == MOBILE_CAMERA_HINT
+    answer.assert_not_called()
+    sentences.assert_awaited_once_with(MOBILE_CAMERA_HINT)

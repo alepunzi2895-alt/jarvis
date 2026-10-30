@@ -60,6 +60,9 @@ def _preload_voice_and_api() -> None:
     tts._encode_mp3(tts.apply_style(np.zeros((2400, 1), dtype=np.float32), 24000), 24000)
 
 
+MOBILE_CAMERA_HINT = 'Dal telefono la webcam si apre dal pannello JARVIS: scrivi "apri la webcam e dimmi cosa vedi".'
+
+
 class Engine:
     def __init__(self):
         self.ready = False
@@ -101,7 +104,7 @@ class Engine:
         from core.voice.tts import clean_for_speech, synthesize_mp3
         return await synthesize_mp3(clean_for_speech(text))
 
-    async def respond(self, prompt, image, histories, sentence, *, max_turns=None, hint=""):
+    async def respond(self, prompt, image, histories, sentence, *, max_turns=None, hint="", device="pc"):
         from core import claude_bridge as bridge, intents, project_status
         from core.executor_singleton import executor
         ws = bridge.detect_workspace(prompt, histories.get("_focus", "jarvis"))
@@ -112,6 +115,12 @@ class Engine:
                 await speak(cleaned)
         if not image:
             from core.voice import camera
+            if camera.wants_camera(prompt) and device == "mobile":
+                # Dal telefono non si cattura mai la webcam del PC: il pannello camera del telefono
+                # manda l'immagine con il comando scritto.
+                result = MOBILE_CAMERA_HINT
+                await sentence(result)
+                return dict(result=result, workspace=ws, cost_usd=0)
             if camera.wants_camera(prompt):
                 # Dashboard e telefono mandano solo audio o testo: senza questa
                 # cattura "cosa vedi" arrivava a Claude senza immagine (2026-10-16).
@@ -621,7 +630,7 @@ class LiveServer:
                             await task
                         raise
 
-        async def run(rid, prompt, image, started, stt_ms):
+        async def run(rid, prompt, image, started, stt_ms, device="pc"):
             from core import work_apps
             if work_apps.IVECO_RE.search(prompt or ""):
                 work_apps.ensure_open_later()  # app di lavoro non ancora aperte, in parallelo alla risposta
@@ -692,7 +701,7 @@ class LiveServer:
                 narrator = asyncio.create_task(narrate())
                 try:
                     async with asyncio.timeout(180):
-                        result = await self.engine.respond(prompt, image, session["conversations"], answer)
+                        result = await self.engine.respond(prompt, image, session["conversations"], answer, device=device)
                         narrator.cancel()
                         row = dict(id=rid, prompt=prompt, status="done", at=time.strftime("%Y-%m-%d %H:%M:%S"), **result)
                         session["history"].append(row)
@@ -727,6 +736,8 @@ class LiveServer:
             try:
                 prompt = body.get("prompt", "")
                 image = body.get("image_b64")
+                # Da dove arriva il comando: la webcam giusta e' quella del dispositivo che scrive.
+                device = "mobile" if body.get("device") == "mobile" else "pc"
                 if body["type"] == "audio":
                     if not self.engine.ready:
                         raise ValueError("Trascrizione in avvio. Attendi qualche secondo.")
@@ -762,7 +773,7 @@ class LiveServer:
                 await cancel(active)
                 await send("accepted", rid, prompt=prompt, stt_ms=stt_ms)
                 await mirror("prompt", rid, prompt)
-                active = asyncio.create_task(run(rid, prompt, image, started, stt_ms))
+                active = asyncio.create_task(run(rid, prompt, image, started, stt_ms, device))
             except asyncio.CancelledError:
                 raise
             except (ValueError, TypeError):
@@ -878,6 +889,16 @@ def create_app(password, origins, engine=None, warm=True, watch_token=None, gate
                         if not socket.closed:
                             with suppress(Exception):
                                 await socket.send_json(dict(type="feed", item=item))
+        async def incident_refresh():
+            # Incident per lo snapshot VPS (telefono a PC spento): rilettura periodica dal browser JARVIS.
+            from core import servicenow
+            await asyncio.sleep(60)
+            while True:
+                try:
+                    await asyncio.to_thread(servicenow.incidents, asyncio.get_running_loop())
+                except Exception as error:  # noqa: BLE001
+                    LOG.warning("Incident non letti per la VPS: %s", type(error).__name__)
+                await asyncio.sleep(servicenow.INCIDENT_REFRESH_SEC)
         async def console_heartbeat():
             while True:
                 console_presence.write(len(server.consoles), len(server.mic_clients))
@@ -894,6 +915,7 @@ def create_app(password, origins, engine=None, warm=True, watch_token=None, gate
             loop_watch.start(asyncio.get_running_loop())
             tasks.append(asyncio.create_task(collect_equity()))
             tasks.append(asyncio.create_task(console_heartbeat()))
+            tasks.append(asyncio.create_task(incident_refresh()))
             tasks.append(asyncio.create_task(broadcast_feed()))
             tasks.append(asyncio.create_task(iveco.recap_loop(telegram.send_to_owner)))
             from core import project_insights

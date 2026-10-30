@@ -31,6 +31,8 @@ STATIC_DIR = ROOT / "web/public"
 # stesso web/public del PC: dopo ogni merge su main, aggiornare la VPS.
 LOCAL_STATIC = {"/style.css", "/app.js", "/live.js", "/orb.js", "/media/online.mp4"}
 SNAPSHOT_MAX_ITEMS = 60
+SNAPSHOT_MAX_INCIDENTS = 60
+INCIDENT_KEYS = ("number", "state", "priority", "assigned_to", "short_description", "age_days", "days_since_update")
 SNAPSHOT_MAX_BYTES = 400_000
 MAX_FRAME = 4 * 1024 * 1024
 HOP_BY_HOP = {"connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailer",
@@ -52,9 +54,22 @@ def _clean_snapshot(body):
         if isinstance(item, dict):
             feed.append({key: str(item.get(key, ""))[:4000] for key in ("id", "at", "source", "prompt", "text")})
     snapshot = {"sent_at": time.time(), "pc_time": str(body.get("pc_time", ""))[:40], "feed": feed}
+    incidents = _clean_incidents(body.get("iveco_incidents"))
+    if incidents:
+        snapshot["iveco_incidents"] = incidents
     if len(json.dumps(snapshot, ensure_ascii=False)) > SNAPSHOT_MAX_BYTES:
         snapshot["feed"] = feed[-10:]
     return snapshot
+
+
+def _clean_incidents(body):
+    """Incident letti dal PC (core/servicenow.py): solo campi noti, testi corti, max 60 righe."""
+    if not isinstance(body, dict) or not isinstance(body.get("items"), list):
+        return None
+    items = [{key: "" if item.get(key) is None else str(item.get(key))[:300] for key in INCIDENT_KEYS}
+             for item in body["items"][:SNAPSHOT_MAX_INCIDENTS] if isinstance(item, dict)]
+    return {"observed_at": str(body.get("observed_at", ""))[:40], "group": str(body.get("group", ""))[:120],
+            "open": int(body.get("open") or 0), "stale": int(body.get("stale") or 0), "items": items}
 
 
 class Gateway:
