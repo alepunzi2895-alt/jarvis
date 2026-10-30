@@ -105,7 +105,8 @@
       .usage { display: none; }
     }
     header > div { flex-wrap: wrap; }
-    header select { font: 12px/1.2 ui-monospace, Consolas, monospace; padding: 5px 8px; border-radius: 10px; background: var(--panel, #0b1118); color: var(--text); border: 1px solid var(--line); }
+    header select { font: 12px/1.2 ui-monospace, Consolas, monospace; padding: 5px 8px; border-radius: 10px; background: #0b1118; color: #e8f4ff; border: 1px solid #2a3a52; }
+    header select option { background: #0b1118; color: #e8f4ff; }
     @media (max-width: 760px) {
       header { flex-wrap: wrap; gap: 8px; padding: 10px 12px; }
       header select { max-width: 46%; }
@@ -154,7 +155,8 @@
             <option value="xhigh">xhigh</option>
             <option value="max">max</option>
           </select>
-          <button type="button" class="ghost" id="newsess" title="Chiudi questa sessione e aprine una nuova al prossimo messaggio" disabled>Chiudi sessione</button>
+          <button type="button" class="ghost" id="newsess" title="Nuova sessione Claude Code: cronologia pulita" disabled>Nuova sessione</button>
+          <button type="button" class="ghost" id="closesess" title="Chiude la sessione collegata; il prossimo messaggio ne apre una nuova" disabled>Chiudi sessione</button>
           <button type="button" class="ghost" id="stop" disabled>Ferma</button>
         </div>
       </header>

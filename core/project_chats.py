@@ -95,8 +95,8 @@ class ProjectChat:
             if item.get("kind") == "config" and not config_seen:
                 config_seen = True  # solo l'ultima scelta vale
                 self.model, self.effort = item.get("model", ""), item.get("effort", "")
-            if item.get("kind") == "new":
-                break  # nuova sessione richiesta: niente ripresa automatica
+            if item.get("kind") in ("new", "close"):
+                break  # sessione chiusa o nuova: niente ripresa automatica
             if item.get("kind") == "session" and item.get("session_id"):
                 self.session_id = item["session_id"]
                 break
@@ -105,8 +105,8 @@ class ProjectChat:
     def fresh(self) -> bool:
         """True se l'ultima scelta e' 'nuova sessione': niente collegamento automatico alle sessioni vecchie."""
         for item in reversed(self.events):
-            if item.get("kind") in ("new", "session"):
-                return item["kind"] == "new"
+            if item.get("kind") in ("new", "close", "session"):
+                return item["kind"] in ("new", "close")
         return False
 
     def set_config(self, model: str, effort: str) -> None:
@@ -118,6 +118,17 @@ class ProjectChat:
             self.proc = None
             self.model, self.effort = model, effort
             self._add("config", f"Modello {model or 'default'}, effort {effort or 'default'}.", model=model, effort=effort)
+
+    def close_session(self) -> None:
+        """Chiude la sessione collegata: ferma il processo, la cronologia resta visibile."""
+        with self.lock:
+            if self.busy:
+                raise ValueError("Claude Code sta lavorando: ferma il turno prima di chiudere la sessione.")
+            if self.proc and self.proc.poll() is None:
+                self.proc.terminate()
+            self.proc = None
+            self.session_id = ""
+            self._add("close", "Sessione chiusa. Il prossimo messaggio apre una nuova sessione.")
 
     def new_session(self) -> None:
         with self.lock:
@@ -439,6 +450,11 @@ def open_editor(project: str) -> dict:
     """Apre VS Code sul progetto (il PC di JARVIS), cosi' si puo' lavorare anche li'."""
     from core import coding_tasks
     coding_tasks.open_project("claude", project)  # apre VS Code e ricollega la chat
+    return {"ok": True}
+
+
+def close(project: str) -> dict:
+    _chat(project).close_session()
     return {"ok": True}
 
 

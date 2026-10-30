@@ -1567,12 +1567,20 @@ async function refreshRemoteStatus() {
       vercelBox.innerHTML = deploys.length
         ? deploys.map(({ vercel }) => {
             const name = _escHtml(vercel.name || "?");
-            const url = vercel.url || "#";
+            const link = vercel.domain_url || vercel.url || "#";
+            const domain = _escHtml(vercel.domain || vercel.name || "?");
             const state = `<strong style="color:${VERCEL_STATE_COLOR[vercel.state] || "var(--text-muted)"}">${_escHtml(vercel.state || "?")}</strong>`;
+            const message = _escHtml((vercel.message || "").split("\n")[0] || "—");
+            const deployed = vercel.updated_at ? _timeAgo(vercel.updated_at) : "—";
+            const band = vercel.bandwidth_gb == null ? "nessun traffico registrato" : `${Number(vercel.bandwidth_gb).toFixed(2)} GB`;
+            const deployLink = vercel.url ? ` · <a href="${_escHtml(vercel.url)}" target="_blank" rel="noopener">deploy</a>` : "";
             return `
           <div class="project-card">
-            <div class="project-card-title"><a href="${url}" target="_blank" rel="noopener">${name}</a></div>
-            <div class="project-card-row"><span>Stato</span>${state}</div>
+            <div class="project-card-title">${name}</div>
+            <div class="project-card-row"><span>Dominio</span><strong><a href="${_escHtml(link)}" target="_blank" rel="noopener">${domain}</a></strong></div>
+            <div class="project-card-row"><span>Ultimo deploy</span>${state}</div>
+            <div class="project-card-row"><span>${message}</span><span>${deployed}${deployLink}</span></div>
+            <div class="project-card-row"><span>Banda ultimo mese</span><strong>${band}</strong></div>
           </div>`;
           }).join("")
         : `<p class="panel-footnote">Nessun deploy Vercel.</p>`;
