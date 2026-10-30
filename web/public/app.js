@@ -242,6 +242,34 @@ async function refreshIvecoTickets() {
   } catch { body.textContent = "Ticket non disponibili. Riprova."; }
 }
 
+// Incident: lettura live su richiesta (browser JARVIS), sola lettura.
+async function refreshIvecoIncidents() {
+  const body = $("#iveco-incidents-body"), button = $("#iveco-incidents-btn");
+  button.disabled = true; button.textContent = "Lettura in corso…";
+  body.replaceChildren();
+  try {
+    const data = await api("iveco_incidents");
+    if (data.error) { body.textContent = data.error; return; }
+    const head = document.createElement("p"); head.className = "panel-subheading";
+    head.textContent = `${data.open} aperti · ${data.stale} fermi da oltre 30 giorni`;
+    const meta = document.createElement("p"); meta.className = "panel-footnote";
+    meta.textContent = `${data.group} · letto ${data.observed_at} · ` +
+      Object.entries(data.by_state).map(([k, v]) => `${k} ${v}`).join(", ") +
+      " · priorità: " + Object.entries(data.by_priority).map(([k, v]) => `${k} ${v}`).join(", ");
+    body.append(head, meta);
+    if (!data.items.length) { body.append("Nessun incident aperto senza richiesta collegata."); return; }
+    for (const i of data.items) {
+      const item = document.createElement("article"); item.className = "data-note";
+      const title = document.createElement("strong");
+      title.textContent = `${i.number} · ${i.state} · ${i.priority}${i.days_since_update > 30 ? " · fermo" : ""}`;
+      const info = document.createElement("p");
+      info.textContent = `${i.short_description} · ${i.assigned_to} · aperto da ${i.age_days} giorni, ultimo aggiornamento ${i.days_since_update} giorni fa`;
+      item.append(title, info); body.append(item);
+    }
+  } catch { body.textContent = "Incident non disponibili. Riprova."; }
+  finally { button.disabled = false; button.textContent = "Leggi incident"; }
+}
+
 function refreshIveco() {
   // Apre in automatico le app di lavoro non ancora aperte (Teams/Outlook desktop se gia' attivi).
   if (window.JarvisDirect) api("ensure_work_apps").catch(() => {});
@@ -256,6 +284,7 @@ function setupIveco() {
     $("#iveco-tickets-btn").disabled = true;
     try { await api("iveco_tickets_run"); } finally { refreshIvecoTickets(); }
   });
+  $("#iveco-incidents-btn").addEventListener("click", refreshIvecoIncidents);
   $("#iveco-recap-btn").addEventListener("click", async () => {
     $("#iveco-recap-btn").disabled = true;
     try { await api("iveco_recap_run"); } finally { refreshIvecoRecap(); }

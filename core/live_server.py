@@ -413,6 +413,15 @@ class LiveServer:
                 self.tickets_task = asyncio.create_task(
                     asyncio.to_thread(servicenow.build_report, asyncio.get_running_loop()))
             return web.json_response({"running": True})
+        if action == "iveco_incidents":
+            from core import servicenow
+            try:
+                return web.json_response(await asyncio.to_thread(servicenow.incidents, asyncio.get_running_loop()))
+            except Exception as error:  # noqa: BLE001
+                return web.json_response({"error": f"Incident non letti ({type(error).__name__}): apri ServiceNow dai Collegamenti e riprova."})
+        if action == "claude_limits":
+            from core import claude_limits
+            return web.json_response(claude_limits.read())
         if action in {"ivgagent_ask", "ivgagent_tasks"}:
             from core import coding_tasks
             try:

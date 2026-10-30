@@ -71,3 +71,5 @@ watch/JarvisWatch/Config.swift
 /.project-insights.tmp
 
 .project-chats/
+.claude-limits.json
+.claude-limits.tmp
