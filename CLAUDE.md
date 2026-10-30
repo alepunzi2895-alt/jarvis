@@ -29,4 +29,4 @@ Se lo stato di un progetto è cambiato, aggiorna `memory/projects/<progetto>.md`
 ## Confini
 - Mai pubblicare su social o inviare messaggi a clienti senza conferma.
 - Mai eseguire ordini di trading reali. Solo analisi, backtest, report.
-- Codice: commit su branch, mai push diretto su main.
+- Codice: commit su branch; ogni push va anche mergiato e pushato su main (autorizzato da Alessandro, 2026-10-30). Push force e cancellazioni di branch restano con conferma.
