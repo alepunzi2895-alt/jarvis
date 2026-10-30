@@ -1124,3 +1124,10 @@ header::after {
   .task-info span, .task-info ol { display: none; }
   .task-info strong { font-size: 14px; }
 }
+
+/* Pannello Progetti: schede e chat incorporata */
+.proj-tabs { display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; }
+.proj-tabs button { background: none; border: 1px solid #262626; color: inherit; border-radius: 999px; padding: 4px 12px; cursor: pointer; font: inherit; }
+.proj-tabs button.on { border-color: #3987e5; color: #3987e5; }
+.proj-frame { width: 100%; height: 62vh; min-height: 360px; border: 0; border-radius: 8px; }
+.header-conn { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; }
