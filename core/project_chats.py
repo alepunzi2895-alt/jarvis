@@ -31,12 +31,14 @@ ALLOWED_TOOLS = [
     "Read", "Glob", "Grep", "Edit", "Write",
     "Bash(git status*)", "Bash(git diff*)", "Bash(git log*)", "Bash(git show*)", "Bash(git branch*)",
     "Bash(git switch -c*)", "Bash(git checkout -b*)", "Bash(git add*)", "Bash(git commit*)",
+    "Bash(git push*)", "Bash(git pull*)", "Bash(git merge*)", "Bash(git fetch*)",
     "Bash(npm install*)", "Bash(npm ci*)", "Bash(npm run *)", "Bash(npm test*)", "Bash(npx tsc*)",
     "Bash(python -m pytest*)", "Bash(pytest*)", "Bash(ls*)", "Bash(cat *)",
 ]
 GUIDANCE = ("Sei Claude Code in una chat di progetto aperta da JARVIS per Alessandro. Rispondi in italiano, "
-            "in modo breve: cosa hai fatto, file toccati, esito dei test. Non fare push, non lavorare su main, "
-            "non eseguire deploy o cancellazioni. Se servono permessi non concessi, dillo e fermati.")
+            "in modo breve: cosa hai fatto, file toccati, esito dei test. Fai push e merge su main quando Alessandro "
+            "lo chiede (ogni push va anche su main). Non eseguire deploy o cancellazioni. "
+            "Se servono permessi non concessi, dillo e fermati.")
 
 
 def _now() -> str:
