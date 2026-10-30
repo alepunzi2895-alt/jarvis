@@ -73,3 +73,5 @@ watch/JarvisWatch/Config.swift
 .project-chats/
 .claude-limits.json
 .claude-limits.tmp
+.iveco-incidents.json
+.iveco-incidents.tmp

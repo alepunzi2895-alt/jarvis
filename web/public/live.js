@@ -199,6 +199,8 @@
     return connecting;
   }
 
+  // Il dispositivo che scrive: il server usa la webcam di quel dispositivo, mai quella del PC dal telefono.
+  const DEVICE = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) ? "mobile" : "pc";
   async function submit(payload, entry) {
     if (payload.type === "text") unlock();
     const id = crypto.randomUUID();
@@ -206,7 +208,7 @@
     try {
       const ws = await connect();
       if (!entries.has(id)) return;
-      ws.send(JSON.stringify({ ...payload, id }));
+      ws.send(JSON.stringify({ ...payload, id, device: DEVICE }));
     } catch (error) { finish(id, error.message); }
   }
 

@@ -32,6 +32,9 @@ INCIDENT_LIST_URL = (f"{BASE_URL}/now/nav/ui/classic/params/target/incident_list
                      f"active%253Dtrue%255Euniversal_requestISEMPTY%255Eassignment_group.nameSTARTSWITH{GROUP}"
                      "%26sysparm_first_row%3D1%26sysparm_view%3D")
 TICKETS_FILE = ROOT / ".iveco-tickets.json"
+INCIDENTS_FILE = ROOT / ".iveco-incidents.json"
+# Ogni quanto il PC rilegge gli incident per lo snapshot della VPS (il telefono a PC spento).
+INCIDENT_REFRESH_SEC = 900
 CLOSED_DAYS = 120
 STALE_DAYS = 30
 DEV_DAYS = 30
@@ -174,8 +177,22 @@ def incident_stats(rows: list[dict], now: datetime | None = None) -> dict:
 
 
 def incidents(loop) -> dict:
-    """Pannello Incident: lettura live, nessuna scrittura e nessun modello."""
-    return incident_stats(read_incidents(loop))
+    """Pannello Incident, tool chat e snapshot VPS: lettura live, nessuna scrittura e nessun modello.
+    Il risultato resta in INCIDENTS_FILE: la VPS lo legge quando il PC e' spento."""
+    stats = incident_stats(read_incidents(loop))
+    temporary = INCIDENTS_FILE.with_suffix(".tmp")
+    temporary.write_text(json.dumps(stats, ensure_ascii=False, default=str), encoding="utf-8")
+    temporary.replace(INCIDENTS_FILE)
+    return stats
+
+
+def cached_incidents() -> dict | None:
+    """Ultima lettura degli incident, senza toccare ServiceNow."""
+    try:
+        return json.loads(INCIDENTS_FILE.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
 
 
 def _last_note(text: str) -> tuple[datetime | None, str]:
@@ -432,6 +449,9 @@ def tool(action: str, number: str | None = None, state: str | None = None, assig
         return dict(open=len(tickets), tickets=[{k: t[k] for k in (
             "number", "state", "assigned_to", "age_days", "days_without_notes", "stale", "short_description")}
             for t in tickets[:40]])
+    if action == "incidents":
+        stats = incidents(_browser_loop(None))
+        return dict(stats, items=stats["items"][:40])
     if action == "explain":
         return explain(None, number)
     if action == "stage_update":

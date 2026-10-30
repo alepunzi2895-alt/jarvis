@@ -13,7 +13,7 @@ import time
 import certifi
 from aiohttp import ClientSession, ClientTimeout, TCPConnector
 
-from core import feed
+from core import feed, servicenow
 
 LOG = logging.getLogger(__name__)
 PUSH_EVERY_SEC = 30
@@ -25,13 +25,17 @@ def relay_base():
     return url.removesuffix("/telegram/updates").rstrip("/") if url else ""
 
 
-def build_snapshot(items):
-    return {"pc_time": time.strftime("%Y-%m-%d %H:%M:%S"), "feed": items}
+def build_snapshot(items, incidents=None):
+    snapshot = {"pc_time": time.strftime("%Y-%m-%d %H:%M:%S"), "feed": items}
+    if incidents:
+        snapshot["iveco_incidents"] = incidents
+    return snapshot
 
 
 async def push_once(session, base, token):
     items = await asyncio.to_thread(feed.recent, "", FEED_ITEMS)
-    async with session.post(f"{base}/pc/snapshot", json=build_snapshot(items),
+    incidents = await asyncio.to_thread(servicenow.cached_incidents)
+    async with session.post(f"{base}/pc/snapshot", json=build_snapshot(items, incidents),
                             headers={"Authorization": f"Bearer {token}"},
                             timeout=ClientTimeout(total=20)) as response:
         await response.read()
