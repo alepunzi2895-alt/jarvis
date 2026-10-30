@@ -90,7 +90,10 @@
     button.ghost { background: rgba(255, 255, 255, .04); color: var(--text); border: 1px solid var(--line); font-weight: 500; }
     button:disabled { opacity: .35; cursor: default; }
     #mic.listening { box-shadow: 0 0 0 4px rgba(255, 107, 107, .3); border-color: var(--err); }
-    .embedded aside { display: none; }
+    .embedded aside { max-height: none; padding: 6px; }
+    .embedded aside h1, .embedded .usage { display: none; }
+    .embedded #projects { flex-direction: row; overflow-x: auto; }
+    .embedded .proj { min-width: 140px; }
     .embedded .wrap { grid-template-columns: 1fr; }
     @media (max-width: 760px) {
       .wrap { grid-template-columns: 1fr; }
