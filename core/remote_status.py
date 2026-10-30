@@ -15,6 +15,9 @@ from core import github_status, vercel_status
 def build_remote_status() -> dict:
     repos = github_status.list_repos()
     projects = vercel_status.list_projects()
+    usage = vercel_status.usage_gb_by_project()
+    for p in projects:
+        p["bandwidth_gb"] = usage.get(p.get("name") or "")  # None se il progetto non ha traffico registrato
 
     by_repo = {(p.get("repo") or "").lower(): p for p in projects if p.get("repo")}
     matched_names = set()

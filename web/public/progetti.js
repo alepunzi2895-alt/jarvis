@@ -145,7 +145,7 @@
         el("model").value = data.config.model || "";
         el("effort").value = data.config.effort || "";
       }
-      el("model").disabled = el("effort").disabled = el("newsess").disabled = !state.project;
+      el("model").disabled = el("effort").disabled = el("newsess").disabled = el("closesess").disabled = !state.project;
       state.live = data.live;
       el("stop").disabled = !state.busy;
       el("send").disabled = !state.editable || state.busy;
@@ -202,6 +202,17 @@
       await api("project_chat_new", { project: state.project });
       state.lastId = 0;
       el("log").textContent = "";
+      await loadSessions();
+      await poll();
+    } catch (error) {
+      setStatus(error.message);
+    }
+  });
+
+  el("closesess").addEventListener("click", async () => {
+    if (!state.project) return;
+    try {
+      await api("project_chat_close", { project: state.project });
       await loadSessions();
       await poll();
     } catch (error) {
