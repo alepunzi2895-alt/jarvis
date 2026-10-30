@@ -1171,14 +1171,19 @@ Alessandro approva la proposta B: dati sensibili (finanza, emozioni, trading per
 - Meteo: l'IP dell'hotspot Iliad risulta Milano su ip-api. `.env` ora ha `JARVIS_WEATHER_CITY=Torino` + LAT/LON fissi; il Watch prevale se manda la posizione. Quando Alessandro si sposta va cambiato a mano.
 
 ## Prossimi step per progetto, console senza finestra (2026-10-28, merge su main)
-- `core/project_insights.py`: gli scambi della dashboard (testo e voce in dashboard) ora sono salvati in `.jarvis-conversations.jsonl`; prima vivevano solo nella RAM di LiveBridge e sparivano a ogni riavvio. Con Telegram e voce PC (dal feed), una conversazione ferma da 5 minuti che nomina un progetto del catalogo (alias: nome senza "Ibiza/AI/Systems", parte prima di " — ", "Jarvis," iniziale ignorato) produce una chiamata al modello che unisce riassunto, prossimi step e consigli. Risultato in `.project-insights.json`, nella sezione "## Prossimi step e consigli (JARVIS, aggiornato 2026-10-29)
-Dalle conversazioni con JARVIS. JARVIS: si vuole una chat in JARVIS che invii prompt a Claude Code e mostri stato dei prompt e progetto attivo; modifiche al codice non ancora autorizzate.
+- `core/project_insights.py`: gli scambi della dashboard (testo e voce in dashboard) ora sono salvati in `.jarvis-conversations.jsonl`; prima vivevano solo nella RAM di LiveBridge e sparivano a ogni riavvio. Con Telegram e voce PC (dal feed), una conversazione ferma da 5 minuti che nomina un progetto del catalogo (alias: nome senza "Ibiza/AI/Systems", parte prima di " — ", "Jarvis," iniziale ignorato) produce una chiamata al modello che unisce riassunto, prossimi step e consigli. Risultato in `.project-insights.json`, nella sezione "## Prossimi step e consigli (JARVIS, aggiornato 2026-10-30)
+Dalle conversazioni con JARVIS. JARVIS: Alessandro chiede di mostrare accanto allo stato di ogni progetto l'ultimo deploy Vercel con link e il consumo di banda; l'analisi in sola lettura su VS Code è stata avviata e non ha ancora un esito.
 
 Prossimi step:
+- Leggere l'esito dell'analisi in sola lettura inviata a Claude su VS Code.
+- Far generare ad Alessandro un token API Vercel e fornirlo in modo sicuro a JARVIS.
+- Verificare con l'API Vercel se il piano dell'account espone ultimo deploy e consumo di banda.
+- Preparare la modifica alla dashboard di JARVIS per mostrare ultimo deploy e link accanto allo stato di ogni progetto, da approvare prima di applicarla.
+- Rispondere a JARVIS: procedere con l'analisi in sola lettura oppure autorizzare esplicitamente le modifiche.
 - Verificare Remote Control di Claude Code sulla versione installata, avviandolo dalla sessione JARVIS in VS Code.
-- Inviare a Claude Code un prompt in sola lettura per analizzare il progetto e proporre il piano della chat con stato e prompt.
-- Ottenere una conferma esplicita per le modifiche su un branch dedicato, senza push, prima di riprovare in modalità modifica.
 
 Consigli:
 - Lo sviluppo in modalità modifica richiede autorizzazione esplicita nella richiesta.
+- Il consumo di banda dipende dal piano Vercel: va verificato prima di promettere la funzione.
+- Il token Vercel va trattato come credenziale sensibile e fornito in modo sicuro.
 - Suggerimento JARVIS: definire in anticipo quali comandi la chat può inviare, per limitare rischi su sessioni attive.
