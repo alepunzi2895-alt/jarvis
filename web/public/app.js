@@ -583,9 +583,7 @@ function setupWindows() {
       // dashboard. Solo sull'APERTURA manuale (non alla chiusura, e non
       // quando l'apertura e' gia' un effetto collaterale di una domanda
       // vocale completa - vedi handleVoiceUiCommand, che non passa da qui).
-      if (id === "win-projects" && !wasOpen) {
-        submitTask("come vanno i progetti?", undefined, { openConsole: !compactLayout.matches });
-      }
+      // Nessun riepilogo automatico: il pannello Progetti si apre fermo, il riepilogo lo chiedi tu.
     });
   });
   document.querySelectorAll(".fw-close").forEach((btn) => {
@@ -627,13 +625,13 @@ const bootedAt = Date.now();
 function tickClock() {
   const now = new Date().toLocaleTimeString("it-IT");
   $("#hud-clock").textContent = now;
-  $("#header-clock").textContent = now;
 
   const elapsedS = Math.floor((Date.now() - bootedAt) / 1000);
   const h = String(Math.floor(elapsedS / 3600)).padStart(2, "0");
   const m = String(Math.floor((elapsedS % 3600) / 60)).padStart(2, "0");
   const s = String(elapsedS % 60).padStart(2, "0");
-  $("#hud-uptime").textContent = `${h}:${m}:${s}`;
+  // Header: al posto dell'orario, il tempo di sessione.
+  $("#header-clock").textContent = `${h}:${m}:${s}`;
 }
 
 function setConn(state) {
@@ -670,7 +668,6 @@ function fillEntry(el, task) {
   el.querySelector(".meta").textContent = meta.join(" · ");
   // Progetto rilevato automaticamente dal testo (non piu' scelto a mano
   // dalla dashboard) — l'HUD mostra l'ultimo, solo a scopo informativo.
-  if (task.workspace) $("#hud-ws").textContent = task.workspace;
   $("#console-log").scrollTop = $("#console-log").scrollHeight;
   // La bolla torna a idle quando la risposta arriva (se JARVIS deve anche
   // parlarla, pollSpeakingStatus() la porta a "speaking" al prossimo giro di
@@ -755,7 +752,6 @@ window.appendFeed = appendFeed;
 async function loadHistory() {
   try {
     const { tasks } = await api("tasks_recent", { limit: 20 });
-    $("#hud-taskcount").textContent = tasks.length;
     for (const t of tasks.reverse()) {
       if (t.kind === "feed") {
         appendFeed({ ...t, text: t.result });
@@ -1549,25 +1545,38 @@ async function refreshRemoteStatus() {
       container.innerHTML = `<p class="panel-footnote">In attesa che il bridge locale pubblichi GitHub/Vercel…</p>`;
       return;
     }
-    container.innerHTML = entries
-      .map(({ github, vercel }) => {
-        const name = _escHtml(github?.name || vercel?.name || "?");
-        const url = github?.url || vercel?.url || "#";
-        const privateTag = github?.private ? `<span class="project-branch">privato</span>` : "";
-        const commitLine = github?.last_commit
-          ? `${_escHtml(github.last_commit.message)} · ${_timeAgo(github.last_commit.date)}`
-          : "—";
-        const vercelRow = vercel
-          ? `<div class="project-card-row"><span>Vercel</span><strong style="color:${VERCEL_STATE_COLOR[vercel.state] || "var(--text-muted)"}">${_escHtml(vercel.state || "?")}</strong></div>`
-          : "";
-        return `
+    const repos = entries.filter((e) => e.github);
+    const deploys = entries.filter((e) => e.vercel);
+    container.innerHTML = repos.length
+      ? repos.map(({ github }) => {
+          const name = _escHtml(github.name || "?");
+          const url = github.url || "#";
+          const privateTag = github.private ? `<span class="project-branch">privato</span>` : "";
+          const commitLine = github.last_commit
+            ? `${_escHtml(github.last_commit.message)} · ${_timeAgo(github.last_commit.date)}`
+            : "—";
+          return `
           <div class="project-card">
             <div class="project-card-title"><a href="${url}" target="_blank" rel="noopener">${name}</a> ${privateTag}</div>
             <div class="project-card-row"><span>Ultimo commit</span><strong>${commitLine}</strong></div>
-            ${vercelRow}
           </div>`;
-      })
-      .join("");
+        }).join("")
+      : `<p class="panel-footnote">Nessun repository GitHub.</p>`;
+    const vercelBox = $("#vercel-cards");
+    if (vercelBox) {
+      vercelBox.innerHTML = deploys.length
+        ? deploys.map(({ vercel }) => {
+            const name = _escHtml(vercel.name || "?");
+            const url = vercel.url || "#";
+            const state = `<strong style="color:${VERCEL_STATE_COLOR[vercel.state] || "var(--text-muted)"}">${_escHtml(vercel.state || "?")}</strong>`;
+            return `
+          <div class="project-card">
+            <div class="project-card-title"><a href="${url}" target="_blank" rel="noopener">${name}</a></div>
+            <div class="project-card-row"><span>Stato</span>${state}</div>
+          </div>`;
+          }).join("")
+        : `<p class="panel-footnote">Nessun deploy Vercel.</p>`;
+    }
   } catch {
     // rete assente/blip transitorio: lascia il pannello com'era
   }
@@ -2146,4 +2155,13 @@ async function boot() {
 // Stessi messaggi nella conversazione unica, anche su iPhone.
 document.querySelectorAll("[data-prompt]").forEach(button => {
   button.addEventListener("click", () => submitTask(button.dataset.prompt));
+});
+
+// ── Pannello Progetti: schede Claude Code / GitHub / Vercel ─────────
+document.querySelectorAll("#win-projects [data-ptab]").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    const pane = btn.dataset.ptab;
+    document.querySelectorAll("#win-projects [data-ptab]").forEach((b) => b.classList.toggle("on", b === btn));
+    document.querySelectorAll("#win-projects [data-pane]").forEach((p) => { p.hidden = p.dataset.pane !== pane; });
+  });
 });

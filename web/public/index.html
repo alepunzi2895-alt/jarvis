@@ -25,16 +25,10 @@
   <div id="app">
     <header>
       <div class="brand"><span class="dot"></span>JARVIS</div>
-      <div class="header-clock" id="header-clock">--:--:--</div>
+      <span class="header-conn" id="hud-conn"></span>
+      <div class="header-clock" id="header-clock" title="Tempo sessione">00:00:00</div>
       <button class="logout-btn" id="logout-btn">Esci</button>
     </header>
-
-    <div class="hud-mini corner-frame" id="hud-mini">
-      <div class="hud-mini-row"><span>Contesto</span><strong id="hud-ws">—</strong></div>
-      <div class="hud-mini-row"><span>Sessione</span><strong id="hud-uptime">00:00:00</strong></div>
-      <div class="hud-mini-row"><span>Task</span><strong id="hud-taskcount">0</strong></div>
-      <div class="hud-mini-row"><span>Rete</span><strong id="hud-conn"><span class="status-pill warning"><span class="dot"></span>attesa</span></strong></div>
-    </div>
 
     <div class="hud-stage" id="hud-stage">
       <div class="hud-dots" aria-hidden="true">
@@ -125,23 +119,40 @@
 
       <section class="floating-window" id="win-projects" style="--x:200px; --y:20px;">
         <header class="fw-header">
-          <span class="fw-title">Panoramica</span>
+          <span class="fw-title">Progetti</span>
           <button type="button" class="fw-close" data-close="win-projects">✕</button>
         </header>
         <div class="fw-body">
-          <div id="connected-data" hidden>
-            <p class="panel-subheading">Dati collegati <button type="button" id="refresh-data-btn">Aggiorna</button></p>
-            <details><summary>Lavori Codex e Claude Code</summary><div id="coding-jobs">Nessun lavoro caricato.</div></details>
+          <nav class="proj-tabs" aria-label="Sezioni progetti">
+            <button type="button" class="on" data-ptab="claude">Claude Code</button>
+            <button type="button" data-ptab="github">GitHub</button>
+            <button type="button" data-ptab="vercel">Vercel</button>
+          </nav>
+          <div class="ptab" data-pane="claude">
+            <iframe class="proj-frame" src="/progetti" title="Chat progetti Claude Code"></iframe>
           </div>
-          <div class="project-cards" id="project-cards">
-            <p class="panel-footnote">In attesa di dati…</p>
+          <div class="ptab" data-pane="github" hidden>
+            <div id="connected-data" hidden>
+              <p class="panel-subheading">Dati collegati <button type="button" id="refresh-data-btn">Aggiorna</button></p>
+              <details><summary>Lavori Codex e Claude Code</summary><div id="coding-jobs">Nessun lavoro caricato.</div></details>
+            </div>
+            <p class="panel-subheading">Locali · prossimi step e consigli</p>
+            <div class="project-cards" id="project-cards">
+              <p class="panel-footnote">In attesa di dati…</p>
+            </div>
+            <p class="panel-subheading">Repository GitHub</p>
+            <div class="project-cards" id="remote-cards">
+              <p class="panel-footnote">In attesa di dati…</p>
+            </div>
+            <p class="panel-subheading" id="trading-subheading" hidden>Trading (Myfxbook)</p>
+            <div class="project-cards" id="trading-cards" hidden></div>
           </div>
-          <p class="panel-subheading">GitHub / Vercel</p>
-          <div class="project-cards" id="remote-cards">
-            <p class="panel-footnote">In attesa di dati…</p>
+          <div class="ptab" data-pane="vercel" hidden>
+            <p class="panel-subheading">Deploy Vercel</p>
+            <div class="project-cards" id="vercel-cards">
+              <p class="panel-footnote">In attesa di dati…</p>
+            </div>
           </div>
-          <p class="panel-subheading" id="trading-subheading" hidden>Trading (Myfxbook)</p>
-          <div class="project-cards" id="trading-cards" hidden></div>
         </div>
       </section>
 
