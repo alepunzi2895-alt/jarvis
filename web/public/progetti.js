@@ -290,43 +290,31 @@
     return String(n);
   }
 
-  // percentuale del piano: dalla status line di Claude Code (core/claude_limits.py), non una stima
-  async function loadPlanLimits() {
+  // Limiti Claude Code: percentuale del piano (status line, core/claude_limits.py) + token osservati.
+  // Una riga e una barra per finestra; la barra segue la percentuale del piano, non una scala interna.
+  async function loadUsage() {
     const note = el("plan-note");
     try {
-      const data = await api("claude_limits");
-      const windows = data.windows || {};
-      for (const [label, id, bar] of [["5h", "p5", "pb5"], ["7g", "p7", "pb7"]]) {
-        const w = windows[label] || {};
+      const [usage, plan] = await Promise.all([api("project_chat_usage"), api("claude_limits")]);
+      const { windows } = usage;
+      const planWindows = plan.windows || {};
+      for (const [label, win, id, bar] of [["5h", "5h", "u5", "b5"], ["7g", "7d", "u7", "b7"]]) {
+        const w = planWindows[label] || {};
         const known = w.percent != null;
         const reset = known && w.resets_at
           ? ` · reset ${new Date(w.resets_at).toLocaleString("it-IT", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}`
           : "";
-        el(id).textContent = known ? `${Math.round(w.percent)}%${reset}` : "—";
+        const tokens = `${fmt(windows[win].output)} out · ${windows[win].messages} msg`;
+        el(id).textContent = `${known ? `${Math.round(w.percent)}%` : "—"}${reset} · ${tokens}`;
         el(bar).style.width = known ? `${Math.min(100, Math.round(w.percent))}%` : "0%";
       }
-      if (!data.available) note.textContent = data.note;
-      else note.textContent = `Letto alle ${new Date(data.at).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" })}` +
-        (data.stale ? " · dato vecchio: apri una sessione Claude Code" : "") + ". Percentuale del piano.";
-    } catch {
-      el("p5").textContent = "non disponibile";
-      note.textContent = "Limiti del piano non letti.";
-    }
-  }
-
-  async function loadUsage() {
-    loadPlanLimits();
-    try {
-      const { windows } = await api("project_chat_usage");
-      el("u5").textContent = `${fmt(windows["5h"].output)} out · ${windows["5h"].messages} msg`;
-      el("u7").textContent = `${fmt(windows["7d"].output)} out · ${windows["7d"].messages} msg`;
-      // scala relativa al massimo osservato: solo per leggere l'andamento, non un limite
-      const max = Math.max(windows["7d"].output, windows["5h"].output, 1);
-      el("b5").style.width = `${Math.round((windows["5h"].output / max) * 100)}%`;
-      el("b7").style.width = `${Math.round((windows["7d"].output / max) * 100)}%`;
+      if (!plan.available) note.textContent = plan.note;
+      else note.textContent = `Letto alle ${new Date(plan.at).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" })}` +
+        (plan.stale ? " · dato vecchio: apri una sessione Claude Code" : "") + ". Percentuale del piano.";
     } catch {
       el("u5").textContent = "non disponibile";
       el("u7").textContent = "—";
+      note.textContent = "Limiti del piano non letti.";
     }
   }
 
