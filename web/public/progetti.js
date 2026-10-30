@@ -40,6 +40,7 @@
     const { projects } = await api("project_chats");
     const box = el("projects");
     box.textContent = "";
+    fillSelect(projects);
     for (const p of projects) {
       const b = document.createElement("button");
       b.type = "button";
@@ -60,6 +61,28 @@
       box.append(b);
     }
   }
+
+  function fillSelect(projects) {
+    const select = el("proj-select");
+    select.textContent = "";
+    const empty = document.createElement("option");
+    empty.value = "";
+    empty.textContent = "— progetto —";
+    select.append(empty);
+    for (const p of projects) {
+      const option = document.createElement("option");
+      option.value = p.key;
+      option.textContent = `${p.busy ? "● " : ""}${p.label}`;
+      option.selected = p.key === state.project;
+      select.append(option);
+    }
+  }
+
+  el("proj-select").addEventListener("change", async (event) => {
+    const { projects } = await api("project_chats");
+    const match = projects.find((p) => p.key === event.target.value);
+    if (match) await openProject(match);
+  });
 
   async function openProject(p) {
     state.project = p.key;

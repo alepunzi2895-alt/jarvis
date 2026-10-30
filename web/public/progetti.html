@@ -90,10 +90,9 @@
     button.ghost { background: rgba(255, 255, 255, .04); color: var(--text); border: 1px solid var(--line); font-weight: 500; }
     button:disabled { opacity: .35; cursor: default; }
     #mic.listening { box-shadow: 0 0 0 4px rgba(255, 107, 107, .3); border-color: var(--err); }
-    .embedded aside { max-height: none; padding: 6px; }
-    .embedded aside h1, .embedded .usage { display: none; }
-    .embedded #projects { flex-direction: row; overflow-x: auto; }
-    .embedded .proj { min-width: 140px; }
+    /* Nel pannello: niente elenco laterale, un solo menu a tendina per il progetto */
+    .embedded aside, .embedded .usage { display: none; }
+    #proj-select { background: var(--panel, #161616); color: inherit; border: 1px solid var(--line); border-radius: 10px; padding: 6px 8px; font: inherit; }
     .embedded .wrap { grid-template-columns: 1fr; }
     @media (max-width: 760px) {
       .wrap { grid-template-columns: 1fr; }
@@ -126,8 +125,9 @@
     </aside>
     <main>
       <header>
-        <div>
-          <div id="title">seleziona un progetto</div>
+        <div style="display:flex;gap:10px;align-items:center;min-width:0">
+          <select id="proj-select" title="Progetto" style="max-width:180px"></select>
+          <span id="title" hidden></span>
           <div class="chip" id="status">offline</div>
         </div>
         <div style="display:flex;gap:8px;align-items:center">
