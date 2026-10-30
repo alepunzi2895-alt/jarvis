@@ -625,7 +625,7 @@ async def calendar_reminder_loop() -> None:
         return
     while True:
         try:
-            events = await outlook.get_upcoming_events(minutes_ahead=CALENDAR_REMINDER_MINUTES + 5)
+            events = await outlook.get_upcoming_events(minutes_ahead=CALENDAR_REMINDER_MINUTES + 5, web=False)
             now = dt.datetime.now()
             for ev in events:
                 if ev.entry_id in _notified_events:
