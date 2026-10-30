@@ -56,6 +56,7 @@
     .usage .note { font-size: 10.5px; color: var(--muted); margin-top: 4px; line-height: 1.35; }
     main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
     header {
+      position: relative; z-index: 10;
       display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;
       padding: 14px 20px; border-bottom: 1px solid var(--line); background: rgba(5, 8, 13, .6); backdrop-filter: blur(6px);
     }
@@ -103,8 +104,10 @@
       .proj { min-width: 150px; }
       .usage { display: none; }
     }
+    header > div { flex-wrap: wrap; }
+    header select { font: 12px/1.2 ui-monospace, Consolas, monospace; padding: 5px 8px; border-radius: 10px; background: var(--panel, #0b1118); color: var(--text); border: 1px solid var(--line); }
     @media (max-width: 760px) {
-      header { flex-wrap: wrap; gap: 8px; }
+      header { flex-wrap: wrap; gap: 8px; padding: 10px 12px; }
       header select { max-width: 46%; }
     }
   </style>
@@ -151,7 +154,7 @@
             <option value="xhigh">xhigh</option>
             <option value="max">max</option>
           </select>
-          <button type="button" class="ghost" id="newsess" title="Nuova sessione Claude Code" disabled>Nuova</button>
+          <button type="button" class="ghost" id="newsess" title="Chiudi questa sessione e aprine una nuova al prossimo messaggio" disabled>Chiudi sessione</button>
           <button type="button" class="ghost" id="stop" disabled>Ferma</button>
         </div>
       </header>

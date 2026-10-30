@@ -20,6 +20,7 @@ from pathlib import Path
 import re
 import subprocess
 import threading
+import time
 
 from core import projects
 from core.executor_singleton import executor
@@ -74,6 +75,7 @@ class ProjectChat:
         self.last_prompt = ""
         self.model = ""
         self.effort = ""
+        self.touched = 0.0  # ultimo evento di Claude Code: un turno muto da troppo tempo non blocca la chat
         self.events = self._load()
 
     # ── persistenza ────────────────────────────────────────────────
@@ -183,6 +185,9 @@ class ProjectChat:
         if not executor._in_whitelist(self.path):
             raise ValueError("Cartella in sola lettura: non autorizzata alle modifiche in JARVIS.")
         with self.lock:
+            stale = self.touched and time.time() - self.touched > 600
+            if self.busy and (stale or self.proc is None or self.proc.poll() is not None):
+                self.busy = False  # turno rimasto appeso: il processo non c'e' piu'
             if self.busy:
                 raise ValueError("Claude Code sta ancora lavorando: attendi il risultato del turno precedente.")
             self._ensure_running()
@@ -223,6 +228,7 @@ class ProjectChat:
                 self._add("status", "Processo chiuso.")
 
     def _handle(self, event: dict) -> None:
+        self.touched = time.time()
         kind = event.get("type")
         if kind == "system" and event.get("subtype") == "init":
             self.session_id = event.get("session_id", self.session_id)
@@ -427,6 +433,13 @@ def set_config(project: str, model: str, effort: str) -> dict:
         raise ValueError("Modello o effort non ammessi.")
     _chat(project).set_config(model, effort)
     return {"ok": True, "model": model, "effort": effort}
+
+
+def open_editor(project: str) -> dict:
+    """Apre VS Code sul progetto (il PC di JARVIS), cosi' si puo' lavorare anche li'."""
+    from core import coding_tasks
+    coding_tasks.open_project("claude", project)  # apre VS Code e ricollega la chat
+    return {"ok": True}
 
 
 def new(project: str) -> dict:
