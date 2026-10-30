@@ -85,6 +85,8 @@
   });
 
   async function openProject(p) {
+    // Selezionando il progetto si apre VS Code sul PC, cosi' ci si puo' lavorare direttamente.
+    api("project_chat_open_editor", { project: p.key }).catch(() => {});
     state.project = p.key;
     state.editable = p.editable;
     state.lastId = 0;
