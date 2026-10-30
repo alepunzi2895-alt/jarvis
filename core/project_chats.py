@@ -208,6 +208,51 @@ class ProjectChat:
             pass
 
 
+_USAGE_CACHE = dict(at=0.0, data=None)
+USAGE_CACHE_SEC = 60
+
+
+def usage() -> dict:
+    """Stima locale dell'uso di Claude Code: token dai transcript di tutti i progetti.
+    Il limite del piano non e' leggibile in locale: qui solo il consumo osservato
+    nelle ultime 5 ore e negli ultimi 7 giorni."""
+    import time
+    now_ts = time.time()
+    if _USAGE_CACHE["data"] and now_ts - _USAGE_CACHE["at"] < USAGE_CACHE_SEC:
+        return _USAGE_CACHE["data"]
+    windows = dict([("5h", 5 * 3600), ("7d", 7 * 86400)])
+    totals = {name: dict(output=0, input=0, cache_read=0, messages=0) for name in windows}
+    if CLAUDE_DIR.is_dir():
+        for file in CLAUDE_DIR.glob("*/*.jsonl"):
+            try:
+                mtime = file.stat().st_mtime
+                if now_ts - mtime > 7 * 86400:
+                    continue
+                lines = file.read_text(encoding="utf-8", errors="replace").splitlines()
+            except OSError:
+                continue
+            for line in lines:
+                if '"usage"' not in line:
+                    continue
+                try:
+                    record = json.loads(line)
+                    stamp = datetime.fromisoformat(str(record.get("timestamp", "")).replace("Z", "+00:00")).timestamp()
+                    use = (record.get("message") or {}).get("usage") or {}
+                except (ValueError, AttributeError):
+                    continue
+                age = now_ts - stamp
+                for name, span in windows.items():
+                    if 0 <= age <= span:
+                        t = totals[name]
+                        t["output"] += int(use.get("output_tokens", 0) or 0)
+                        t["input"] += int(use.get("input_tokens", 0) or 0)
+                        t["cache_read"] += int(use.get("cache_read_input_tokens", 0) or 0)
+                        t["messages"] += 1
+    data = dict(windows=totals, note="stima locale dai transcript; il limite del piano non e' leggibile in locale")
+    _USAGE_CACHE.update(at=now_ts, data=data)
+    return data
+
+
 def sessions(project: str) -> dict:
     chat = _chat(project)
     rows = []
